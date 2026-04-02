@@ -89,6 +89,12 @@
                 "Reached WP " + msg.index + " (" + msg.x.toFixed(1) + ", " + msg.y.toFixed(1) + ")";
         } else if (msg.type === "patrol_complete") {
             setPatrolRunning(false);
+        } else if (msg.type === "scan_point") {
+            addScanPoint(msg);
+        } else if (msg.type === "scan_complete") {
+            setScanRunning(false);
+        } else if (msg.type === "map_data") {
+            renderFullMap(msg);
         }
     }
 
@@ -127,6 +133,7 @@
         if (msg.mode != null) {
             document.getElementById("mode-val").textContent = msg.mode;
             setPatrolRunning(msg.mode === "patrol");
+            setScanRunning(msg.mode === "scan");
         }
         if (msg.balance != null) {
             setBalanceState(msg.balance);
@@ -340,10 +347,168 @@
             pos.heading.toFixed(0) + "\u00B0";
     }
 
+    // --- Scan / Map ---
+    var mapPoints = [];
+    var mapScans = [];
+    var mapBounds = { min_x: -2, max_x: 2, min_y: -2, max_y: 2 };
+
+    function setupScan() {
+        var btnStart = document.getElementById("btn-scan-start");
+        var btnStop = document.getElementById("btn-scan-stop");
+        var btnClear = document.getElementById("btn-map-clear");
+
+        btnStart.addEventListener("click", function () {
+            send({ type: "cmd_scan", action: "start" });
+        });
+
+        btnStop.addEventListener("click", function () {
+            send({ type: "cmd_scan", action: "stop" });
+        });
+
+        btnClear.addEventListener("click", function () {
+            send({ type: "cmd_map", action: "clear" });
+        });
+
+        // Request existing map data on setup
+        send({ type: "cmd_map", action: "get" });
+
+        drawMap();
+    }
+
+    function setScanRunning(running) {
+        var btnStart = document.getElementById("btn-scan-start");
+        var btnStop = document.getElementById("btn-scan-stop");
+        var progress = document.getElementById("scan-progress");
+
+        btnStart.disabled = running;
+        btnStop.disabled = !running;
+        if (running) {
+            progress.classList.remove("hidden");
+        } else {
+            progress.classList.add("hidden");
+        }
+    }
+
+    function addScanPoint(msg) {
+        mapPoints.push({ x: msg.x, y: msg.y, distance_mm: msg.distance_mm });
+        updateMapBoundsFromPoint(msg.x, msg.y);
+        drawMap();
+
+        // Update progress
+        document.getElementById("scan-progress-fill").style.width = msg.progress + "%";
+        document.getElementById("scan-progress-text").textContent = msg.progress + "%";
+        document.getElementById("map-points").textContent = "Points: " + mapPoints.length;
+    }
+
+    function renderFullMap(data) {
+        mapPoints = data.points || [];
+        mapScans = data.scans || [];
+        mapBounds = data.bounds || mapBounds;
+        document.getElementById("map-points").textContent = "Points: " + (data.point_count || 0);
+        document.getElementById("map-scans").textContent = "Scans: " + (data.scan_count || 0);
+        drawMap();
+    }
+
+    function updateMapBoundsFromPoint(x, y) {
+        var margin = 0.2;
+        if (x - margin < mapBounds.min_x) mapBounds.min_x = x - margin;
+        if (x + margin > mapBounds.max_x) mapBounds.max_x = x + margin;
+        if (y - margin < mapBounds.min_y) mapBounds.min_y = y - margin;
+        if (y + margin > mapBounds.max_y) mapBounds.max_y = y + margin;
+    }
+
+    function drawMap() {
+        var canvas = document.getElementById("map-canvas");
+        var ctx = canvas.getContext("2d");
+        var w = canvas.width;
+        var h = canvas.height;
+
+        // Clear
+        ctx.fillStyle = "#0a0a1a";
+        ctx.fillRect(0, 0, w, h);
+
+        var rangeX = mapBounds.max_x - mapBounds.min_x;
+        var rangeY = mapBounds.max_y - mapBounds.min_y;
+        var range = Math.max(rangeX, rangeY, 0.5);
+        var centerX = (mapBounds.min_x + mapBounds.max_x) / 2;
+        var centerY = (mapBounds.min_y + mapBounds.max_y) / 2;
+        var scale = (w - 40) / range;
+
+        function toCanvasX(x) { return w / 2 + (x - centerX) * scale; }
+        function toCanvasY(y) { return h / 2 - (y - centerY) * scale; } // flip Y
+
+        // Grid lines
+        ctx.strokeStyle = "#1a1a3e";
+        ctx.lineWidth = 1;
+        var gridStep = gridStepForRange(range);
+        var gx = Math.floor(mapBounds.min_x / gridStep) * gridStep;
+        while (gx <= mapBounds.max_x) {
+            var cx = toCanvasX(gx);
+            ctx.beginPath(); ctx.moveTo(cx, 0); ctx.lineTo(cx, h); ctx.stroke();
+            gx += gridStep;
+        }
+        var gy = Math.floor(mapBounds.min_y / gridStep) * gridStep;
+        while (gy <= mapBounds.max_y) {
+            var cy = toCanvasY(gy);
+            ctx.beginPath(); ctx.moveTo(0, cy); ctx.lineTo(w, cy); ctx.stroke();
+            gy += gridStep;
+        }
+
+        // Origin cross
+        ctx.strokeStyle = "#334";
+        ctx.lineWidth = 1;
+        var ox = toCanvasX(0), oy = toCanvasY(0);
+        ctx.beginPath(); ctx.moveTo(ox - 8, oy); ctx.lineTo(ox + 8, oy); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(ox, oy - 8); ctx.lineTo(ox, oy + 8); ctx.stroke();
+
+        // Scan origins
+        ctx.fillStyle = "#4ecca3";
+        for (var s = 0; s < mapScans.length; s++) {
+            var sc = mapScans[s];
+            var sx = toCanvasX(sc.x);
+            var sy = toCanvasY(sc.y);
+            ctx.beginPath();
+            ctx.arc(sx, sy, 4, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        // Obstacle points
+        for (var i = 0; i < mapPoints.length; i++) {
+            var p = mapPoints[i];
+            var px = toCanvasX(p.x);
+            var py = toCanvasY(p.y);
+            // Color by distance: close = red, medium = yellow, far = dim
+            var d = p.distance_mm;
+            if (d < 150) {
+                ctx.fillStyle = "#e94560";
+            } else if (d < 400) {
+                ctx.fillStyle = "#f0a500";
+            } else {
+                ctx.fillStyle = "#4ecca3";
+            }
+            ctx.beginPath();
+            ctx.arc(px, py, 3, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        // Scale label
+        ctx.fillStyle = "#666";
+        ctx.font = "10px monospace";
+        ctx.fillText(gridStep.toFixed(1) + "m grid", 4, h - 4);
+    }
+
+    function gridStepForRange(range) {
+        if (range < 1) return 0.2;
+        if (range < 3) return 0.5;
+        if (range < 6) return 1.0;
+        return 2.0;
+    }
+
     // --- Init ---
     setupDpad();
     setupActions();
     setupKeyboard();
     setupPatrol();
+    setupScan();
     connect();
 })();
