@@ -13,6 +13,7 @@ import os
 
 from aiohttp import web
 
+from behaviors.balance import BalanceLayer
 from comms import DogComms, DIRECTION_MAP
 from mock_serial import MockTransport
 
@@ -29,6 +30,8 @@ class Server:
         self._web_dir = web_dir
         self._ws_clients: set[web.WebSocketResponse] = set()
         self._poll_task: asyncio.Task | None = None
+        self._balance = BalanceLayer(dog)
+        self._mode = "remote"  # remote | patrol
 
     async def start(self, host: str = "0.0.0.0", port: int = 8080):
         app = web.Application()
@@ -42,11 +45,16 @@ class Server:
         site = web.TCPSite(runner, host, port)
         await site.start()
         logger.info("Server running at http://%s:%d", host, port)
-        # Keep running
         await asyncio.Event().wait()
 
     async def _on_startup(self, app: web.Application):
         await self._dog.connect()
+        await self._balance.start()
+
+        # Register balance event callbacks
+        self._balance.on_fall(self._on_fall)
+        self._balance.on_recovered(self._on_recovered)
+
         self._poll_task = asyncio.create_task(self._telemetry_loop())
 
     async def _on_shutdown(self, app: web.Application):
@@ -56,15 +64,38 @@ class Server:
                 await self._poll_task
             except asyncio.CancelledError:
                 pass
+        await self._balance.stop()
         for ws in set(self._ws_clients):
             await ws.close()
         await self._dog.disconnect()
+
+    async def _on_fall(self, imu: dict):
+        """Broadcast fall event to all clients."""
+        await self._broadcast({
+            "type": "event_fall",
+            "pitch": imu["pitch"],
+            "roll": imu["roll"],
+        })
+
+    async def _on_recovered(self, imu: dict):
+        """Broadcast recovery event to all clients."""
+        await self._broadcast({"type": "event_recovered"})
 
     async def _ws_handler(self, request: web.Request) -> web.WebSocketResponse:
         ws = web.WebSocketResponse()
         await ws.prepare(request)
         self._ws_clients.add(ws)
         logger.info("WebSocket client connected (%d total)", len(self._ws_clients))
+
+        # Send initial state
+        await ws.send_str(json.dumps({
+            "type": "telem_status",
+            "mode": self._mode,
+            "balance": self._balance.enabled,
+            "fallen": self._balance.fallen,
+            "connected": self._dog.connected,
+            "battery_mv": None,
+        }))
 
         try:
             async for raw_msg in ws:
@@ -100,7 +131,15 @@ class Server:
 
         elif msg_type == "cmd_balance":
             enabled = msg.get("enabled", True)
-            await self._dog.set_balance(enabled)
+            if enabled:
+                await self._balance.start()
+            else:
+                await self._balance.stop()
+            # Broadcast updated balance state
+            await self._broadcast({
+                "type": "balance_state",
+                "enabled": self._balance.enabled,
+            })
 
         elif msg_type == "cmd_action":
             code = msg.get("action", 1)
@@ -121,15 +160,15 @@ class Server:
         self._ws_clients -= dead
 
     async def _telemetry_loop(self):
-        """Poll IMU and battery, broadcast to browser clients."""
+        """Poll IMU via balance layer and battery, broadcast to browser clients."""
         imu_interval = 1.0 / IMU_POLL_HZ
         battery_interval = 1.0 / BATTERY_POLL_HZ
         last_battery = 0.0
 
         while True:
             try:
-                # Always poll IMU
-                imu = await self._dog.read_imu()
+                # IMU polling via balance layer (handles fall detection too)
+                imu = await self._balance.update()
                 if imu and self._ws_clients:
                     await self._broadcast({
                         "type": "telem_imu",
@@ -137,7 +176,7 @@ class Server:
                         "roll": imu["roll"],
                     })
 
-                # Poll battery less frequently
+                # Battery polling (less frequent)
                 now = asyncio.get_event_loop().time()
                 if now - last_battery >= battery_interval:
                     battery = await self._dog.read_battery()
@@ -146,6 +185,9 @@ class Server:
                             "type": "telem_status",
                             "battery_mv": battery,
                             "connected": self._dog.connected,
+                            "mode": self._mode,
+                            "balance": self._balance.enabled,
+                            "fallen": self._balance.fallen,
                         })
                     last_battery = now
 

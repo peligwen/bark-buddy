@@ -46,17 +46,62 @@ header h1 {
 .indicator.connected { background: #4ecca3; }
 .indicator.disconnected { background: #e94560; }
 
-#battery-text {
-    color: #888;
-}
-
 main {
     width: 100%;
     max-width: 400px;
     padding: 16px;
     display: flex;
     flex-direction: column;
-    gap: 24px;
+    gap: 20px;
+}
+
+/* Status bar */
+#status-bar {
+    display: flex;
+    justify-content: space-around;
+    padding: 10px;
+    background: #16213e;
+    border-radius: 8px;
+}
+
+.status-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+}
+
+.status-label {
+    font-size: 0.7rem;
+    color: #666;
+    text-transform: uppercase;
+}
+
+.status-value {
+    font-size: 0.9rem;
+    font-weight: 600;
+    font-family: monospace;
+}
+
+.status-value.on { color: #4ecca3; }
+.status-value.off { color: #666; }
+
+/* Fall alert */
+#fall-alert {
+    padding: 12px;
+    background: #e94560;
+    color: #fff;
+    text-align: center;
+    font-weight: bold;
+    border-radius: 8px;
+    animation: pulse 0.5s infinite alternate;
+}
+
+#fall-alert.hidden { display: none; }
+
+@keyframes pulse {
+    from { opacity: 1; }
+    to { opacity: 0.6; }
 }
 
 /* Telemetry gauges */
@@ -80,28 +125,41 @@ main {
 
 .gauge-bar {
     flex: 1;
-    height: 12px;
+    height: 14px;
     background: #0f3460;
-    border-radius: 6px;
+    border-radius: 7px;
     overflow: hidden;
     position: relative;
+}
+
+.gauge-center {
+    position: absolute;
+    left: 50%;
+    top: 0;
+    width: 2px;
+    height: 100%;
+    background: #334;
+    transform: translateX(-1px);
 }
 
 .gauge-fill {
     position: absolute;
     top: 0;
     height: 100%;
-    background: #4ecca3;
-    border-radius: 6px;
-    transition: left 0.1s, width 0.1s;
+    border-radius: 7px;
+    transition: left 0.1s, width 0.1s, background 0.3s;
     left: 50%;
     width: 0%;
+    background: #4ecca3;
 }
 
-.gauge span {
-    width: 45px;
+.gauge-fill.warn { background: #f0a500; }
+.gauge-fill.danger { background: #e94560; }
+
+.gauge-val {
+    width: 50px;
     text-align: right;
-    font-size: 0.8rem;
+    font-size: 0.85rem;
     font-family: monospace;
 }
 
@@ -172,4 +230,10 @@ main {
 
 .action-btn:active {
     background: #0f3460;
+}
+
+.action-btn.active {
+    background: #4ecca3;
+    color: #1a1a2e;
+    border-color: #4ecca3;
 }

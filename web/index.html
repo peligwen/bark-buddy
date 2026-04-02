@@ -12,25 +12,43 @@
         <div id="status">
             <span id="conn-indicator" class="indicator disconnected"></span>
             <span id="conn-text">Disconnected</span>
-            <span id="battery-text"></span>
         </div>
     </header>
 
     <main>
+        <section id="status-bar">
+            <div class="status-item">
+                <span class="status-label">Mode</span>
+                <span id="mode-val" class="status-value">remote</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">Balance</span>
+                <span id="balance-val" class="status-value off">OFF</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">Battery</span>
+                <span id="battery-val" class="status-value">--</span>
+            </div>
+        </section>
+
+        <div id="fall-alert" class="hidden">FALL DETECTED</div>
+
         <section id="telemetry">
             <div class="gauge">
                 <label>Pitch</label>
                 <div class="gauge-bar">
+                    <div class="gauge-center"></div>
                     <div id="pitch-fill" class="gauge-fill"></div>
                 </div>
-                <span id="pitch-val">0.0</span>
+                <span id="pitch-val" class="gauge-val">0.0</span>
             </div>
             <div class="gauge">
                 <label>Roll</label>
                 <div class="gauge-bar">
+                    <div class="gauge-center"></div>
                     <div id="roll-fill" class="gauge-fill"></div>
                 </div>
-                <span id="roll-val">0.0</span>
+                <span id="roll-val" class="gauge-val">0.0</span>
             </div>
         </section>
 
@@ -48,10 +66,10 @@
 
         <section id="actions">
             <button class="action-btn" data-action="stand">Stand</button>
-            <button class="action-btn" data-action="balance-on">Balance On</button>
-            <button class="action-btn" data-action="balance-off">Balance Off</button>
+            <button class="action-btn" id="btn-balance" data-action="balance-toggle">Balance: OFF</button>
             <button class="action-btn" data-action="wave">Wave</button>
             <button class="action-btn" data-action="sit">Sit</button>
+            <button class="action-btn" data-action="lie">Lie Down</button>
         </section>
     </main>
 

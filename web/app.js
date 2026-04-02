@@ -4,10 +4,13 @@
 (function () {
     "use strict";
 
+    // --- State ---
+    var balanceEnabled = false;
+
     // --- WebSocket connection ---
-    let ws = null;
-    let reconnectTimer = null;
-    const WS_URL = `ws://${location.host}/ws`;
+    var ws = null;
+    var reconnectTimer = null;
+    var WS_URL = "ws://" + location.host + "/ws";
 
     function connect() {
         if (ws && ws.readyState <= WebSocket.OPEN) return;
@@ -66,27 +69,82 @@
             updateGauge("pitch", msg.pitch);
             updateGauge("roll", msg.roll);
         } else if (msg.type === "telem_status") {
-            if (msg.battery_mv != null) {
-                var pct = batteryPercent(msg.battery_mv);
-                document.getElementById("battery-text").textContent = pct + "%";
-            }
+            updateStatus(msg);
+        } else if (msg.type === "balance_state") {
+            setBalanceState(msg.enabled);
+        } else if (msg.type === "event_fall") {
+            showFallAlert(true);
+        } else if (msg.type === "event_recovered") {
+            showFallAlert(false);
         }
     }
 
     function updateGauge(name, value) {
         var fill = document.getElementById(name + "-fill");
         var val = document.getElementById(name + "-val");
-        val.textContent = value.toFixed(1);
+        val.textContent = value.toFixed(1) + "\u00B0";
 
         // Map value to gauge position: -45..+45 degrees, center = 50%
         var clamped = Math.max(-45, Math.min(45, value));
-        var pct = (clamped / 45) * 50; // -50% to +50% from center
+        var pct = (clamped / 45) * 50;
         if (pct >= 0) {
             fill.style.left = "50%";
             fill.style.width = pct + "%";
         } else {
             fill.style.left = (50 + pct) + "%";
             fill.style.width = (-pct) + "%";
+        }
+
+        // Color thresholds
+        var absPct = Math.abs(pct);
+        if (absPct > 38) {
+            fill.className = "gauge-fill danger";
+        } else if (absPct > 22) {
+            fill.className = "gauge-fill warn";
+        } else {
+            fill.className = "gauge-fill";
+        }
+    }
+
+    function updateStatus(msg) {
+        if (msg.battery_mv != null) {
+            var pct = batteryPercent(msg.battery_mv);
+            document.getElementById("battery-val").textContent = pct + "%";
+        }
+        if (msg.mode != null) {
+            document.getElementById("mode-val").textContent = msg.mode;
+        }
+        if (msg.balance != null) {
+            setBalanceState(msg.balance);
+        }
+        if (msg.fallen != null) {
+            showFallAlert(msg.fallen);
+        }
+    }
+
+    function setBalanceState(enabled) {
+        balanceEnabled = enabled;
+        var balVal = document.getElementById("balance-val");
+        var balBtn = document.getElementById("btn-balance");
+        if (enabled) {
+            balVal.textContent = "ON";
+            balVal.className = "status-value on";
+            balBtn.textContent = "Balance: ON";
+            balBtn.classList.add("active");
+        } else {
+            balVal.textContent = "OFF";
+            balVal.className = "status-value off";
+            balBtn.textContent = "Balance: OFF";
+            balBtn.classList.remove("active");
+        }
+    }
+
+    function showFallAlert(fallen) {
+        var el = document.getElementById("fall-alert");
+        if (fallen) {
+            el.classList.remove("hidden");
+        } else {
+            el.classList.add("hidden");
         }
     }
 
@@ -146,14 +204,14 @@
                 var action = btn.dataset.action;
                 if (action === "stand") {
                     send({ type: "cmd_stand" });
-                } else if (action === "balance-on") {
-                    send({ type: "cmd_balance", enabled: true });
-                } else if (action === "balance-off") {
-                    send({ type: "cmd_balance", enabled: false });
+                } else if (action === "balance-toggle") {
+                    send({ type: "cmd_balance", enabled: !balanceEnabled });
                 } else if (action === "wave") {
                     send({ type: "cmd_action", action: 1 });
                 } else if (action === "sit") {
                     send({ type: "cmd_action", action: 4 });
+                } else if (action === "lie") {
+                    send({ type: "cmd_action", action: 5 });
                 }
             });
         });
@@ -179,13 +237,15 @@
             if (dir && !pressed[e.key]) {
                 pressed[e.key] = true;
                 send({ type: "cmd_move", direction: dir });
-                // Highlight corresponding button
                 var btn = document.querySelector('[data-dir="' + dir + '"]');
                 if (btn) btn.classList.add("pressed");
             }
             if (e.key === " ") {
                 e.preventDefault();
                 send({ type: "cmd_move", direction: "stop" });
+            }
+            if (e.key === "b") {
+                send({ type: "cmd_balance", enabled: !balanceEnabled });
             }
         });
 
