@@ -27,13 +27,13 @@
 
     <div id="fall-alert" class="hidden">FALL DETECTED</div>
 
-    <div id="main">
-        <!-- Two square views side by side -->
-        <div id="views">
-            <div id="dog-view-section" class="view-panel">
+    <div id="split">
+        <!-- Left: views stacked vertically -->
+        <div id="panel-left">
+            <div id="dog-view-section" class="view-box">
                 <div id="dog-3d-container"></div>
             </div>
-            <div id="scan-section" class="view-panel">
+            <div id="scan-section" class="view-box">
                 <div id="scan-progress" class="hidden">
                     <div class="progress-bar"><div id="scan-progress-fill" class="progress-fill"></div></div>
                     <span id="scan-progress-text">0%</span>
@@ -46,40 +46,59 @@
             </div>
         </div>
 
-        <!-- Controls below -->
-        <div id="controls-bar">
-            <div class="dpad">
-                <button class="dpad-btn" id="btn-forward" data-dir="forward">&#9650;</button>
-                <div class="dpad-row">
-                    <button class="dpad-btn" id="btn-left" data-dir="left">&#9664;</button>
-                    <button class="dpad-btn dpad-center" id="btn-stop" data-dir="stop">&#9632;</button>
-                    <button class="dpad-btn" id="btn-right" data-dir="right">&#9654;</button>
+        <!-- Right: controls & diagnostics -->
+        <div id="panel-right">
+            <section>
+                <h2>Movement</h2>
+                <div class="dpad">
+                    <button class="dpad-btn" id="btn-forward" data-dir="forward">&#9650;</button>
+                    <div class="dpad-row">
+                        <button class="dpad-btn" id="btn-left" data-dir="left">&#9664;</button>
+                        <button class="dpad-btn dpad-center" id="btn-stop" data-dir="stop">&#9632;</button>
+                        <button class="dpad-btn" id="btn-right" data-dir="right">&#9654;</button>
+                    </div>
+                    <button class="dpad-btn" id="btn-backward" data-dir="backward">&#9660;</button>
                 </div>
-                <button class="dpad-btn" id="btn-backward" data-dir="backward">&#9660;</button>
-            </div>
+            </section>
 
-            <div class="action-grid">
-                <button class="action-btn" data-action="stand">Stand</button>
-                <button class="action-btn" id="btn-balance" data-action="balance-toggle">Balance: OFF</button>
-                <button class="action-btn" data-action="wave">Wave</button>
-                <button class="action-btn" data-action="sit">Sit</button>
-                <button class="action-btn" data-action="lie">Lie Down</button>
-            </div>
+            <section>
+                <h2>Actions</h2>
+                <div class="action-grid">
+                    <button class="action-btn" data-action="stand">Stand</button>
+                    <button class="action-btn" id="btn-balance" data-action="balance-toggle">Balance: OFF</button>
+                    <button class="action-btn" data-action="wave">Wave</button>
+                    <button class="action-btn" data-action="sit">Sit</button>
+                    <button class="action-btn" data-action="lie">Lie Down</button>
+                </div>
+            </section>
 
-            <div class="action-grid">
-                <button class="action-btn" id="btn-patrol-demo">Run Demo Patrol</button>
-                <button class="action-btn" id="btn-patrol-stop" disabled>Stop Patrol</button>
-                <button class="action-btn" id="btn-scan-start">Scan Area</button>
-                <button class="action-btn" id="btn-scan-stop" disabled>Stop Scan</button>
-                <button class="action-btn" id="btn-map-clear">Clear Map</button>
-                <button class="action-btn" id="btn-reset">Reset</button>
-            </div>
-        </div>
+            <section>
+                <h2>Patrol</h2>
+                <div class="action-grid">
+                    <button class="action-btn" id="btn-patrol-demo">Run Demo</button>
+                    <button class="action-btn" id="btn-patrol-stop" disabled>Stop</button>
+                </div>
+                <div id="patrol-status" class="hidden">
+                    <span id="patrol-pos"></span>
+                    <span id="patrol-wp"></span>
+                </div>
+            </section>
 
-        <!-- Hidden elements kept for JS compatibility -->
-        <div id="patrol-status" class="hidden">
-            <span id="patrol-pos"></span>
-            <span id="patrol-wp"></span>
+            <section>
+                <h2>Scanning</h2>
+                <div class="action-grid">
+                    <button class="action-btn" id="btn-scan-start">Scan Area</button>
+                    <button class="action-btn" id="btn-scan-stop" disabled>Stop</button>
+                    <button class="action-btn" id="btn-map-clear">Clear Map</button>
+                </div>
+            </section>
+
+            <section>
+                <h2>System</h2>
+                <div class="action-grid">
+                    <button class="action-btn" id="btn-reset">Reset Position</button>
+                </div>
+            </section>
         </div>
     </div>
 
