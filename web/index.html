@@ -71,6 +71,18 @@
             <button class="action-btn" data-action="sit">Sit</button>
             <button class="action-btn" data-action="lie">Lie Down</button>
         </section>
+
+        <section id="patrol-section">
+            <h2>Patrol</h2>
+            <div id="patrol-controls">
+                <button class="action-btn" id="btn-patrol-demo">Run Demo Patrol</button>
+                <button class="action-btn" id="btn-patrol-stop" disabled>Stop Patrol</button>
+            </div>
+            <div id="patrol-status" class="hidden">
+                <span id="patrol-pos">Position: (0, 0) 0&deg;</span>
+                <span id="patrol-wp">Waypoint: --</span>
+            </div>
+        </section>
     </main>
 
     <script src="app.js"></script>

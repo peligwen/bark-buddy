@@ -13,30 +13,30 @@ Minimal working versions of remote control, balance & recovery, and patrol using
 3. ~~Write mock transport~~ → `mock_serial.py` for dev without hardware
 4. ~~Verify round-trip~~ → Smoke test passes
 
-### Phase 2: Basic Movement (Remote Control)
+### Phase 2: Basic Movement (Remote Control) ✅
 
-1. Build Python web server (`server.py`) — serves static files + WebSocket
-2. Create web UI with on-screen D-pad (`web/index.html`, `app.js`, `style.css`)
-3. Wire WebSocket to comms layer: browser D-pad → JSON → Python → CMD → serial
-4. Verify on mock: D-pad sends correct CMD strings, mock acks them
+1. ~~Build Python web server~~ → `server.py` with aiohttp (static files + WebSocket)
+2. ~~Create web UI with D-pad~~ → `web/index.html`, `app.js`, `style.css`
+3. ~~Wire WebSocket to comms~~ → browser D-pad → JSON → Python → CMD → serial
+4. ~~Verify on mock~~ → 6 end-to-end checks pass (HTTP, WebSocket, telemetry, commands)
 5. Verify on hardware: D-pad controls move the dog
 
-### Phase 3: Balance & Telemetry
+### Phase 3: Balance & Telemetry ✅
 
-1. Enable stock self-balance via `CMD|1|3|1|$`
-2. Poll IMU data (`CMD|5|$`) at 10 Hz, push to browser via WebSocket
-3. Poll battery (`CMD|6|$`) at 0.5 Hz, push to browser
-4. Display 2D gauges for pitch/roll in web UI
-5. Display battery level and connection status
-6. Verify: enable balance → push dog → it corrects; telemetry shows in UI
+1. ~~Enable stock self-balance~~ → `behaviors/balance.py` auto-enables on connect
+2. ~~Poll IMU at 10 Hz~~ → via `balance.update()` in telemetry loop
+3. ~~Poll battery at 0.5 Hz~~ → broadcast to browser
+4. ~~2D gauges with color thresholds~~ → green/yellow/red based on tilt
+5. ~~Status bar~~ → mode, balance on/off, battery %, connection
+6. ~~Fall detection~~ → 35° threshold, auto-recovery, pulsing alert in UI
 
-### Phase 4: Patrol
+### Phase 4: Patrol ✅
 
-1. Define waypoint format: `(x, y, heading)` in local coordinate frame
-2. Implement dead reckoning — IMU heading + timed movement for position estimation
-3. Implement patrol behavior in Python (`behaviors/patrol.py`) — navigate waypoint sequence
-4. Add patrol mode toggle to web UI
-5. Verify: start patrol → dog navigates waypoint path
+1. ~~Waypoint format~~ → `Waypoint(x, y, heading)` dataclass
+2. ~~Dead reckoning~~ → IMU heading + timed movement for position estimation
+3. ~~Patrol behavior~~ → `behaviors/patrol.py` navigates waypoint sequence
+4. ~~Web UI~~ → demo patrol button, stop button, position/waypoint display
+5. Verify on hardware: dog navigates waypoint path
 
 ### Phase 5: Integration & Polish
 

@@ -76,6 +76,13 @@
             showFallAlert(true);
         } else if (msg.type === "event_recovered") {
             showFallAlert(false);
+        } else if (msg.type === "patrol_position") {
+            updatePatrolPosition(msg);
+        } else if (msg.type === "patrol_waypoint") {
+            document.getElementById("patrol-wp").textContent =
+                "Reached WP " + msg.index + " (" + msg.x.toFixed(1) + ", " + msg.y.toFixed(1) + ")";
+        } else if (msg.type === "patrol_complete") {
+            setPatrolRunning(false);
         }
     }
 
@@ -113,6 +120,7 @@
         }
         if (msg.mode != null) {
             document.getElementById("mode-val").textContent = msg.mode;
+            setPatrolRunning(msg.mode === "patrol");
         }
         if (msg.balance != null) {
             setBalanceState(msg.balance);
@@ -260,9 +268,54 @@
         });
     }
 
+    // --- Patrol controls ---
+    function setupPatrol() {
+        var btnDemo = document.getElementById("btn-patrol-demo");
+        var btnStop = document.getElementById("btn-patrol-stop");
+
+        // Demo patrol: a small square (0.5m sides)
+        btnDemo.addEventListener("click", function () {
+            send({
+                type: "cmd_patrol",
+                action: "start",
+                waypoints: [
+                    { x: 0.5, y: 0, heading: 0 },
+                    { x: 0.5, y: 0.5, heading: 90 },
+                    { x: 0, y: 0.5, heading: 180 },
+                    { x: 0, y: 0, heading: 270 },
+                ],
+            });
+        });
+
+        btnStop.addEventListener("click", function () {
+            send({ type: "cmd_patrol", action: "stop" });
+        });
+    }
+
+    function setPatrolRunning(running) {
+        var btnDemo = document.getElementById("btn-patrol-demo");
+        var btnStop = document.getElementById("btn-patrol-stop");
+        var status = document.getElementById("patrol-status");
+
+        btnDemo.disabled = running;
+        btnStop.disabled = !running;
+        if (running) {
+            status.classList.remove("hidden");
+        } else {
+            status.classList.add("hidden");
+        }
+    }
+
+    function updatePatrolPosition(pos) {
+        document.getElementById("patrol-pos").textContent =
+            "Position: (" + pos.x.toFixed(2) + ", " + pos.y.toFixed(2) + ") " +
+            pos.heading.toFixed(0) + "\u00B0";
+    }
+
     // --- Init ---
     setupDpad();
     setupActions();
     setupKeyboard();
+    setupPatrol();
     connect();
 })();

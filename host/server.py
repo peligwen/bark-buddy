@@ -14,6 +14,7 @@ import os
 from aiohttp import web
 
 from behaviors.balance import BalanceLayer
+from behaviors.patrol import PatrolBehavior, Waypoint
 from comms import DogComms, DIRECTION_MAP
 from mock_serial import MockTransport
 
@@ -31,6 +32,7 @@ class Server:
         self._ws_clients: set[web.WebSocketResponse] = set()
         self._poll_task: asyncio.Task | None = None
         self._balance = BalanceLayer(dog)
+        self._patrol = PatrolBehavior(dog)
         self._mode = "remote"  # remote | patrol
 
     async def start(self, host: str = "0.0.0.0", port: int = 8080):
@@ -55,6 +57,11 @@ class Server:
         self._balance.on_fall(self._on_fall)
         self._balance.on_recovered(self._on_recovered)
 
+        # Register patrol callbacks
+        self._patrol.on_waypoint_reached(self._on_waypoint_reached)
+        self._patrol.on_patrol_complete(self._on_patrol_complete)
+        self._patrol.on_position_update(self._on_position_update)
+
         self._poll_task = asyncio.create_task(self._telemetry_loop())
 
     async def _on_shutdown(self, app: web.Application):
@@ -64,6 +71,8 @@ class Server:
                 await self._poll_task
             except asyncio.CancelledError:
                 pass
+        if self._patrol.running:
+            await self._patrol.stop()
         await self._balance.stop()
         for ws in set(self._ws_clients):
             await ws.close()
@@ -80,6 +89,33 @@ class Server:
     async def _on_recovered(self, imu: dict):
         """Broadcast recovery event to all clients."""
         await self._broadcast({"type": "event_recovered"})
+
+    async def _on_waypoint_reached(self, index: int, wp: Waypoint):
+        await self._broadcast({
+            "type": "patrol_waypoint",
+            "index": index,
+            "x": wp.x, "y": wp.y, "heading": wp.heading,
+        })
+
+    async def _on_patrol_complete(self):
+        self._mode = "remote"
+        await self._broadcast({"type": "patrol_complete"})
+        await self._broadcast({
+            "type": "telem_status",
+            "mode": self._mode,
+            "balance": self._balance.enabled,
+            "fallen": self._balance.fallen,
+            "connected": self._dog.connected,
+            "battery_mv": None,
+        })
+
+    async def _on_position_update(self, pos: dict):
+        await self._broadcast({
+            "type": "patrol_position",
+            "x": round(pos["x"], 3),
+            "y": round(pos["y"], 3),
+            "heading": round(pos["heading"], 1),
+        })
 
     async def _ws_handler(self, request: web.Request) -> web.WebSocketResponse:
         ws = web.WebSocketResponse()
@@ -140,6 +176,38 @@ class Server:
                 "type": "balance_state",
                 "enabled": self._balance.enabled,
             })
+
+        elif msg_type == "cmd_patrol":
+            action = msg.get("action", "stop")
+            if action == "start":
+                waypoints_raw = msg.get("waypoints", [])
+                waypoints = [
+                    Waypoint(x=w["x"], y=w["y"], heading=w.get("heading", 0))
+                    for w in waypoints_raw
+                ]
+                if waypoints:
+                    self._patrol.set_waypoints(waypoints)
+                    self._mode = "patrol"
+                    await self._patrol.start()
+                    await self._broadcast({
+                        "type": "telem_status",
+                        "mode": self._mode,
+                        "balance": self._balance.enabled,
+                        "fallen": self._balance.fallen,
+                        "connected": self._dog.connected,
+                        "battery_mv": None,
+                    })
+            elif action == "stop":
+                await self._patrol.stop()
+                self._mode = "remote"
+                await self._broadcast({
+                    "type": "telem_status",
+                    "mode": self._mode,
+                    "balance": self._balance.enabled,
+                    "fallen": self._balance.fallen,
+                    "connected": self._dog.connected,
+                    "battery_mv": None,
+                })
 
         elif msg_type == "cmd_action":
             code = msg.get("action", 1)
