@@ -205,6 +205,18 @@ class DogComms:
                     logger.warning("Bad IMU response: %s", resp)
         return None
 
+    async def read_ultrasonic(self) -> Optional[int]:
+        """Read ultrasonic distance in millimeters. Returns int or None."""
+        resp = await self._send_and_recv("CMD|4|1|$")
+        if resp:
+            parts = self._parse_response(resp)
+            if parts and len(parts) >= 2 and parts[0] == "4":
+                try:
+                    return int(parts[1])
+                except (ValueError, IndexError):
+                    logger.warning("Bad ultrasonic response: %s", resp)
+        return None
+
     async def read_battery(self) -> Optional[int]:
         """Read battery voltage in millivolts. Returns int or None."""
         resp = await self._send_and_recv("CMD|6|$")

@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 
 # Telemetry polling intervals
 IMU_POLL_HZ = 10
+ULTRASONIC_POLL_HZ = 5
 BATTERY_POLL_HZ = 0.5
 
 
@@ -63,14 +64,16 @@ class Server:
         self._patrol.on_position_update(self._on_position_update)
 
         self._poll_task = asyncio.create_task(self._telemetry_loop())
+        self._reconnect_task = asyncio.create_task(self._reconnect_loop())
 
     async def _on_shutdown(self, app: web.Application):
-        if self._poll_task:
-            self._poll_task.cancel()
-            try:
-                await self._poll_task
-            except asyncio.CancelledError:
-                pass
+        for task in (self._poll_task, getattr(self, '_reconnect_task', None)):
+            if task:
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
         if self._patrol.running:
             await self._patrol.stop()
         await self._balance.stop()
@@ -228,13 +231,18 @@ class Server:
         self._ws_clients -= dead
 
     async def _telemetry_loop(self):
-        """Poll IMU via balance layer and battery, broadcast to browser clients."""
+        """Poll IMU, ultrasonic, and battery, broadcast to browser clients."""
         imu_interval = 1.0 / IMU_POLL_HZ
+        ultra_interval = 1.0 / ULTRASONIC_POLL_HZ
         battery_interval = 1.0 / BATTERY_POLL_HZ
+        last_ultra = 0.0
         last_battery = 0.0
+        imu_count = 0
 
         while True:
             try:
+                now = asyncio.get_event_loop().time()
+
                 # IMU polling via balance layer (handles fall detection too)
                 imu = await self._balance.update()
                 if imu and self._ws_clients:
@@ -244,8 +252,17 @@ class Server:
                         "roll": imu["roll"],
                     })
 
-                # Battery polling (less frequent)
-                now = asyncio.get_event_loop().time()
+                # Ultrasonic polling (5 Hz)
+                if now - last_ultra >= ultra_interval:
+                    dist = await self._dog.read_ultrasonic()
+                    if dist is not None and self._ws_clients:
+                        await self._broadcast({
+                            "type": "telem_ultrasonic",
+                            "distance_mm": dist,
+                        })
+                    last_ultra = now
+
+                # Battery polling (0.5 Hz)
                 if now - last_battery >= battery_interval:
                     battery = await self._dog.read_battery()
                     if battery is not None and self._ws_clients:
@@ -268,8 +285,55 @@ class Server:
                 await asyncio.sleep(1)
 
 
+    async def _reconnect_loop(self):
+        """Monitor connection and attempt reconnection with backoff."""
+        backoff = 1
+        while True:
+            try:
+                await asyncio.sleep(2)
+                if not self._dog.connected:
+                    logger.warning("Connection lost — attempting reconnect (backoff=%ds)", backoff)
+                    await self._broadcast({
+                        "type": "telem_status",
+                        "connected": False,
+                        "mode": self._mode,
+                        "balance": self._balance.enabled,
+                        "fallen": self._balance.fallen,
+                        "battery_mv": None,
+                    })
+                    try:
+                        await self._dog.disconnect()
+                        await asyncio.sleep(backoff)
+                        await self._dog.connect()
+                        await self._balance.start()
+                        backoff = 1
+                        logger.info("Reconnected successfully")
+                        await self._broadcast({
+                            "type": "telem_status",
+                            "connected": True,
+                            "mode": self._mode,
+                            "balance": self._balance.enabled,
+                            "fallen": self._balance.fallen,
+                            "battery_mv": None,
+                        })
+                    except Exception:
+                        backoff = min(backoff * 2, 16)
+                        logger.warning("Reconnect failed, next attempt in %ds", backoff)
+                else:
+                    backoff = 1
+            except asyncio.CancelledError:
+                break
+
+
 async def main(args):
-    transport = MockTransport()  # TODO: add --serial flag for real hardware
+    if args.serial:
+        from comms import SerialTransport
+        transport = SerialTransport(port=args.serial)
+        logger.info("Using serial transport: %s", args.serial)
+    else:
+        transport = MockTransport()
+        logger.info("Using mock transport (no --serial specified)")
+
     dog = DogComms(transport)
     web_dir = os.path.join(os.path.dirname(__file__), "..", "web")
     web_dir = os.path.abspath(web_dir)
@@ -285,5 +349,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Bark-Buddy web server")
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8080)
+    parser.add_argument("--serial", default=None,
+                        help="Serial port for MechDog (e.g. /dev/ttyUSB0). Omit for mock.")
     args = parser.parse_args()
     asyncio.run(main(args))

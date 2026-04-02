@@ -49,6 +49,11 @@ async def main():
     results["read_imu"] = imu is not None and "pitch" in imu and "roll" in imu
     logger.info("read_imu: %s -> %s", results["read_imu"], imu)
 
+    # Test ultrasonic read
+    dist = await dog.read_ultrasonic()
+    results["read_ultrasonic"] = dist is not None and dist > 0
+    logger.info("read_ultrasonic: %s -> %smm", results["read_ultrasonic"], dist)
+
     # Test battery read
     battery = await dog.read_battery()
     results["read_battery"] = battery is not None and battery > 0

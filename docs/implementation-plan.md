@@ -38,12 +38,14 @@ Minimal working versions of remote control, balance & recovery, and patrol using
 4. ~~Web UI~~ → demo patrol button, stop button, position/waypoint display
 5. Verify on hardware: dog navigates waypoint path
 
-### Phase 5: Integration & Polish
+### Phase 5: Integration & Polish ✅
 
-1. Mode switching via web UI (remote / patrol) — balance always composable
-2. Status dashboard: 2D gauges for pitch/roll, battery, mode, connection
-3. Reconnection handling: detect serial timeout, retry with backoff
-4. Action group triggers in UI (sit, wave, stretch)
+1. ~~Ultrasonic sensor~~ → `read_ultrasonic()` in comms, polled at 5 Hz, shown in status bar
+2. ~~Mode switching~~ → remote ↔ patrol via web UI, balance always composable
+3. ~~Reconnection~~ → detect serial loss, retry with exponential backoff, broadcast state
+4. ~~Serial support~~ → `--serial /dev/ttyUSB0` flag for real hardware (mock by default)
+5. ~~Action groups~~ → stand, wave, sit, lie down in web UI
+6. ~~Status dashboard~~ → pitch/roll gauges, ultrasonic distance, battery %, mode, balance, connection
 
 ## Verification Matrix
 
@@ -51,16 +53,24 @@ Minimal working versions of remote control, balance & recovery, and patrol using
 |---|---|
 | Remote Control | Open web UI, D-pad controls move the dog via CMD protocol |
 | Balance | Enable balance → push dog → stock firmware corrects |
-| Telemetry | IMU gauges + battery update in real-time in web UI |
+| Telemetry | IMU gauges + battery + ultrasonic update in real-time in web UI |
 | Patrol | Start patrol → dog navigates waypoints via dead reckoning |
 | Connection Loss | Unplug serial → UI shows disconnected → replug → resumes |
 | Composability | Patrol + balance active simultaneously |
+| Ultrasonic | Distance display updates, color warnings for close objects |
 
-## Late Goals (post-MVP)
+## Milestone 2 Roadmap
 
+### Ultrasonic Mapping
+- Record ultrasonic distance readings with heading/position during patrol
+- Build a 2D occupancy-style map from sweep data (turn in place, sample distances)
+- Visualize scanned map in web UI (polar plot or 2D grid)
+- Use map data for obstacle-aware waypoint planning
+
+### Other Goals
 - 3D orientation model in web UI (Three.js)
 - Physics simulator for host-side testing (PyBullet/MuJoCo)
-- Sensor-based room mapping for patrol navigation
+- Sensor-based room mapping (ultrasonic mapping feeds into this)
 - Custom firmware for advanced gaits and fine-grained servo control
 - WiFi transport
 

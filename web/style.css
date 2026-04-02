@@ -85,6 +85,8 @@ main {
 
 .status-value.on { color: #4ecca3; }
 .status-value.off { color: #666; }
+.status-value.warn-text { color: #f0a500; }
+.status-value.danger-text { color: #e94560; }
 
 /* Fall alert */
 #fall-alert {

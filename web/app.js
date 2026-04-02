@@ -72,6 +72,8 @@
             updateStatus(msg);
         } else if (msg.type === "balance_state") {
             setBalanceState(msg.enabled);
+        } else if (msg.type === "telem_ultrasonic") {
+            updateUltrasonic(msg.distance_mm);
         } else if (msg.type === "event_fall") {
             showFallAlert(true);
         } else if (msg.type === "event_recovered") {
@@ -153,6 +155,20 @@
             el.classList.remove("hidden");
         } else {
             el.classList.add("hidden");
+        }
+    }
+
+    function updateUltrasonic(mm) {
+        var el = document.getElementById("ultra-val");
+        if (mm < 100) {
+            el.textContent = mm + "mm";
+            el.className = "status-value danger-text";
+        } else if (mm < 300) {
+            el.textContent = mm + "mm";
+            el.className = "status-value warn-text";
+        } else {
+            el.textContent = mm + "mm";
+            el.className = "status-value";
         }
     }
 

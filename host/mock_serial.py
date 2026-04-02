@@ -91,7 +91,10 @@ class MockTransport(Transport):
 
         # Function 4: Ultrasonic
         if func == "4":
-            return "CMD|4|250|$"  # 250mm fake distance
+            elapsed = time.monotonic() - self._start_time
+            # Simulate distance varying between 100-500mm
+            dist = int(300 + 200 * math.sin(elapsed * 0.2))
+            return f"CMD|4|{dist}|$"
 
         # Function 5: IMU data
         if func == "5":
