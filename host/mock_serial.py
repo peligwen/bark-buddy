@@ -113,6 +113,39 @@ class MockTransport(Transport):
         elif cmd == 6:  # turn right
             self._heading -= self.TURN_SPEED * dt
 
+    def _raycast_ultrasonic(self) -> int:
+        """Cast a ray from dog position along heading, return distance to nearest wall in mm."""
+        self._step_dead_reckoning()
+        ox, oy = self._x, self._y
+        rad = math.radians(self._heading)
+        dx, dy = math.cos(rad), math.sin(rad)
+        max_range = 3.0  # meters
+
+        min_dist = max_range
+        for w in self._wall_geom:
+            # Wall segment: center (cx, cy), length, angle, thickness
+            # Compute wall endpoints
+            wcos = math.cos(w["angle"])
+            wsin = math.sin(w["angle"])
+            half_l = w["length"] / 2
+            ax = w["cx"] - wcos * half_l
+            ay = w["cy"] - wsin * half_l
+            bx = w["cx"] + wcos * half_l
+            by = w["cy"] + wsin * half_l
+
+            # Ray-segment intersection
+            # Ray: P = O + t * D, Segment: Q = A + s * (B - A)
+            sx, sy = bx - ax, by - ay
+            denom = dx * sy - dy * sx
+            if abs(denom) < 1e-9:
+                continue  # parallel
+            t = ((ax - ox) * sy - (ay - oy) * sx) / denom
+            s = ((ax - ox) * dy - (ay - oy) * dx) / denom
+            if t > 0 and 0 <= s <= 1 and t < min_dist:
+                min_dist = t
+
+        return int(min_dist * 1000)
+
     def _process_cmd(self, cmd: str) -> Optional[str]:
         """Parse incoming CMD and generate appropriate response."""
         cmd = cmd.strip()
@@ -144,11 +177,9 @@ class MockTransport(Transport):
             self._last_motion_time = time.monotonic()
             return "CMD|3|OK|$"
 
-        # Function 4: Ultrasonic
+        # Function 4: Ultrasonic — raycast against mock walls
         if func == "4":
-            elapsed = time.monotonic() - self._start_time
-            # Simulate distance varying between 100-500mm
-            dist = int(300 + 200 * math.sin(elapsed * 0.2))
+            dist = self._raycast_ultrasonic()
             return f"CMD|4|{dist}|$"
 
         # Function 5: IMU data

@@ -9,6 +9,11 @@
     var hasLock = false;
     var lockHolder = null;
 
+    function canControl() {
+        // Allow if no one holds the lock, or if we hold it
+        return lockHolder === null || hasLock;
+    }
+
     // --- WebSocket connection ---
     var ws = null;
     var reconnectTimer = null;
@@ -219,6 +224,7 @@
             // Touch events (mobile)
             btn.addEventListener("touchstart", function (e) {
                 e.preventDefault();
+                if (!canControl()) return;
                 btn.classList.add("pressed");
                 send({ type: "cmd_move", direction: dir });
             });
@@ -233,6 +239,7 @@
 
             // Mouse events (desktop)
             btn.addEventListener("mousedown", function () {
+                if (!canControl()) return;
                 btn.classList.add("pressed");
                 send({ type: "cmd_move", direction: dir });
             });
@@ -257,6 +264,7 @@
     function setupActions() {
         document.querySelectorAll(".action-btn").forEach(function (btn) {
             btn.addEventListener("click", function () {
+                if (!canControl()) return;
                 var action = btn.dataset.action;
                 if (action === "stand") {
                     send({ type: "cmd_stand" });
@@ -289,6 +297,7 @@
         var pressed = {};
 
         document.addEventListener("keydown", function (e) {
+            if (!canControl()) return;
             var dir = keyMap[e.key];
             if (dir && !pressed[e.key]) {
                 pressed[e.key] = true;
