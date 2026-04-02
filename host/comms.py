@@ -69,6 +69,65 @@ class Transport(abc.ABC):
         pass
 
 
+class DeadReckoning:
+    """Mixin for dead-reckoned position/heading tracking."""
+
+    FORWARD_SPEED = 0.10  # m/s
+    TURN_SPEED = 45.0     # deg/s
+
+    def __init_dr__(self):
+        self._dr_x = 0.0
+        self._dr_y = 0.0
+        self._dr_heading = 0.0
+        self._dr_motion = 1  # STOP
+        self._dr_last_time = 0.0
+
+    def dr_reset(self):
+        self._dr_x = 0.0
+        self._dr_y = 0.0
+        self._dr_heading = 0.0
+        self._dr_motion = 1
+        import time
+        self._dr_last_time = time.monotonic()
+
+    def dr_set_motion(self, cmd: int):
+        self._dr_step()
+        self._dr_motion = cmd
+        import time
+        self._dr_last_time = time.monotonic()
+
+    def dr_get_position(self) -> tuple[float, float, float]:
+        self._dr_step()
+        return (self._dr_x, self._dr_y, 0.0)
+
+    def dr_get_heading(self) -> float:
+        self._dr_step()
+        return self._dr_heading
+
+    def _dr_step(self):
+        import time, math
+        now = time.monotonic()
+        dt = now - self._dr_last_time if self._dr_last_time > 0 else 0
+        if dt <= 0 or dt > 1.0:
+            self._dr_last_time = now
+            return
+        self._dr_last_time = now
+
+        cmd = self._dr_motion
+        if cmd == 3:  # forward
+            rad = math.radians(self._dr_heading)
+            self._dr_x += self.FORWARD_SPEED * dt * math.cos(rad)
+            self._dr_y += self.FORWARD_SPEED * dt * math.sin(rad)
+        elif cmd == 4:  # backward
+            rad = math.radians(self._dr_heading)
+            self._dr_x -= self.FORWARD_SPEED * dt * math.cos(rad)
+            self._dr_y -= self.FORWARD_SPEED * dt * math.sin(rad)
+        elif cmd == 5:  # turn left
+            self._dr_heading -= self.TURN_SPEED * dt
+        elif cmd == 6:  # turn right
+            self._dr_heading += self.TURN_SPEED * dt
+
+
 class SerialTransport(Transport):
     """USB serial transport using pyserial-asyncio."""
 

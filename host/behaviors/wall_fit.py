@@ -20,8 +20,8 @@ class WallSegment:
     confidence: float
 
 
-def fit_walls(points: list[dict], eps: float = 0.45, min_samples: int = 3,
-              min_confidence: float = 0.15, wall_height: float = 0.2) -> list[WallSegment]:
+def fit_walls(points: list[dict], eps: float = 0.25, min_samples: int = 2,
+              min_confidence: float = 0.2, wall_height: float = 0.2) -> list[WallSegment]:
     """
     Cluster 2D points and fit wall segments.
 
@@ -58,7 +58,7 @@ def fit_walls(points: list[dict], eps: float = 0.45, min_samples: int = 3,
         x1, y1, x2, y2, linearity = result
 
         # Only produce walls from sufficiently linear clusters
-        if linearity < 4.0:
+        if linearity < 2.5:
             continue
 
         avg_conf = sum(confs) / len(confs)

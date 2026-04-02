@@ -26,8 +26,9 @@ logger = logging.getLogger(__name__)
 # Telemetry polling intervals
 # Note: REPL transports (USB/WiFi) are slow (~0.5s per round-trip),
 # so these rates are capped by actual throughput on real hardware.
+# Base rates — overridden for sim+ (see _telemetry_loop)
 IMU_POLL_HZ = 2
-ULTRASONIC_POLL_HZ = 1
+ULTRASONIC_POLL_HZ = 2
 BATTERY_POLL_HZ = 0.2
 
 
@@ -680,8 +681,12 @@ class Server:
 
     async def _telemetry_loop(self):
         """Poll IMU, ultrasonic, and battery, broadcast to browser clients."""
-        imu_interval = 1.0 / IMU_POLL_HZ
-        ultra_interval = 1.0 / ULTRASONIC_POLL_HZ
+        # Use firmware-rate polling for sim+ and custom firmware transports
+        from mock_firmware import MockFirmwareTransport
+        from firmware_transport import FirmwareTransport
+        is_fast = isinstance(self._transport, (MockFirmwareTransport, FirmwareTransport))
+        imu_interval = 1.0 / (20 if is_fast else IMU_POLL_HZ)
+        ultra_interval = 1.0 / (20 if is_fast else ULTRASONIC_POLL_HZ)
         battery_interval = 1.0 / BATTERY_POLL_HZ
         wall_regen_interval = 5.0
         last_ultra = 0.0
