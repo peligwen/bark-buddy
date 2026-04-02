@@ -193,15 +193,22 @@ var Dog3D = (function () {
         });
 
         // Ultrasonic beam (cone, hidden until distance data arrives)
+        // ConeGeometry tip at +Y, base at -Y. We rotate so tip stays at
+        // the sensor (maps to -X after rotation) and the wide base extends
+        // forward (+X). Then we offset +X by half the cone height so the
+        // tip sits at the sensor origin.
         var beamGeo = new THREE.ConeGeometry(0.15 * S, 1.0 * S, 8, 1, true);
         var beamMat = new THREE.MeshBasicMaterial({
             color: COL.beam, transparent: true, opacity: 0.12,
             side: THREE.DoubleSide, depthWrite: false,
         });
         ultraBeam = new THREE.Mesh(beamGeo, beamMat);
-        ultraBeam.rotation.z = -Math.PI / 2; // point forward (+X)
-        ultraBeam.position.set(BODY_L / 2 + headL * 1.05, BODY_H * 0.1, 0);
+        ultraBeam.rotation.z = Math.PI / 2; // tip → -X (sensor), base → +X (forward)
         ultraBeam.visible = false;
+        // Store sensor mount point for updateUltraBeam
+        ultraBeam.userData.sensorX = BODY_L / 2 + headL * 1.05;
+        ultraBeam.userData.sensorY = BODY_H * 0.1;
+        ultraBeam.position.set(ultraBeam.userData.sensorX + 0.5 * S, ultraBeam.userData.sensorY, 0);
         group.add(ultraBeam);
 
         // --- Articulated legs ---
@@ -373,22 +380,29 @@ var Dog3D = (function () {
         }
         if (!ultraBeam) return;
         ultraBeam.visible = true;
-        // Scale cone length to match distance (convert mm to scene units)
+
+        // Convert mm to scene units, clamp
         var len = (ultraDistance / 1000) * S;
         var maxLen = 3.0 * S;
         len = Math.min(len, maxLen);
-        ultraBeam.scale.y = len / (1.0 * S); // base geometry is 1.0*S tall
-        ultraBeam.scale.x = 0.5 + 0.5 * (len / maxLen);
-        ultraBeam.scale.z = ultraBeam.scale.x;
-        // Shift cone so its base is at the sensor
-        ultraBeam.position.x = dogGroup.children[0].position.x + len / 2 + 0.1 * S;
+
+        // Scale the cone (base geometry is 1.0*S tall)
+        var lengthScale = len / (1.0 * S);
+        ultraBeam.scale.y = lengthScale;
+        var widthScale = 0.5 + 0.5 * (len / maxLen);
+        ultraBeam.scale.x = widthScale;
+        ultraBeam.scale.z = widthScale;
+
+        // Anchor tip at sensor mount, offset center forward by half scaled length
+        var sx = ultraBeam.userData.sensorX;
+        var sy = ultraBeam.userData.sensorY;
+        ultraBeam.position.set(sx + (len / 2), sy, 0);
 
         // Color by distance
-        var d = ultraDistance;
-        if (d < 150) {
+        if (ultraDistance < 150) {
             ultraBeam.material.color.setHex(0xe94560);
             ultraBeam.material.opacity = 0.25;
-        } else if (d < 400) {
+        } else if (ultraDistance < 400) {
             ultraBeam.material.color.setHex(0xf0a500);
             ultraBeam.material.opacity = 0.18;
         } else {
