@@ -155,7 +155,7 @@ var Dog3D = (function () {
         var legMat = mat(COL.leg, { roughness: 0.6, metalness: 0.15 });
         var headMat = mat(COL.head, { roughness: 0.4, metalness: 0.1 });
         var accentMat = mat(COL.accent, { roughness: 0.5, metalness: 0.2 });
-        var eyeMat = mat(COL.eye, { emissive: COL.eye, ei: 1.0 });
+        var eyeMat = mat(COL.eye, { emissive: COL.eye, ei: 0.5 });
         var sensorMat = mat(COL.sensor, { metalness: 0.4, roughness: 0.3 });
 
         // Body chassis
@@ -182,12 +182,12 @@ var Dog3D = (function () {
         snout.position.set(BODY_L / 2 + headL * 0.85, BODY_H * 0.1, 0);
         group.add(snout);
 
-        // Eyes
-        var eyeR = 0.04 * S * 0.5;
+        // Eyes — small LED dots on head front
+        var eyeR = 0.006 * S;
         var eyeGeo = new THREE.SphereGeometry(eyeR, 8, 8);
         [-1, 1].forEach(function (side) {
             var eye = new THREE.Mesh(eyeGeo, eyeMat);
-            eye.position.set(BODY_L / 2 + headL * 0.6, BODY_H * 0.55, side * headW * 0.35);
+            eye.position.set(BODY_L / 2 + headL * 0.6, BODY_H * 0.45, side * headW * 0.28);
             group.add(eye);
         });
 
