@@ -615,9 +615,9 @@ var Dog3D = (function () {
                 targetX = msg.pos.x * S;
                 targetZ = msg.pos.y * S;
             }
-            // Heading: sim degrees -> scene radians around Y
+            // Heading: sim degrees (CCW positive) -> scene radians (CW positive around Y)
             if (msg.heading != null) {
-                targetYaw = msg.heading * (Math.PI / 180);
+                targetYaw = -msg.heading * (Math.PI / 180);
             }
         },
 

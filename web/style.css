@@ -94,6 +94,10 @@ header h1 {
     display: flex;
     flex: 1;
     min-height: 0;
+    max-width: 1200px;
+    margin: 0 auto;
+    width: 100%;
+    padding: 0 20px;
 }
 
 #panel-left,
@@ -107,9 +111,9 @@ header h1 {
 
 #panel-left {
     flex: 1 1 0%;
-    min-width: 300px;
-    padding-left: 24px;
-    padding-right: 24px;
+    min-width: 280px;
+    padding-left: 20px;
+    padding-right: 20px;
 }
 
 #panel-right {
@@ -117,6 +121,8 @@ header h1 {
     flex-shrink: 0;
     border-left: 1px solid var(--border);
     background: var(--bg);
+    padding-left: 20px;
+    padding-right: 20px;
 }
 
 /* Section cards — flex-shrink: 0 so panels scroll instead of collapsing content */
@@ -446,16 +452,21 @@ header h1 {
 @media (max-width: 700px) {
     #split {
         flex-direction: column;
+        padding: 0 12px;
     }
 
     #panel-left {
         min-width: unset;
+        padding-left: 8px;
+        padding-right: 8px;
     }
 
     #panel-right {
         width: 100%;
         border-left: none;
         border-top: 1px solid var(--border);
+        padding-left: 8px;
+        padding-right: 8px;
     }
 
     #dog-3d-container {
