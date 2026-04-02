@@ -31,5 +31,6 @@ See [docs/architecture.md](docs/architecture.md) for details.
 ## Documentation
 
 - [Architecture & Tech Stack](docs/architecture.md)
+- [Design Decisions](docs/decisions.md)
 - [Implementation Plan](docs/implementation-plan.md)
 - Communication Protocol (docs/protocol.md — TBD)

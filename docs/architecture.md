@@ -3,21 +3,21 @@
 ## System Overview
 
 ```
-┌─────────────────┐      WiFi/Serial      ┌──────────────────┐
-│  Local Dev PC   │◄────────────────────►  │  MechDog (Stock) │
-│                 │                        │                  │
-│  Python Host    │                        │  C/C++ Firmware  │
-│  - Web Server   │   Commands/Telemetry   │  - Servo Control │
-│  - Behavior     │                        │  - IMU Reading   │
-│    Engine       │                        │  - Gait Engine   │
-│  - (Future: AI) │                        │                  │
-└─────────────────┘                        └──────────────────┘
+┌─────────────────┐      Serial (→WiFi)     ┌──────────────────┐
+│  Local Dev PC   │◄────────────────────►   │  MechDog (Stock) │
+│                 │                         │                  │
+│  Python Host    │   Bidirectional JSON    │  C/C++ Firmware  │
+│  - Web Server   │   (tagged messages)     │  - Servo Control │
+│  - Behavior     │                         │  - IMU Reading   │
+│    Engine       │                         │  - Gait Engine   │
+│  - (Future: AI) │                         │  - Balance Layer │
+└─────────────────┘                         └──────────────────┘
        ▲
        │ HTTP/WebSocket
        ▼
 ┌─────────────────┐
 │  Browser (UI)   │
-│  Remote Control │
+│  D-pad + Gauges │
 └─────────────────┘
 ```
 
@@ -30,20 +30,41 @@
 
 | Layer | Language | Tools | Responsibility |
 |---|---|---|---|
-| Firmware | C++17 | PlatformIO | Servo control, gait engine, IMU reading, serial/WiFi comms |
-| Host | Python 3.11+ | asyncio, websockets | Behavior logic, web server, communication bridge |
-| Web UI | HTML/CSS/JS | Vanilla (no framework) | Remote control interface, status dashboard |
+| Firmware | C++17 | PlatformIO | Servo control, parametric gait/IK, IMU reading, balance (comp. filter + PID), serial comms |
+| Host | Python 3.11+ | asyncio, websockets | Behavior layers, web server, communication bridge, mock serial for dev |
+| Web UI | HTML/CSS/JS | Vanilla (no framework) | D-pad remote control, 2D gauges, status dashboard |
 
 ## Communication
 
-- **Firmware ↔ Host:** JSON messages over serial or WiFi
+- **Transport:** Serial (USB) initially, WiFi later via abstracted transport layer
+- **Protocol:** Bidirectional tagged JSON messages — both sides send independently
+- **Firmware ↔ Host:** Commands down, telemetry up, acks as needed
 - **Host ↔ Browser:** WebSocket for real-time control and telemetry
-- Protocol spec: see `docs/protocol.md` (TBD)
+- **Connection loss:** Auto-reconnect with servo freeze
+- Protocol spec: see `docs/protocol.md`
+
+## Behavior Model
+
+Composable layers, not exclusive modes:
+
+```
+┌──────────────────────────────┐
+│  Active Behavior (top layer) │  ← Remote control OR Patrol
+├──────────────────────────────┤
+│  Balance Layer (always-on)   │  ← Complementary filter + PID
+├──────────────────────────────┤
+│  Gait Engine                 │  ← Parametric / IK
+├──────────────────────────────┤
+│  Servo Abstraction           │
+└──────────────────────────────┘
+```
+
+Balance correction runs continuously beneath whatever behavior is active.
 
 ## AI Integration (Future)
 
 - **Development time:** Claude generates firmware and behavior code
-- **Runtime (post-MVP):** Local network server running Ollama/Llama/Phi for decision-making; robot calls via API
+- **Runtime (post-MVP):** Local network server running Ollama/Llama/Phi for decision-making
 
 ## Project Structure
 
@@ -53,19 +74,21 @@ bark-buddy/
 ├── README.md              # Human-facing project overview
 ├── firmware/              # C/C++ — MechDog controller
 │   ├── src/
-│   │   ├── main.cpp       # Entry point, serial/WiFi comm
-│   │   ├── gait.cpp       # Gait engine (walk, turn, stand)
-│   │   ├── balance.cpp    # IMU-based balancing
+│   │   ├── main.cpp       # Entry point, serial comm, message routing
+│   │   ├── gait.cpp       # Parametric gait engine / IK
+│   │   ├── balance.cpp    # Complementary filter + PID balance
 │   │   └── servos.cpp     # Servo abstraction layer
 │   ├── include/
+│   │   └── protocol.h     # Message types and structures
 │   └── platformio.ini     # PlatformIO build config
 ├── host/                  # Python — local dev machine
 │   ├── server.py          # Web server + WebSocket handler
-│   ├── comms.py           # Serial/WiFi communication with dog
+│   ├── comms.py           # Abstract transport (serial/WiFi)
+│   ├── mock_serial.py     # Serial stub for dev without hardware
 │   ├── behaviors/
-│   │   ├── remote.py      # Manual remote control mode
-│   │   ├── balance.py     # Balance & recovery behavior
-│   │   └── patrol.py      # Autonomous patrol behavior
+│   │   ├── remote.py      # Manual remote control layer
+│   │   ├── balance.py     # Balance & recovery layer
+│   │   └── patrol.py      # Patrol behavior (waypoint navigation)
 │   └── requirements.txt
 ├── web/                   # Static web UI
 │   ├── index.html
@@ -73,6 +96,7 @@ bark-buddy/
 │   └── app.js
 └── docs/
     ├── architecture.md    # This file
+    ├── decisions.md       # Design decisions log
     ├── implementation-plan.md
-    └── protocol.md        # Communication protocol spec (TBD)
+    └── protocol.md        # Communication protocol spec
 ```
