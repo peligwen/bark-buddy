@@ -509,8 +509,9 @@ var Dog3D = (function () {
         if (yawDiff < -Math.PI) yawDiff += 2 * Math.PI;
         camYaw += yawDiff * 0.05;
 
-        // Chase camera: orbit behind the dog (yaw + π = behind, plus user offset)
-        var chaseAngle = camYaw + Math.PI + cameraAngle.thetaOffset;
+        // Chase camera: orbit behind the dog
+        // Dog faces +X at yaw=0. Camera at -X needs sin=-1,cos=0 → angle=3π/2
+        var chaseAngle = camYaw + Math.PI * 1.5 + cameraAngle.thetaOffset;
         var r = cameraAngle.radius;
         var phi = cameraAngle.phi;
 

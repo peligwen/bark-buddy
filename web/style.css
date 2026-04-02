@@ -137,14 +137,15 @@ header h1 {
 }
 
 #panel-left {
-    flex: 1 1 0%;
+    flex: 3;
     min-width: 280px;
     padding-left: 20px;
     padding-right: 20px;
 }
 
 #panel-right {
-    width: 300px;
+    flex: 2;
+    max-width: 340px;
     flex-shrink: 0;
     border-left: 1px solid var(--border);
     background: var(--bg);
@@ -215,9 +216,9 @@ header h1 {
 
 #dog-3d-container {
     width: 100%;
-    min-height: 250px;
-    height: 34vh;
-    max-height: 420px;
+    min-height: 380px;
+    height: 50vh;
+    max-height: 630px;
     cursor: grab;
 }
 
