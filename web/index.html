@@ -9,6 +9,14 @@
 <body>
     <header>
         <h1>Bark-Buddy</h1>
+        <div id="status-bar">
+            <span class="stat"><span class="stat-label">Mode</span> <span id="mode-val">remote</span></span>
+            <span class="stat"><span class="stat-label">Bal</span> <span id="balance-val" class="off">OFF</span></span>
+            <span class="stat"><span class="stat-label">Dist</span> <span id="ultra-val">--</span></span>
+            <span class="stat"><span class="stat-label">Batt</span> <span id="battery-val">--</span></span>
+            <span class="stat"><span class="stat-label">Pitch</span> <span id="pitch-val">0.0</span></span>
+            <span class="stat"><span class="stat-label">Roll</span> <span id="roll-val">0.0</span></span>
+        </div>
         <div id="header-right">
             <button id="btn-lock" class="header-btn">Take Control</button>
             <span id="lock-text"></span>
@@ -19,119 +27,66 @@
 
     <div id="fall-alert" class="hidden">FALL DETECTED</div>
 
-    <div id="split">
-        <!-- Left: visuals & diagnostics -->
-        <div id="panel-left">
-            <section id="status-bar">
-                <div class="status-item">
-                    <span class="status-label">Mode</span>
-                    <span id="mode-val" class="status-value">remote</span>
-                </div>
-                <div class="status-item">
-                    <span class="status-label">Balance</span>
-                    <span id="balance-val" class="status-value off">OFF</span>
-                </div>
-                <div class="status-item">
-                    <span class="status-label">Distance</span>
-                    <span id="ultra-val" class="status-value">--</span>
-                </div>
-                <div class="status-item">
-                    <span class="status-label">Battery</span>
-                    <span id="battery-val" class="status-value">--</span>
-                </div>
-            </section>
-
-            <section id="dog-view-section">
+    <div id="main">
+        <!-- Two square views side by side -->
+        <div id="views">
+            <div id="dog-view-section" class="view-panel">
                 <div id="dog-3d-container"></div>
-            </section>
-
-            <section id="telemetry">
-                <div class="gauge">
-                    <label>Pitch</label>
-                    <div class="gauge-bar">
-                        <div class="gauge-center"></div>
-                        <div id="pitch-fill" class="gauge-fill"></div>
-                    </div>
-                    <span id="pitch-val" class="gauge-val">0.0</span>
-                </div>
-                <div class="gauge">
-                    <label>Roll</label>
-                    <div class="gauge-bar">
-                        <div class="gauge-center"></div>
-                        <div id="roll-fill" class="gauge-fill"></div>
-                    </div>
-                    <span id="roll-val" class="gauge-val">0.0</span>
-                </div>
-            </section>
-
-            <section id="scan-section">
-                <h2>Ultrasonic Map</h2>
+            </div>
+            <div id="scan-section" class="view-panel">
                 <div id="scan-progress" class="hidden">
                     <div class="progress-bar"><div id="scan-progress-fill" class="progress-fill"></div></div>
                     <span id="scan-progress-text">0%</span>
                 </div>
-                <canvas id="map-canvas" width="360" height="280"></canvas>
+                <canvas id="map-canvas" width="400" height="400"></canvas>
                 <div id="map-info">
                     <span id="map-points">Points: 0</span>
                     <span id="map-scans">Scans: 0</span>
                 </div>
-            </section>
+            </div>
         </div>
 
-        <!-- Right: controls -->
-        <div id="panel-right">
-            <section id="controls">
-                <h2>Movement</h2>
-                <div class="dpad">
-                    <button class="dpad-btn" id="btn-forward" data-dir="forward">&#9650;</button>
-                    <div class="dpad-row">
-                        <button class="dpad-btn" id="btn-left" data-dir="left">&#9664;</button>
-                        <button class="dpad-btn dpad-center" id="btn-stop" data-dir="stop">&#9632;</button>
-                        <button class="dpad-btn" id="btn-right" data-dir="right">&#9654;</button>
-                    </div>
-                    <button class="dpad-btn" id="btn-backward" data-dir="backward">&#9660;</button>
+        <!-- Controls below -->
+        <div id="controls-bar">
+            <div class="dpad">
+                <button class="dpad-btn" id="btn-forward" data-dir="forward">&#9650;</button>
+                <div class="dpad-row">
+                    <button class="dpad-btn" id="btn-left" data-dir="left">&#9664;</button>
+                    <button class="dpad-btn dpad-center" id="btn-stop" data-dir="stop">&#9632;</button>
+                    <button class="dpad-btn" id="btn-right" data-dir="right">&#9654;</button>
                 </div>
-            </section>
+                <button class="dpad-btn" id="btn-backward" data-dir="backward">&#9660;</button>
+            </div>
 
-            <section id="actions">
-                <h2>Actions</h2>
-                <div class="action-grid">
-                    <button class="action-btn" data-action="stand">Stand</button>
-                    <button class="action-btn" id="btn-balance" data-action="balance-toggle">Balance: OFF</button>
-                    <button class="action-btn" data-action="wave">Wave</button>
-                    <button class="action-btn" data-action="sit">Sit</button>
-                    <button class="action-btn" data-action="lie">Lie Down</button>
-                </div>
-            </section>
+            <div class="action-grid">
+                <button class="action-btn" data-action="stand">Stand</button>
+                <button class="action-btn" id="btn-balance" data-action="balance-toggle">Balance: OFF</button>
+                <button class="action-btn" data-action="wave">Wave</button>
+                <button class="action-btn" data-action="sit">Sit</button>
+                <button class="action-btn" data-action="lie">Lie Down</button>
+            </div>
 
-            <section id="patrol-section">
-                <h2>Patrol</h2>
-                <div id="patrol-controls">
-                    <button class="action-btn" id="btn-patrol-demo">Run Demo Patrol</button>
-                    <button class="action-btn" id="btn-patrol-stop" disabled>Stop Patrol</button>
-                </div>
-                <div id="patrol-status" class="hidden">
-                    <span id="patrol-pos">Position: (0, 0) 0&deg;</span>
-                    <span id="patrol-wp">Waypoint: --</span>
-                </div>
-            </section>
-
-            <section id="scan-controls-section">
-                <h2>Scanning</h2>
-                <div id="scan-controls">
-                    <button class="action-btn" id="btn-scan-start">Scan Area</button>
-                    <button class="action-btn" id="btn-scan-stop" disabled>Stop Scan</button>
-                    <button class="action-btn" id="btn-map-clear">Clear Map</button>
-                </div>
-            </section>
-
-            <section id="system-section">
-                <h2>System</h2>
-                <div class="action-grid">
-                    <button class="action-btn" id="btn-reset">Reset Position</button>
-                </div>
-            </section>
+            <div class="action-grid">
+                <button class="action-btn" id="btn-patrol-demo">Run Demo Patrol</button>
+                <button class="action-btn" id="btn-patrol-stop" disabled>Stop Patrol</button>
+                <button class="action-btn" id="btn-scan-start">Scan Area</button>
+                <button class="action-btn" id="btn-scan-stop" disabled>Stop Scan</button>
+                <button class="action-btn" id="btn-map-clear">Clear Map</button>
+                <button class="action-btn" id="btn-reset">Reset</button>
+            </div>
         </div>
+
+        <!-- Hidden elements kept for JS compatibility -->
+        <div id="patrol-status" class="hidden">
+            <span id="patrol-pos"></span>
+            <span id="patrol-wp"></span>
+        </div>
+    </div>
+
+    <!-- Hidden gauge elements for JS compatibility -->
+    <div style="display:none">
+        <div id="pitch-fill" class="gauge-fill"></div>
+        <div id="roll-fill" class="gauge-fill"></div>
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
