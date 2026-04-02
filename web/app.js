@@ -203,6 +203,10 @@
         if (msg.fallen != null) {
             showFallAlert(msg.fallen);
         }
+        if (msg.scan_progress != null) {
+            document.getElementById("scan-progress-fill").style.width = msg.scan_progress + "%";
+            document.getElementById("scan-progress-text").textContent = msg.scan_progress + "%";
+        }
         if (msg.transport != null) {
             var badge = document.getElementById("transport-badge");
             var isSim = msg.transport === "sim";

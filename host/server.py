@@ -624,7 +624,7 @@ class Server:
 
     async def _broadcast_status(self, battery_mv=None):
         """Broadcast current status to all clients."""
-        await self._broadcast({
+        status = {
             "type": "telem_status",
             "mode": self._mode,
             "balance": self._balance.enabled,
@@ -632,7 +632,10 @@ class Server:
             "connected": self._dog.connected,
             "scanning": self._scan.running,
             "battery_mv": battery_mv,
-        })
+        }
+        if self._scan.running:
+            status["scan_progress"] = self._scan.progress
+        await self._broadcast(status)
 
     async def _broadcast(self, msg: dict):
         """Send a JSON message to all connected WebSocket clients."""
@@ -687,8 +690,8 @@ class Server:
                             odom["heading"] = round(self._transport.get_heading(), 1)
                         await self._broadcast(odom)
 
-                # Ultrasonic polling — skip during scan to avoid serial contention
-                if now - last_ultra >= ultra_interval and not self._scan.running:
+                # Ultrasonic polling — continues during scan for live mapping
+                if now - last_ultra >= ultra_interval:
                     dist = await self._dog.read_ultrasonic()
                     if dist is not None and self._ws_clients:
                         await self._broadcast({
