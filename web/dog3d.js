@@ -837,7 +837,22 @@ var Dog3D = (function () {
             var footMarker = makeGlowMarker(0, -LOWER_LEN, 0, 0xff00ff, 0.015 * S);
             leg.kneePivot.add(footMarker);
 
+            // Wireframe leg links: hip→knee, knee→foot
+            var upperLine = makeLegLink(0, 0, 0, 0, -UPPER_LEN, 0, 0x00ffff);
+            leg.hipPivot.add(upperLine);
+            var lowerLine = makeLegLink(0, 0, 0, 0, -LOWER_LEN, 0, 0x00cccc);
+            leg.kneePivot.add(lowerLine);
+
             jointMarkers[name] = { hip: hipMarker, knee: kneeMarker, foot: footMarker };
+        });
+
+        // Tag all overlay elements so toggleOverlay doesn't hide them
+        overlayGroup.traverse(function (child) { child.userData.isOverlay = true; });
+        Object.keys(jointMarkers).forEach(function (name) {
+            var m = jointMarkers[name];
+            [m.hip, m.knee, m.foot].forEach(function (g) {
+                g.traverse(function (c) { c.userData.isOverlay = true; });
+            });
         });
 
         overlayGroup.visible = false;
@@ -865,6 +880,16 @@ var Dog3D = (function () {
         tip.position.set(x2, y2, z2);
         group.add(tip);
         return group;
+    }
+
+    function makeLegLink(x1, y1, z1, x2, y2, z2, color) {
+        var geo = new THREE.BufferGeometry().setFromPoints([
+            new THREE.Vector3(x1, y1, z1),
+            new THREE.Vector3(x2, y2, z2)
+        ]);
+        var line = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: color }));
+        line.userData.isOverlay = true;
+        return line;
     }
 
     function makeGlowMarker(x, y, z, color, radius) {
@@ -926,6 +951,23 @@ var Dog3D = (function () {
         overlayVisible = show;
         overlayGroup.visible = show;
         if (horizonRing) horizonRing.visible = show;
+
+        // Hide normal dog meshes when overlay is active, show only wireframe
+        if (dogGroup) {
+            dogGroup.traverse(function (child) {
+                if (child.isMesh && !child.userData.isOverlay) {
+                    child.visible = !show;
+                }
+            });
+            // Leg meshes (upper, lower, foot) — hide when overlay on
+            ["fl", "fr", "rl", "rr"].forEach(function (name) {
+                var leg = legs[name];
+                if (!leg) return;
+                leg.upperMesh.visible = !show;
+                leg.lowerMesh.visible = !show;
+                leg.footMesh.visible = !show;
+            });
+        }
     }
 
     // --- Public API ---
