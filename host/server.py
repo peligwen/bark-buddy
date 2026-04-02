@@ -760,6 +760,51 @@ class Server:
                 break
 
 
+async def _detect_serial_transport(port: str):
+    """Auto-detect firmware type on a serial port."""
+    import serial
+    logger.info("Auto-detecting firmware on %s...", port)
+    try:
+        ser = serial.Serial(port, 115200, timeout=2)
+        import time
+        time.sleep(1)
+
+        # Try JSON ping first (custom firmware)
+        ser.write(b'{"type":"ping"}\n')
+        time.sleep(0.5)
+        resp = ser.read(ser.in_waiting).decode(errors="replace")
+        if '"pong"' in resp:
+            ser.close()
+            from firmware_transport import FirmwareTransport
+            transport = FirmwareTransport(port=port)
+            label = f"fw:{port.split('/')[-1]}"
+            logger.info("Detected custom firmware on %s", port)
+            return transport, label
+
+        # Try Ctrl+C for MicroPython REPL
+        ser.write(b'\x03\x03\r\n')
+        time.sleep(0.5)
+        resp = ser.read(ser.in_waiting).decode(errors="replace")
+        ser.close()
+
+        if ">>>" in resp or "MicroPython" in resp:
+            from repl_transport import ReplTransport
+            transport = ReplTransport(port=port)
+            label = f"usb:{port.split('/')[-1]}"
+            logger.info("Detected MicroPython REPL on %s", port)
+            return transport, label
+
+    except Exception as e:
+        logger.warning("Detection failed: %s", e)
+
+    # Default to REPL transport
+    from repl_transport import ReplTransport
+    transport = ReplTransport(port=port)
+    label = f"usb:{port.split('/')[-1]}"
+    logger.info("Defaulting to REPL transport for %s", port)
+    return transport, label
+
+
 async def main(args):
     if args.wifi:
         from webrepl_transport import WebReplTransport
@@ -771,10 +816,8 @@ async def main(args):
         transport_label = f"wifi:{host}"
         logger.info("Using WebREPL transport: %s:%d", host, port)
     elif args.serial:
-        from repl_transport import ReplTransport
-        transport = ReplTransport(port=args.serial)
-        transport_label = f"usb:{args.serial.split('/')[-1]}"
-        logger.info("Using REPL transport: %s", args.serial)
+        # Auto-detect: custom firmware (JSON) or stock MicroPython (REPL)
+        transport, transport_label = await _detect_serial_transport(args.serial)
     else:
         transport = MockTransport()
         transport_label = "sim"

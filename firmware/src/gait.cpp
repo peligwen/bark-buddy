@@ -1,0 +1,110 @@
+#include "gait.h"
+#include "config.h"
+#include "servos.h"
+#include <Arduino.h>
+#include <math.h>
+
+// Servo index mapping:
+// 0=FL_hip, 1=FL_knee, 2=FR_hip, 3=FR_knee
+// 4=RL_hip, 5=RL_knee, 6=RR_hip, 7=RR_knee
+
+static GaitState state = GaitState::STOP;
+static float speed = 1.0f;
+static unsigned long last_update = 0;
+static float phase = 0.0f;  // gait phase in radians
+
+void gait_init() {
+    state = GaitState::STAND;
+    speed = 0.0f;
+    phase = 0.0f;
+    last_update = millis();
+}
+
+void gait_set_state(GaitState new_state, float new_speed) {
+    state = new_state;
+    speed = new_speed;
+    if (new_state == GaitState::STOP || new_state == GaitState::STAND) {
+        speed = 0.0f;
+    }
+}
+
+GaitState gait_current_state() {
+    return state;
+}
+
+// Convert angle offset (degrees) from neutral to servo pulse
+static uint16_t angle_to_us(uint8_t servo_index, float offset_deg) {
+    float center = (float)STANDING_POSE[servo_index];
+    // Assume ~10us per degree around center (approximate for standard servos)
+    float us = center + offset_deg * 10.0f;
+    if (us < SERVO_MIN_US) us = SERVO_MIN_US;
+    if (us > SERVO_MAX_US) us = SERVO_MAX_US;
+    return (uint16_t)us;
+}
+
+void gait_update(unsigned long now_ms) {
+    if (!servos_active()) return;
+
+    float dt = (now_ms - last_update) / 1000.0f;
+    last_update = now_ms;
+    if (dt <= 0 || dt > 0.5f) return;
+
+    if (state == GaitState::STAND || state == GaitState::STOP) {
+        // Smoothly return to standing pose
+        phase = 0;
+        for (int i = 0; i < 8; i++) {
+            uint16_t current = servo_read_us(i);
+            uint16_t target = STANDING_POSE[i];
+            if (current == 0) current = target;
+            // Blend toward target
+            int16_t diff = (int16_t)target - (int16_t)current;
+            if (abs(diff) > 2) {
+                servo_write_us(i, current + diff / 4);
+            }
+        }
+        return;
+    }
+
+    // Advance phase based on gait frequency and speed
+    float freq = GAIT_FREQUENCY * speed;
+    phase += 2.0f * M_PI * freq * dt;
+    if (phase > 2.0f * M_PI) phase -= 2.0f * M_PI;
+
+    // Sinusoidal trot gait
+    // Diagonal pairs: FL+RR (phase A), FR+RL (phase B = A + PI)
+    float hipAmp = GAIT_HIP_AMPLITUDE * speed;
+    float kneeAmp = GAIT_KNEE_AMPLITUDE * speed;
+
+    float sinA = sinf(phase);
+    float sinB = sinf(phase + GAIT_PHASE_OFFSET);
+
+    // Direction multiplier
+    float dir = 1.0f;
+    if (state == GaitState::WALK_BACKWARD) dir = -1.0f;
+
+    // For turning: one side moves more than the other
+    float leftMul = 1.0f, rightMul = 1.0f;
+    if (state == GaitState::TURN_LEFT) {
+        leftMul = 0.3f;
+        rightMul = 1.0f;
+    } else if (state == GaitState::TURN_RIGHT) {
+        leftMul = 1.0f;
+        rightMul = 0.3f;
+    }
+
+    // FL (pair A, left side)
+    servo_write_us(0, angle_to_us(0, dir * hipAmp * sinA * leftMul));
+    servo_write_us(1, angle_to_us(1, -kneeAmp * fmaxf(0, sinA)));
+
+    // FR (pair B, right side)
+    servo_write_us(2, angle_to_us(2, dir * hipAmp * sinB * rightMul));
+    servo_write_us(3, angle_to_us(3, -kneeAmp * fmaxf(0, sinB)));
+
+    // RL (pair B, left side)
+    servo_write_us(4, angle_to_us(4, dir * hipAmp * sinB * leftMul));
+    servo_write_us(5, angle_to_us(5, -kneeAmp * fmaxf(0, sinB)));
+
+    // RR (pair A, right side)
+    servo_write_us(6, angle_to_us(6, dir * hipAmp * sinA * rightMul));
+    servo_write_us(7, angle_to_us(7, -kneeAmp * fmaxf(0, sinA)));
+}
