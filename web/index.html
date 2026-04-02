@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Bark-Buddy</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <h1>Bark-Buddy</h1>
+        <div id="status">
+            <span id="conn-indicator" class="indicator disconnected"></span>
+            <span id="conn-text">Disconnected</span>
+            <span id="battery-text"></span>
+        </div>
+    </header>
+
+    <main>
+        <section id="telemetry">
+            <div class="gauge">
+                <label>Pitch</label>
+                <div class="gauge-bar">
+                    <div id="pitch-fill" class="gauge-fill"></div>
+                </div>
+                <span id="pitch-val">0.0</span>
+            </div>
+            <div class="gauge">
+                <label>Roll</label>
+                <div class="gauge-bar">
+                    <div id="roll-fill" class="gauge-fill"></div>
+                </div>
+                <span id="roll-val">0.0</span>
+            </div>
+        </section>
+
+        <section id="controls">
+            <div class="dpad">
+                <button class="dpad-btn" id="btn-forward" data-dir="forward">&#9650;</button>
+                <div class="dpad-row">
+                    <button class="dpad-btn" id="btn-left" data-dir="left">&#9664;</button>
+                    <button class="dpad-btn dpad-center" id="btn-stop" data-dir="stop">&#9632;</button>
+                    <button class="dpad-btn" id="btn-right" data-dir="right">&#9654;</button>
+                </div>
+                <button class="dpad-btn" id="btn-backward" data-dir="backward">&#9660;</button>
+            </div>
+        </section>
+
+        <section id="actions">
+            <button class="action-btn" data-action="stand">Stand</button>
+            <button class="action-btn" data-action="balance-on">Balance On</button>
+            <button class="action-btn" data-action="balance-off">Balance Off</button>
+            <button class="action-btn" data-action="wave">Wave</button>
+            <button class="action-btn" data-action="sit">Sit</button>
+        </section>
+    </main>
+
+    <script src="app.js"></script>
+</body>
+</html>
