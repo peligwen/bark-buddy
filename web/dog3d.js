@@ -906,19 +906,6 @@ var Dog3D = (function () {
     function updateOverlay() {
         if (!overlayVisible) return;
 
-        // Update joint colors based on angle deviation
-        ["fl", "fr", "rl", "rr"].forEach(function (name) {
-            var leg = legs[name];
-            var markers = jointMarkers[name];
-            if (!leg || !markers) return;
-
-            var hipDev = Math.abs(leg.hipPivot.rotation.z - STAND_HIP);
-            var kneeDev = Math.abs(leg.kneePivot.rotation.z - STAND_KNEE);
-
-            setMarkerColor(markers.hip, angleColor(hipDev, 0.5));
-            setMarkerColor(markers.knee, angleColor(kneeDev, 0.8));
-        });
-
         // Horizon ring: stays level at dog's world position
         overlayParts.forEach(function (obj) {
             if (obj.userData.isHorizon && dogGroup) {
@@ -929,19 +916,6 @@ var Dog3D = (function () {
                 );
             }
         });
-    }
-
-    function setMarkerColor(group, color) {
-        group.traverse(function (c) {
-            if (c.isMesh && c.material) c.material.color.setHex(color);
-        });
-    }
-
-    function angleColor(deviation, maxDev) {
-        var t = Math.min(deviation / maxDev, 1.0);
-        if (t < 0.3) return 0x00ff88;   // green — near neutral
-        if (t < 0.7) return 0xffcc00;   // yellow — mid range
-        return 0xff4444;                  // red — near limit
     }
 
     function toggleOverlay(show) {
