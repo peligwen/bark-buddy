@@ -8,24 +8,40 @@
 </head>
 <body>
     <header>
-        <h1>BARK-BUDDY</h1>
-        <div id="status-bar">
+        <div id="header-row-1">
+            <h1>BARK-BUDDY</h1>
             <span class="stat"><span class="stat-label">Mode</span> <span id="mode-val">remote</span></span>
-            <span class="stat"><span class="stat-label">Bal</span> <span id="balance-val" class="off">OFF</span></span>
-            <span class="stat"><span class="stat-label">Dist</span> <span id="ultra-val">--</span></span>
             <span class="stat"><span class="stat-label">Batt</span> <span id="battery-val">--</span></span>
+            <span class="stat"><span class="stat-label">Bal</span> <span id="balance-val" class="off">OFF</span></span>
+            <div id="header-right">
+                <div id="transport-wrapper">
+                    <span id="transport-badge" class="transport-badge sim">SIM</span>
+                    <div id="transport-menu" class="transport-menu hidden">
+                        <button data-transport="usb">USB</button>
+                        <button data-transport="wifi">WiFi</button>
+                        <button data-transport="wifi-setup">Setup WiFi...</button>
+                        <button data-transport="sim">Sim</button>
+                    </div>
+                </div>
+                <button id="btn-lock" class="header-btn">Take Control</button>
+                <span id="lock-text"></span>
+                <span id="conn-indicator" class="indicator disconnected"></span>
+                <span id="conn-text">Offline</span>
+            </div>
+        </div>
+        <div id="header-row-2">
             <span class="stat"><span class="stat-label">Hdg</span> <span id="heading-val">0&deg;</span></span>
             <span class="stat"><span class="stat-label">Pitch</span> <span id="pitch-val">0.0</span></span>
             <span class="stat"><span class="stat-label">Roll</span> <span id="roll-val">0.0</span></span>
-        </div>
-        <div id="header-right">
-            <button id="btn-lock" class="header-btn">Take Control</button>
-            <span id="lock-text"></span>
-            <span id="conn-indicator" class="indicator disconnected"></span>
-            <span id="conn-text">Offline</span>
+            <span class="stat"><span class="stat-label">Dist</span> <span id="ultra-val">--</span></span>
         </div>
     </header>
 
+    <div id="wifi-banner" class="hidden">
+        <span id="wifi-banner-text">WiFi detected</span>
+        <button id="wifi-banner-switch">Switch to WiFi</button>
+        <button class="dismiss" id="wifi-banner-dismiss">&#10005;</button>
+    </div>
     <div id="fall-alert" class="hidden">FALL DETECTED</div>
 
     <div id="main">

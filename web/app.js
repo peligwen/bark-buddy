@@ -11,7 +11,11 @@
     var operatorName = new URLSearchParams(location.search).get("name") || "Operator";
 
     function canControl() {
-        // Allow if no one holds the lock, or if we hold it
+        // Block if client version doesn't match server
+        if (window._appVersion && window._serverVersion && window._appVersion !== window._serverVersion) {
+            location.reload();
+            return false;
+        }
         return lockHolder === null || hasLock;
     }
 
@@ -135,13 +139,24 @@
             // Reset local UI state
             setScanRunning(false);
             setPatrolRunning(false);
+        } else if (msg.type === "transport_result") {
+            updateTransportUI(msg);
+        } else if (msg.type === "wifi_setup_result") {
+            var badge = document.getElementById("transport-badge");
+            if (msg.ok) {
+                badge.className = "transport-badge live";
+                badge.textContent = "wifi:" + msg.ip;
+                showWifiBanner(msg.ip, "");
+            } else {
+                badge.className = "transport-badge sim";
+                badge.textContent = document.getElementById("transport-badge").dataset.prev || "SIM";
+            }
         } else if (msg.type === "version") {
             if (window._appVersion && msg.hash !== window._appVersion) {
-                if (confirm("A new version is available. Reload?")) {
-                    location.reload();
-                }
+                location.reload();
             }
             window._appVersion = msg.hash;
+            window._serverVersion = msg.hash;
         }
     }
 
@@ -187,6 +202,15 @@
         }
         if (msg.fallen != null) {
             showFallAlert(msg.fallen);
+        }
+        if (msg.transport != null) {
+            var badge = document.getElementById("transport-badge");
+            var isSim = msg.transport === "sim";
+            badge.textContent = isSim ? "SIM" : msg.transport;
+            badge.className = "transport-badge " + (isSim ? "sim" : "live");
+        }
+        if (msg.wifi_available && msg.wifi_ip) {
+            showWifiBanner(msg.wifi_ip, msg.wifi_ssid);
         }
     }
 
@@ -642,6 +666,77 @@
         });
     }
 
+    // --- Transport switching ---
+    function setupTransport() {
+        var badge = document.getElementById("transport-badge");
+        var menu = document.getElementById("transport-menu");
+
+        badge.addEventListener("click", function (e) {
+            e.stopPropagation();
+            menu.classList.toggle("hidden");
+        });
+
+        // Close menu on outside click
+        document.addEventListener("click", function () {
+            menu.classList.add("hidden");
+        });
+
+        menu.addEventListener("click", function (e) {
+            var btn = e.target.closest("[data-transport]");
+            if (!btn) return;
+            var mode = btn.dataset.transport;
+            menu.classList.add("hidden");
+
+            if (mode === "wifi") {
+                var host = prompt("MechDog WiFi IP:", "192.168.1.163");
+                if (!host) return;
+                send({ type: "cmd_transport", mode: "wifi", wifi_host: host });
+            } else if (mode === "wifi-setup") {
+                var ssid = prompt("WiFi SSID:");
+                if (!ssid) return;
+                var pw = prompt("WiFi Password:");
+                if (pw === null) return;
+                send({ type: "cmd_wifi_setup", ssid: ssid, password: pw });
+                badge.textContent = "SETUP...";
+                badge.className = "transport-badge switching";
+                return;
+            } else {
+                send({ type: "cmd_transport", mode: mode });
+            }
+            badge.textContent = "...";
+            badge.className = "transport-badge switching";
+        });
+    }
+
+    function updateTransportUI(msg) {
+        var badge = document.getElementById("transport-badge");
+        if (msg.ok) {
+            // Badge will update from the next telem_status
+            document.getElementById("wifi-banner").classList.add("hidden");
+        } else {
+            badge.textContent = msg.error || "Failed";
+            badge.className = "transport-badge sim";
+        }
+    }
+
+    function showWifiBanner(ip, ssid) {
+        var banner = document.getElementById("wifi-banner");
+        var text = document.getElementById("wifi-banner-text");
+        text.textContent = "WiFi detected: " + (ssid || ip) + " (" + ip + ")";
+        banner.classList.remove("hidden");
+
+        document.getElementById("wifi-banner-switch").onclick = function () {
+            send({ type: "cmd_transport", mode: "wifi", wifi_host: ip });
+            banner.classList.add("hidden");
+            var badge = document.getElementById("transport-badge");
+            badge.textContent = "...";
+            badge.className = "transport-badge switching";
+        };
+        document.getElementById("wifi-banner-dismiss").onclick = function () {
+            banner.classList.add("hidden");
+        };
+    }
+
     // --- Init ---
     Dog3D.init("dog-3d-container");
     setupDpad();
@@ -651,5 +746,6 @@
     setupScan();
     setupLock();
     setupReset();
+    setupTransport();
     connect();
 })();

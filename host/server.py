@@ -24,16 +24,29 @@ from mock_serial import MockTransport
 logger = logging.getLogger(__name__)
 
 # Telemetry polling intervals
-IMU_POLL_HZ = 10
-ULTRASONIC_POLL_HZ = 5
-BATTERY_POLL_HZ = 0.5
+# Note: REPL transports (USB/WiFi) are slow (~0.5s per round-trip),
+# so these rates are capped by actual throughput on real hardware.
+IMU_POLL_HZ = 2
+ULTRASONIC_POLL_HZ = 1
+BATTERY_POLL_HZ = 0.2
+
+
+def find_serial_port() -> str | None:
+    """Auto-detect a USB serial port for MechDog."""
+    import glob
+    ports = glob.glob("/dev/cu.usbserial*") + glob.glob("/dev/ttyUSB*")
+    return ports[0] if ports else None
 
 
 class Server:
-    def __init__(self, dog: DogComms, web_dir: str, transport=None):
+    def __init__(self, dog: DogComms, web_dir: str, transport=None, transport_label="sim",
+                 wifi_host: str | None = None, wifi_password: str = "bark"):
         self._dog = dog
         self._web_dir = web_dir
-        self._transport = transport  # kept for sim joint reads
+        self._transport = transport
+        self._transport_label = transport_label
+        self._wifi_host = wifi_host
+        self._wifi_password = wifi_password
         self._ws_clients: set[web.WebSocketResponse] = set()
         self._poll_task: asyncio.Task | None = None
         self._balance = BalanceLayer(dog)
@@ -67,7 +80,18 @@ class Server:
 
     async def _on_startup(self, app: web.Application):
         await self._dog.connect()
-        await self._balance.start()
+        # Don't auto-enable homeostasis — it breaks stock firmware gait.
+
+        # If on USB, check if dog has WiFi available
+        if hasattr(self._transport, 'check_wifi_status') and 'usb' in self._transport_label:
+            try:
+                wifi = await self._transport.check_wifi_status()
+                self._detected_wifi = wifi
+                if wifi.get("connected") and wifi.get("ip"):
+                    self._wifi_host = wifi["ip"]
+                    logger.info("Dog WiFi detected: %s (%s)", wifi.get("ip"), wifi.get("ssid"))
+            except Exception:
+                self._detected_wifi = {"connected": False}
 
         # Register balance event callbacks
         self._balance.on_fall(self._on_fall)
@@ -101,6 +125,93 @@ class Server:
         for ws in set(self._ws_clients):
             await ws.close()
         await self._dog.disconnect()
+
+    async def _switch_transport(self, mode: str) -> dict:
+        """Switch between transport modes: 'usb', 'wifi', 'sim'. Returns status dict."""
+        # Signal shutdown on current transport LED
+        if hasattr(self._transport, 'set_led_status') and self._transport.is_open():
+            try:
+                await self._transport.set_led_status("shutdown")
+            except Exception:
+                pass
+        # Stop telemetry and disconnect
+        if self._poll_task:
+            self._poll_task.cancel()
+            try:
+                await self._poll_task
+            except asyncio.CancelledError:
+                pass
+        try:
+            await self._dog.disconnect()
+        except Exception:
+            pass
+
+        # Create new transport
+        try:
+            if mode == "usb":
+                from repl_transport import ReplTransport
+                port = find_serial_port()
+                if not port:
+                    return {"ok": False, "error": "No USB serial device found"}
+                transport = ReplTransport(port=port)
+                label = f"usb:{port.split('/')[-1]}"
+            elif mode == "wifi":
+                if not self._wifi_host:
+                    return {"ok": False, "error": "No WiFi host configured. Start with --wifi"}
+                from webrepl_transport import WebReplTransport
+                transport = WebReplTransport(
+                    host=self._wifi_host, password=self._wifi_password
+                )
+                label = f"wifi:{self._wifi_host}"
+            elif mode == "sim":
+                transport = MockTransport()
+                label = "sim"
+            else:
+                return {"ok": False, "error": f"Unknown mode: {mode}"}
+
+            # Connect new transport
+            self._transport = transport
+            self._dog = DogComms(transport)
+            self._balance = BalanceLayer(self._dog)
+            self._patrol = PatrolBehavior(self._dog)
+            self._scan = ScanBehavior(self._dog)
+            self._scan.on_point(self._on_scan_point)
+            self._scan.on_complete(self._on_scan_complete)
+            self._patrol.on_patrol_complete(self._on_patrol_complete)
+            self._patrol.on_position_update(self._on_position_update)
+            self._balance.on_fall(self._on_fall)
+            self._balance.on_recovered(self._on_recovered)
+
+            await self._dog.connect()
+            self._transport_label = label
+            self._poll_task = asyncio.create_task(self._telemetry_loop())
+
+            logger.info("Switched transport to %s", label)
+            await self._broadcast_status()
+            return {"ok": True, "transport": label}
+
+        except Exception as e:
+            logger.exception("Failed to switch transport to %s", mode)
+            # Fall back to mock
+            self._transport = MockTransport()
+            self._dog = DogComms(self._transport)
+            self._balance = BalanceLayer(self._dog)
+            self._patrol = PatrolBehavior(self._dog)
+            self._scan = ScanBehavior(self._dog)
+            await self._dog.connect()
+            self._transport_label = "sim"
+            self._poll_task = asyncio.create_task(self._telemetry_loop())
+            await self._broadcast_status()
+            return {"ok": False, "error": str(e), "transport": "sim"}
+
+    async def _update_led_status(self):
+        """Update sonar LED based on current state."""
+        if not hasattr(self._transport, 'set_led_status'):
+            return
+        if self._lock_holder:
+            await self._transport.set_led_status("controlled")
+        else:
+            await self._transport.set_led_status("connected")
 
     async def _on_fall(self, imu: dict):
         """Broadcast fall event to all clients."""
@@ -219,6 +330,7 @@ class Server:
             except (ConnectionError, ConnectionResetError):
                 dead.add(ws)
         self._ws_clients -= dead
+        await self._update_led_status()
 
     async def _ws_handler(self, request: web.Request) -> web.WebSocketResponse:
         ws = web.WebSocketResponse()
@@ -227,14 +339,21 @@ class Server:
         logger.info("WebSocket client connected (%d total)", len(self._ws_clients))
 
         # Send initial state
-        await ws.send_str(json.dumps({
+        status = {
             "type": "telem_status",
             "mode": self._mode,
             "balance": self._balance.enabled,
             "fallen": self._balance.fallen,
             "connected": self._dog.connected,
             "scanning": self._scan.running,
-        }))
+            "transport": self._transport_label,
+        }
+        wifi_info = getattr(self, '_detected_wifi', None)
+        if wifi_info and wifi_info.get("connected"):
+            status["wifi_available"] = True
+            status["wifi_ip"] = wifi_info.get("ip", "")
+            status["wifi_ssid"] = wifi_info.get("ssid", "")
+        await ws.send_str(json.dumps(status))
 
         # Send version hash for stale client detection
         await ws.send_str(json.dumps({
@@ -430,6 +549,27 @@ class Server:
                     **self._map.to_dict(),
                 })
 
+        elif msg_type == "cmd_transport":
+            mode = msg.get("mode", "sim")
+            if msg.get("wifi_host"):
+                self._wifi_host = msg["wifi_host"]
+            result = await self._switch_transport(mode)
+            await ws.send_str(json.dumps({"type": "transport_result", **result}))
+
+        elif msg_type == "cmd_wifi_setup":
+            ssid = msg.get("ssid", "")
+            password = msg.get("password", "")
+            if not ssid:
+                await ws.send_str(json.dumps({"type": "wifi_setup_result", "ok": False, "error": "No SSID"}))
+            elif hasattr(self._transport, 'setup_wifi'):
+                result = await self._transport.setup_wifi(ssid, password)
+                if result.get("ok"):
+                    self._wifi_host = result.get("ip")
+                    self._detected_wifi = {"connected": True, "ip": result["ip"], "ssid": ssid}
+                await ws.send_str(json.dumps({"type": "wifi_setup_result", **result}))
+            else:
+                await ws.send_str(json.dumps({"type": "wifi_setup_result", "ok": False, "error": "Not on USB"}))
+
         elif msg_type == "cmd_reset":
             if self._transport:
                 self._transport.reset()
@@ -546,7 +686,6 @@ class Server:
                         await self._dog.disconnect()
                         await asyncio.sleep(backoff)
                         await self._dog.connect()
-                        await self._balance.start()
                         backoff = 1
                         logger.info("Reconnected successfully")
                         await self._broadcast_status()
@@ -560,18 +699,31 @@ class Server:
 
 
 async def main(args):
-    if args.serial:
-        from comms import SerialTransport
-        transport = SerialTransport(port=args.serial)
-        logger.info("Using serial transport: %s", args.serial)
+    if args.wifi:
+        from webrepl_transport import WebReplTransport
+        host_port = args.wifi.split(":")
+        host = host_port[0]
+        port = int(host_port[1]) if len(host_port) > 1 else 8266
+        password = args.wifi_password or "bark"
+        transport = WebReplTransport(host=host, port=port, password=password)
+        transport_label = f"wifi:{host}"
+        logger.info("Using WebREPL transport: %s:%d", host, port)
+    elif args.serial:
+        from repl_transport import ReplTransport
+        transport = ReplTransport(port=args.serial)
+        transport_label = f"usb:{args.serial.split('/')[-1]}"
+        logger.info("Using REPL transport: %s", args.serial)
     else:
         transport = MockTransport()
-        logger.info("Using mock transport (no --serial specified)")
+        transport_label = "sim"
+        logger.info("Using mock transport (no --serial or --wifi specified)")
 
     dog = DogComms(transport)
     web_dir = os.path.join(os.path.dirname(__file__), "..", "web")
     web_dir = os.path.abspath(web_dir)
-    server = Server(dog, web_dir, transport=transport)
+    wifi_host = args.wifi.split(":")[0] if args.wifi else None
+    server = Server(dog, web_dir, transport=transport, transport_label=transport_label,
+                    wifi_host=wifi_host, wifi_password=args.wifi_password or "bark")
     await server.start(host=args.host, port=args.port)
 
 
@@ -585,5 +737,9 @@ if __name__ == "__main__":
     parser.add_argument("--port", type=int, default=8080)
     parser.add_argument("--serial", default=None,
                         help="Serial port for MechDog (e.g. /dev/ttyUSB0). Omit for mock.")
+    parser.add_argument("--wifi", default=None,
+                        help="MechDog WiFi address (e.g. 192.168.1.163 or 192.168.1.163:8266)")
+    parser.add_argument("--wifi-password", default="bark",
+                        help="WebREPL password (default: bark)")
     args = parser.parse_args()
     asyncio.run(main(args))
