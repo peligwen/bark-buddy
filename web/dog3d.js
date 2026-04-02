@@ -33,7 +33,7 @@ var Dog3D = (function () {
     // Camera orbit
     var isDragging = false, prevMouse = { x: 0, y: 0 };
     // Chase camera: theta is offset from dog's yaw (0 = directly behind)
-    var cameraAngle = { thetaOffset: 0, phi: Math.PI / 5, radius: 6 };
+    var cameraAngle = { thetaOffset: 0, phi: Math.PI / 5, radius: 8 };
     var camYaw = 0; // smoothed camera yaw tracking the dog
 
     // Telemetry targets (smoothed)
@@ -343,6 +343,8 @@ var Dog3D = (function () {
 
     // --- Gait animation (when no sim joint data) ---
 
+    var bodyBounce = 0;
+
     function animateGait(dt) {
         var speed = 0;
         if (currentMotion === "forward") speed = 6;
@@ -350,31 +352,40 @@ var Dog3D = (function () {
         else if (currentMotion === "left" || currentMotion === "right") speed = 3;
 
         if (speed === 0 && currentAction == null) {
-            // Blend back to standing
             walkPhase = 0;
+            bodyBounce = 0;
             setAllLegs(STAND_HIP, STAND_KNEE);
             return;
         }
 
         if (currentAction != null) {
             animateAction();
+            bodyBounce = 0;
             return;
         }
 
         walkPhase += speed * dt;
 
         // Trot gait: diagonal pairs move together
-        // FL+RR are one pair, FR+RL are the other
-        var amp = 0.25; // hip swing amplitude (radians)
-        var kneeAmp = 0.2;
+        var hipAmp = 0.22;   // hip swing amplitude (radians)
+        var kneeAmp = 0.35;  // knee lift amplitude
+        var kneeBias = 0.1;  // extra knee bend to keep feet above ground
 
         var phA = Math.sin(walkPhase);
         var phB = Math.sin(walkPhase + Math.PI);
 
-        setLeg("fl", STAND_HIP + amp * phA, STAND_KNEE - kneeAmp * Math.max(0, phA));
-        setLeg("rr", STAND_HIP + amp * phA, STAND_KNEE - kneeAmp * Math.max(0, phA));
-        setLeg("fr", STAND_HIP + amp * phB, STAND_KNEE - kneeAmp * Math.max(0, phB));
-        setLeg("rl", STAND_HIP + amp * phB, STAND_KNEE - kneeAmp * Math.max(0, phB));
+        // Knee lifts during swing (positive phase), extra bend during stance
+        var kneeA = STAND_KNEE - kneeBias - kneeAmp * Math.abs(phA);
+        var kneeB = STAND_KNEE - kneeBias - kneeAmp * Math.abs(phB);
+
+        setLeg("fl", STAND_HIP + hipAmp * phA, kneeA);
+        setLeg("rr", STAND_HIP + hipAmp * phA, kneeA);
+        setLeg("fr", STAND_HIP + hipAmp * phB, kneeB);
+        setLeg("rl", STAND_HIP + hipAmp * phB, kneeB);
+
+        // Body dynamics
+        // Double-frequency bounce (body rises at mid-swing of each pair)
+        bodyBounce = 0.015 * S * Math.abs(Math.sin(walkPhase * 2));
     }
 
     function animateAction() {
@@ -620,6 +631,7 @@ var Dog3D = (function () {
         if (dogGroup) {
             // Position: sim X = scene X, sim Y = scene Z
             dogGroup.position.x = currentX;
+            dogGroup.position.y = standingHeight() + bodyBounce;
             dogGroup.position.z = currentZ;
 
             // Yaw rotation around Y axis, then pitch/roll on top
@@ -628,8 +640,10 @@ var Dog3D = (function () {
             dogGroup.rotation.x = currentRoll * (Math.PI / 180);
 
             // Leg animation: use sim joints if available, otherwise gait from motion state
+            // (gait updates bodyBounce and may add pitch oscillation)
             if (simJoints) {
                 applySimJoints();
+                bodyBounce = 0;
             } else {
                 animateGait(dt);
             }
