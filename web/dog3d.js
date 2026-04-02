@@ -494,14 +494,15 @@ var Dog3D = (function () {
             ultraBeam.material.opacity = 0.12;
         }
 
-        // Hit point: sensor position + distance along dog's forward direction (world space)
-        if (ultraHit && dogGroup) {
-            // Sensor tip in local dog space — project to ground plane (y=0)
-            var localHit = new THREE.Vector3(sx + len, 0, 0);
-            // Transform to world space via dogGroup
-            dogGroup.localToWorld(localHit);
-            localHit.y = 0; // anchor beacon at ground level
-            ultraHit.position.copy(localHit);
+        // Hit point: compute directly from target (non-interpolated) position + heading
+        // This avoids mismatch between smoothed visual dog and actual sensor reading
+        if (ultraHit) {
+            var cosY = Math.cos(targetYaw);
+            var sinY = Math.sin(targetYaw);
+            var hitDist = sx + len; // sensor offset + distance in local X
+            var hitWorldX = targetX + hitDist * cosY;
+            var hitWorldZ = targetZ - hitDist * sinY;
+            ultraHit.position.set(hitWorldX, 0, hitWorldZ);
             ultraHit.visible = true;
 
             // Color beacon by distance
