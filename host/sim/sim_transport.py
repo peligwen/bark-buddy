@@ -87,6 +87,7 @@ class SimTransport(Transport):
         self._robot: Optional[int] = None
         self._plane: Optional[int] = None
         self._walls: list[int] = []
+        self._wall_geom: list[dict] = []  # geometry for export to 3D view
 
         # Motion state
         self._motion_cmd = 1  # MOTION_STOP
@@ -187,6 +188,11 @@ class SimTransport(Transport):
         body = p.createMultiBody(0, col, vis, [cx, cy, height / 2], quat,
                                  physicsClientId=c)
         self._walls.append(body)
+        self._wall_geom.append({
+            "cx": cx, "cy": cy,
+            "length": length, "thickness": thickness, "height": height,
+            "angle": angle,
+        })
         return body
 
     def add_box_room(self, width: float = 2.0, depth: float = 2.0,
@@ -204,6 +210,7 @@ class SimTransport(Transport):
         for body in self._walls:
             p.removeBody(body, physicsClientId=c)
         self._walls.clear()
+        self._wall_geom.clear()
 
     # --- Pose reset utility (for tests) ---
 
@@ -402,6 +409,10 @@ class SimTransport(Transport):
                                                   physicsClientId=self._client)
         euler = p.getEulerFromQuaternion(orn)
         return math.degrees(euler[2])
+
+    def get_walls(self) -> list[dict]:
+        """Return wall geometry for 3D visualization."""
+        return list(self._wall_geom)
 
     def get_joint_states(self) -> dict:
         """Read all joint angles and foot positions for telemetry.

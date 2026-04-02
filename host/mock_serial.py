@@ -23,12 +23,22 @@ class MockTransport(Transport):
     - Acks motion/posture/action commands with CMD|<func>|OK|$
     - Returns fake IMU tilt data (gentle sinusoidal sway)
     - Returns fake battery voltage
+    - Provides mock room walls for 3D visualization
     """
 
     def __init__(self):
         self._open = False
         self._inbox: asyncio.Queue[str] = asyncio.Queue()
         self._start_time = 0.0
+        # Mock room: 2m x 2m box with an interior partition
+        hw, hd = 1.0, 1.0
+        self._wall_geom = [
+            {"cx": 0.0, "cy": -hd, "length": 2.0, "thickness": 0.02, "height": 0.3, "angle": 0.0},
+            {"cx": hw, "cy": 0.0, "length": 2.0, "thickness": 0.02, "height": 0.3, "angle": math.pi / 2},
+            {"cx": 0.0, "cy": hd, "length": 2.0, "thickness": 0.02, "height": 0.3, "angle": 0.0},
+            {"cx": -hw, "cy": 0.0, "length": 2.0, "thickness": 0.02, "height": 0.3, "angle": math.pi / 2},
+            {"cx": 0.3, "cy": 0.4, "length": 0.6, "thickness": 0.02, "height": 0.3, "angle": 0.0},
+        ]
 
     async def open(self) -> None:
         self._open = True
@@ -56,6 +66,10 @@ class MockTransport(Transport):
 
     def is_open(self) -> bool:
         return self._open
+
+    def get_walls(self) -> list[dict]:
+        """Return mock wall geometry for 3D visualization."""
+        return list(self._wall_geom)
 
     def _process_cmd(self, cmd: str) -> Optional[str]:
         """Parse incoming CMD and generate appropriate response."""

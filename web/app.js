@@ -23,8 +23,9 @@
                 clearInterval(reconnectTimer);
                 reconnectTimer = null;
             }
-            // Request existing map data on connect
+            // Request existing map and wall data on connect
             send({ type: "cmd_map", action: "get" });
+            send({ type: "cmd_walls" });
         };
 
         ws.onclose = function () {
@@ -100,6 +101,8 @@
             setScanRunning(false);
         } else if (msg.type === "map_data") {
             renderFullMap(msg);
+        } else if (msg.type === "sim_walls") {
+            Dog3D.setWalls(msg.walls);
         }
     }
 

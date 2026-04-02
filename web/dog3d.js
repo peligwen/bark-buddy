@@ -32,7 +32,7 @@ var Dog3D = (function () {
 
     // Camera orbit
     var isDragging = false, prevMouse = { x: 0, y: 0 };
-    var cameraAngle = { theta: Math.PI / 5, phi: Math.PI / 5, radius: 3.5 };
+    var cameraAngle = { theta: Math.PI / 5, phi: Math.PI / 5.5, radius: 8.5 };
 
     // Telemetry targets (smoothed)
     var targetPitch = 0, targetRoll = 0;
@@ -441,7 +441,7 @@ var Dog3D = (function () {
         camera.position.x = cameraAngle.radius * Math.cos(cameraAngle.phi) * Math.sin(cameraAngle.theta);
         camera.position.y = cameraAngle.radius * Math.sin(cameraAngle.phi);
         camera.position.z = cameraAngle.radius * Math.cos(cameraAngle.phi) * Math.cos(cameraAngle.theta);
-        camera.lookAt(0, standingHeight() * 0.5, 0);
+        camera.lookAt(0, standingHeight() * 0.3, 0);
     }
 
     function setupControls() {
@@ -531,6 +531,59 @@ var Dog3D = (function () {
         renderer.setSize(container.clientWidth, container.clientHeight);
     }
 
+    // --- Walls ---
+    var wallMeshes = [];
+
+    function clearWalls() {
+        wallMeshes.forEach(function (m) { scene.remove(m); });
+        wallMeshes = [];
+    }
+
+    function addWalls(walls) {
+        clearWalls();
+        if (!walls || !walls.length) return;
+
+        // Wall material: semi-transparent light gray with edges
+        var wallMat = new THREE.MeshStandardMaterial({
+            color: 0xb0b0b0,
+            roughness: 0.7,
+            metalness: 0.05,
+            transparent: true,
+            opacity: 0.55,
+        });
+        var edgeMat = new THREE.LineBasicMaterial({ color: 0x888888 });
+
+        walls.forEach(function (w) {
+            // Wall geometry: length x thickness x height, all in meters -> scene units
+            var geo = new THREE.BoxGeometry(w.length * S, w.height * S, w.thickness * S);
+            var mesh = new THREE.Mesh(geo, wallMat);
+
+            // Position: sim uses X=forward, Y=left, Z=up
+            // Scene uses X=forward, Z=lateral, Y=up
+            // Wall center: (cx, cy) in sim XY plane -> (cx, height/2, cy) in scene
+            mesh.position.set(w.cx * S, (w.height * S) / 2, w.cy * S);
+
+            // Rotation: sim angle is around Z axis (yaw in XY plane)
+            // In scene, yaw rotates around Y axis
+            mesh.rotation.y = -w.angle;
+
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+            scene.add(mesh);
+            wallMeshes.push(mesh);
+
+            // Wireframe edges for visual clarity
+            var edges = new THREE.LineSegments(
+                new THREE.EdgesGeometry(geo),
+                edgeMat
+            );
+            edges.position.copy(mesh.position);
+            edges.rotation.copy(mesh.rotation);
+            scene.add(edges);
+            wallMeshes.push(edges);
+        });
+    }
+
     // --- Public API ---
 
     return {
@@ -546,6 +599,10 @@ var Dog3D = (function () {
 
         updateUltrasonic: function (distance_mm) {
             ultraDistance = distance_mm;
+        },
+
+        setWalls: function (walls) {
+            addWalls(walls);
         },
 
         setFallen: function (fallen) {

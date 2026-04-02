@@ -172,6 +172,15 @@ class Server:
             "scanning": self._scan.running,
         }))
 
+        # Send wall geometry if transport provides it
+        if self._transport and hasattr(self._transport, "get_walls"):
+            walls = self._transport.get_walls()
+            if walls:
+                await ws.send_str(json.dumps({
+                    "type": "sim_walls",
+                    "walls": walls,
+                }))
+
         try:
             async for raw_msg in ws:
                 if raw_msg.type == web.WSMsgType.TEXT:
@@ -283,6 +292,15 @@ class Server:
                     "type": "map_data",
                     **self._map.to_dict(),
                 })
+
+        elif msg_type == "cmd_walls":
+            if self._transport and hasattr(self._transport, "get_walls"):
+                walls = self._transport.get_walls()
+                if walls:
+                    await self._broadcast({
+                        "type": "sim_walls",
+                        "walls": walls,
+                    })
 
         else:
             logger.warning("Unknown WS message type: %s", msg_type)
