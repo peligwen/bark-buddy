@@ -833,13 +833,13 @@ var Dog3D = (function () {
             var leg = legs[name];
             if (!leg) return;
 
-            var hipMarker = makeGlowMarker(0, 0, 0, 0x00ff88, 0.02 * S);
+            var hipMarker = makeGlowMarker(0, 0, 0, 0x00ffcc, 0.012 * S);
             addOverlay(hipMarker, leg.hipPivot);
 
-            var kneeMarker = makeGlowMarker(0, 0, 0, 0xff8800, 0.02 * S);
+            var kneeMarker = makeGlowMarker(0, 0, 0, 0xff8800, 0.012 * S);
             addOverlay(kneeMarker, leg.kneePivot);
 
-            var footMarker = makeGlowMarker(0, -LOWER_LEN, 0, 0xff00ff, 0.015 * S);
+            var footMarker = makeGlowMarker(0, -LOWER_LEN, 0, 0xff44ff, 0.008 * S);
             addOverlay(footMarker, leg.kneePivot);
 
             addOverlay(makeLegLink(0, 0, 0, 0, -UPPER_LEN, 0, 0x00ffff), leg.hipPivot);

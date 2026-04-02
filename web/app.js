@@ -924,17 +924,22 @@
     setupNoisePanel();
     setupBatteryGraph();
 
-    // Kinematics overlay toggle
-    (function () {
-        var btn = document.getElementById("btn-overlay");
-        var on = false;
-        btn.addEventListener("click", function (e) {
-            e.stopPropagation();
-            on = !on;
-            Dog3D.toggleOverlay(on);
-            btn.classList.toggle("active", on);
-        });
-    })();
+    // Kinematics overlay toggle (button + K key)
+    var overlayOn = false;
+    function toggleKinematics() {
+        overlayOn = !overlayOn;
+        Dog3D.toggleOverlay(overlayOn);
+        document.getElementById("btn-overlay").classList.toggle("active", overlayOn);
+    }
+    document.getElementById("btn-overlay").addEventListener("click", function (e) {
+        e.stopPropagation();
+        toggleKinematics();
+    });
+    document.addEventListener("keydown", function (e) {
+        if (e.key === "k" || e.key === "K") {
+            toggleKinematics();
+        }
+    });
 
     connect();
 })();
