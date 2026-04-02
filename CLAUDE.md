@@ -58,6 +58,15 @@ See `docs/decisions.md` for full rationale.
 - Battery: `CMD|6|$` → `CMD|6|<mv>|$`
 - Actions: `CMD|2|1|<1-5>|$` (wave, stretch, turn, sit, lie)
 
+## Workflow Guidelines
+
+- **Commit early and often.** Small, focused commits. Push after each logical unit of work — don't batch up large changes.
+- **If `git push` fails once, immediately fall back to MCP `push_files`.** Do not retry git push with exponential backoff — it wastes time and the proxy may be temporarily down.
+- **Minimize file re-reads.** If you just wrote a file, use its content from memory for MCP push — don't re-read it. Only re-read if a linter/formatter may have changed it.
+- **Avoid rewriting all docs at once.** When pivoting architecture, update one doc at a time, commit, push. Don't batch 9 file rewrites into a single push.
+- **Keep MCP `push_files` calls small.** If pushing more than 4-5 files, split into multiple commits/pushes to avoid token-heavy operations and timeouts.
+- **Ask before major pivots.** If research reveals the planned approach is wrong (e.g., stock firmware already does what we planned to build), confirm the pivot with the user before rewriting everything.
+
 ## Out of Scope (Milestone 1)
 
 Camera/vision, object carrying, runtime AI, mobile app, Pi integration, advanced gaits, obstacle avoidance, SLAM, custom firmware.
