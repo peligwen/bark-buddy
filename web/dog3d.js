@@ -46,16 +46,18 @@ var Dog3D = (function () {
     // Leg pivots — each leg has { hipPivot, kneePivot, upperMesh, lowerMesh, footMesh }
     var legs = {};
 
-    // Colors matching the UI theme
+    // Industrial yellow dog on white lab floor
     var COL = {
-        body:    0x2a2a4a,
-        accent:  0xe94560,
-        leg:     0x1a1a3e,
-        head:    0x333366,
-        eye:     0x4ecca3,
-        ground:  0x0f0f2a,
-        sensor:  0x666688,
-        beam:    0x4ecca3,
+        body:    0xd4a017,  // safety yellow
+        accent:  0x1a1a1a,  // black trim
+        leg:     0x2c2c2c,  // dark charcoal legs
+        head:    0xe2b52e,  // lighter yellow head
+        eye:     0x33ff66,  // bright green status LED
+        ground:  0xe8e8e8,  // white lab floor
+        sensor:  0x888888,  // silver sensor housings
+        beam:    0x33aaff,  // blue ultrasonic beam
+        joint:   0x444444,  // dark joint spheres
+        grid:    0xcccccc,  // subtle floor grid
     };
 
     function init(containerId) {
@@ -63,8 +65,8 @@ var Dog3D = (function () {
         if (!container) return;
 
         scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x0a0a1a);
-        scene.fog = new THREE.Fog(0x0a0a1a, 12, 30);
+        scene.background = new THREE.Color(0xf0f0f0);
+        scene.fog = new THREE.Fog(0xf0f0f0, 20, 40);
 
         camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 50);
         updateCameraPosition();
@@ -74,29 +76,43 @@ var Dog3D = (function () {
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         renderer.shadowMap.enabled = true;
         renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        renderer.toneMapping = THREE.LinearToneMapping;
+        renderer.toneMappingExposure = 1.0;
         container.appendChild(renderer.domElement);
 
-        // Lights
-        scene.add(new THREE.AmbientLight(0x404060, 0.6));
-        var dir = new THREE.DirectionalLight(0xffffff, 0.8);
-        dir.position.set(3, 5, 4);
-        dir.castShadow = true;
-        dir.shadow.mapSize.set(1024, 1024);
-        scene.add(dir);
-        var rim = new THREE.DirectionalLight(0x4ecca3, 0.3);
-        rim.position.set(-3, 2, -2);
-        scene.add(rim);
+        // White ambient fill — lab-style even lighting
+        scene.add(new THREE.AmbientLight(0xffffff, 0.7));
 
-        // Ground + grid
+        // Overhead key light (directly above, slightly forward) — like a ceiling panel
+        var overhead = new THREE.DirectionalLight(0xffffff, 0.8);
+        overhead.position.set(0.5, 8, 0.5);
+        overhead.castShadow = true;
+        overhead.shadow.mapSize.set(1024, 1024);
+        overhead.shadow.camera.near = 1;
+        overhead.shadow.camera.far = 15;
+        overhead.shadow.camera.left = -4;
+        overhead.shadow.camera.right = 4;
+        overhead.shadow.camera.top = 4;
+        overhead.shadow.camera.bottom = -4;
+        scene.add(overhead);
+
+        // Secondary fill from the side — softer
+        var fill = new THREE.DirectionalLight(0xffffff, 0.3);
+        fill.position.set(-3, 4, 2);
+        scene.add(fill);
+
+        // White lab floor
         var ground = new THREE.Mesh(
             new THREE.PlaneGeometry(30, 30),
-            new THREE.MeshStandardMaterial({ color: COL.ground, roughness: 0.9 })
+            new THREE.MeshStandardMaterial({ color: COL.ground, roughness: 0.4, metalness: 0.0 })
         );
         ground.rotation.x = -Math.PI / 2;
         ground.position.y = -0.01;
         ground.receiveShadow = true;
         scene.add(ground);
-        scene.add(new THREE.GridHelper(15, 30, 0x1a1a3e, 0x111133));
+
+        // Subtle floor grid
+        scene.add(new THREE.GridHelper(15, 30, COL.grid, 0xdddddd));
 
         // Build articulated dog
         dogGroup = new THREE.Group();
@@ -129,12 +145,12 @@ var Dog3D = (function () {
     }
 
     function buildDog(group) {
-        var bodyMat = mat(COL.body);
-        var legMat = mat(COL.leg, { roughness: 0.7, metalness: 0.1 });
-        var headMat = mat(COL.head, { roughness: 0.5 });
-        var accentMat = mat(COL.accent, { roughness: 0.4, metalness: 0.3 });
-        var eyeMat = mat(COL.eye, { emissive: COL.eye });
-        var sensorMat = mat(COL.sensor, { metalness: 0.5, roughness: 0.3 });
+        var bodyMat = mat(COL.body, { roughness: 0.45, metalness: 0.1 });
+        var legMat = mat(COL.leg, { roughness: 0.6, metalness: 0.15 });
+        var headMat = mat(COL.head, { roughness: 0.4, metalness: 0.1 });
+        var accentMat = mat(COL.accent, { roughness: 0.5, metalness: 0.2 });
+        var eyeMat = mat(COL.eye, { emissive: COL.eye, ei: 1.0 });
+        var sensorMat = mat(COL.sensor, { metalness: 0.4, roughness: 0.3 });
 
         // Body chassis
         var body = new THREE.Mesh(new THREE.BoxGeometry(BODY_L, BODY_H, BODY_W), bodyMat);
@@ -219,8 +235,10 @@ var Dog3D = (function () {
             { name: "rr", x: -HIP_OFFSET_X, z: -HIP_OFFSET_Z },
         ];
 
+        var jointMat = mat(COL.joint, { roughness: 0.5, metalness: 0.3 });
+
         legDefs.forEach(function (def) {
-            var leg = buildLeg(def.name, legMat, accentMat);
+            var leg = buildLeg(def.name, legMat, jointMat);
             // Position hip pivot at URDF joint origin relative to body center
             leg.hipPivot.position.set(def.x, HIP_OFFSET_Y, def.z);
             group.add(leg.hipPivot);
