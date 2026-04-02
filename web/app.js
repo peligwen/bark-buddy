@@ -219,7 +219,7 @@
         // Show sim panel only in sim mode
         var simPanel = document.getElementById("sim-panel");
         if (msg.transport != null) {
-            if (msg.transport === "sim") {
+            if (msg.transport === "sim" || msg.transport === "sim+") {
                 simPanel.classList.remove("hidden");
             } else {
                 simPanel.classList.add("hidden");

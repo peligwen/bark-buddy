@@ -166,6 +166,10 @@ class Server:
             elif mode == "sim":
                 transport = MockTransport()
                 label = "sim"
+            elif mode == "sim+":
+                from mock_firmware import MockFirmwareTransport
+                transport = MockFirmwareTransport()
+                label = "sim+"
             else:
                 return {"ok": False, "error": f"Unknown mode: {mode}"}
 
@@ -376,7 +380,7 @@ class Server:
             status["wifi_available"] = True
             status["wifi_ip"] = wifi_info.get("ip", "")
             status["wifi_ssid"] = wifi_info.get("ssid", "")
-        if isinstance(self._transport, MockTransport):
+        if hasattr(self._transport, "get_noise_params"):
             status["noise_params"] = self._transport.get_noise_params()
         await ws.send_str(json.dumps(status))
 
@@ -575,7 +579,7 @@ class Server:
                 })
 
         elif msg_type == "cmd_sim_noise":
-            if isinstance(self._transport, MockTransport):
+            if hasattr(self._transport, "set_noise_params"):
                 self._transport.set_noise_params(msg.get("params", {}))
                 await ws.send_str(json.dumps({
                     "type": "sim_noise_ack", "ok": True,
@@ -818,10 +822,15 @@ async def main(args):
     elif args.serial:
         # Auto-detect: custom firmware (JSON) or stock MicroPython (REPL)
         transport, transport_label = await _detect_serial_transport(args.serial)
-    else:
+    elif args.sim == "classic":
         transport = MockTransport()
         transport_label = "sim"
-        logger.info("Using mock transport (no --serial or --wifi specified)")
+        logger.info("Using classic mock transport (CMD protocol)")
+    else:
+        from mock_firmware import MockFirmwareTransport
+        transport = MockFirmwareTransport()
+        transport_label = "sim+"
+        logger.info("Using sim+ mock transport (firmware-rate telemetry)")
 
     dog = DogComms(transport)
     web_dir = os.path.join(os.path.dirname(__file__), "..", "web")
@@ -846,5 +855,8 @@ if __name__ == "__main__":
                         help="MechDog WiFi address (e.g. 192.168.1.163 or 192.168.1.163:8266)")
     parser.add_argument("--wifi-password", default="bark",
                         help="WebREPL password (default: bark)")
+    parser.add_argument("--sim", nargs="?", const="plus", default="plus",
+                        choices=["plus", "classic"],
+                        help="Sim mode: 'plus' (default, firmware-rate) or 'classic' (CMD protocol)")
     args = parser.parse_args()
     asyncio.run(main(args))
