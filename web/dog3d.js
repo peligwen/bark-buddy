@@ -470,17 +470,20 @@ var Dog3D = (function () {
         var maxLen = 3.0 * S;
         len = Math.min(len, maxLen);
 
-        // Scale the cone (base geometry is 1.0*S tall)
-        var lengthScale = len / (1.0 * S);
+        // Cone spans from sensor to wall hit point
+        // len = center-to-wall distance; sx = center-to-sensor offset
+        var sx = ultraBeam.userData.sensorX;
+        var sy = ultraBeam.userData.sensorY;
+        var beamLen = Math.max(0.01, len - sx); // sensor-to-wall distance
+
+        var lengthScale = beamLen / (1.0 * S);
         ultraBeam.scale.y = lengthScale;
-        var widthScale = 0.5 + 0.5 * (len / maxLen);
+        var widthScale = 0.5 + 0.5 * (beamLen / maxLen);
         ultraBeam.scale.x = widthScale;
         ultraBeam.scale.z = widthScale;
 
-        // Anchor tip at sensor mount, offset center forward by half scaled length
-        var sx = ultraBeam.userData.sensorX;
-        var sy = ultraBeam.userData.sensorY;
-        ultraBeam.position.set(sx + (len / 2), sy, 0);
+        // Cone center is halfway between sensor and wall
+        ultraBeam.position.set(sx + (beamLen / 2), sy, 0);
 
         // Color by distance
         if (ultraDistance < 150) {
@@ -495,13 +498,12 @@ var Dog3D = (function () {
         }
 
         // Hit point: compute directly from target (non-interpolated) position + heading
-        // This avoids mismatch between smoothed visual dog and actual sensor reading
+        // Distance is from dog center (not sensor), so don't add sensor offset
         if (ultraHit) {
             var cosY = Math.cos(targetYaw);
             var sinY = Math.sin(targetYaw);
-            var hitDist = sx + len; // sensor offset + distance in local X
-            var hitWorldX = targetX + hitDist * cosY;
-            var hitWorldZ = targetZ - hitDist * sinY;
+            var hitWorldX = targetX + len * cosY;
+            var hitWorldZ = targetZ - len * sinY;
             ultraHit.position.set(hitWorldX, 0, hitWorldZ);
             ultraHit.visible = true;
 
