@@ -81,9 +81,23 @@ Minimal working versions of remote control, balance & recovery, and patrol using
 - Generate obstacle-aware waypoint paths
 - Real-time obstacle avoidance during patrol
 
+## Milestone 3: Physics Simulation Engine ✅
+
+### Phase 1: SimTransport + URDF ✅
+
+1. ~~URDF model~~ → `sim/mechdog.urdf` — 8-DOF MechDog from Hiwonder specs (173x73x50mm body, 55mm upper + 60mm lower legs, 4 feet with friction)
+2. ~~SimTransport~~ → `sim/sim_transport.py` — PyBullet transport implementing CMD protocol
+   - Velocity-based forward/backward movement (0.10 m/s matching stock firmware)
+   - Kinematic turning (45°/s matching stock firmware)
+   - Body stabilization (pitch/roll correction simulating self-balance)
+   - Ultrasonic cone ray casting (5 rays, 30° cone, 3m max range)
+   - Simulated IMU from body orientation
+   - Room/wall creation for mapping tests (`add_wall`, `add_box_room`)
+   - Fast-forward via `speed_factor` parameter (headless DIRECT mode)
+3. ~~Tests~~ → 12 checks: connect, standing, fwd/back/left/right, IMU, ultrasonic open/wall, battery, room walls, heading-aware forward
+
 ### Other Goals
 - 3D orientation model in web UI (Three.js)
-- Physics simulator for host-side testing (PyBullet/MuJoCo)
 - Custom firmware for advanced gaits and fine-grained servo control
 - WiFi transport
 
