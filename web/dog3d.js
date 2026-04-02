@@ -37,6 +37,8 @@ var Dog3D = (function () {
     // Telemetry targets (smoothed)
     var targetPitch = 0, targetRoll = 0;
     var currentPitch = 0, currentRoll = 0;
+    var targetX = 0, targetZ = 0, targetYaw = 0;
+    var currentX = 0, currentZ = 0, currentYaw = 0;
     var currentMotion = "stop";
     var currentAction = null;
     var ultraDistance = null;
@@ -122,6 +124,7 @@ var Dog3D = (function () {
 
         // Build articulated dog
         dogGroup = new THREE.Group();
+        dogGroup.rotation.order = 'YZX'; // Yaw first (Y), then pitch (Z), then roll (X)
         buildDog(dogGroup);
         // Position dog so feet are near ground level
         dogGroup.position.y = standingHeight();
@@ -502,12 +505,24 @@ var Dog3D = (function () {
         var dt = lastTime ? Math.min((time - lastTime) / 1000, 0.1) : 0.016;
         lastTime = time;
 
-        // Smooth IMU interpolation
+        // Smooth interpolation
         currentPitch += (targetPitch - currentPitch) * 0.15;
         currentRoll += (targetRoll - currentRoll) * 0.15;
+        currentX += (targetX - currentX) * 0.15;
+        currentZ += (targetZ - currentZ) * 0.15;
+        // Smooth yaw with wrapping
+        var yawDiff = targetYaw - currentYaw;
+        if (yawDiff > Math.PI) yawDiff -= 2 * Math.PI;
+        if (yawDiff < -Math.PI) yawDiff += 2 * Math.PI;
+        currentYaw += yawDiff * 0.15;
 
         if (dogGroup) {
-            // Pitch = forward/back tilt around Z, Roll = side tilt around X
+            // Position: sim X = scene X, sim Y = scene Z
+            dogGroup.position.x = currentX;
+            dogGroup.position.z = currentZ;
+
+            // Yaw rotation around Y axis, then pitch/roll on top
+            dogGroup.rotation.y = currentYaw;
             dogGroup.rotation.z = currentPitch * (Math.PI / 180);
             dogGroup.rotation.x = currentRoll * (Math.PI / 180);
 
@@ -595,6 +610,15 @@ var Dog3D = (function () {
             if (msg.motion != null) currentMotion = msg.motion;
             if (msg.action !== undefined) currentAction = msg.action;
             if (msg.joints) simJoints = msg.joints;
+            // Position: sim (x,y) -> scene (x, z), scaled by S
+            if (msg.pos) {
+                targetX = msg.pos.x * S;
+                targetZ = msg.pos.y * S;
+            }
+            // Heading: sim degrees -> scene radians around Y
+            if (msg.heading != null) {
+                targetYaw = msg.heading * (Math.PI / 180);
+            }
         },
 
         updateUltrasonic: function (distance_mm) {

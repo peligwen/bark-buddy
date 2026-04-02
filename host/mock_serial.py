@@ -26,10 +26,19 @@ class MockTransport(Transport):
     - Provides mock room walls for 3D visualization
     """
 
+    # Dead reckoning speeds (matching patrol.py estimates)
+    FORWARD_SPEED = 0.10   # m/s
+    TURN_SPEED = 45.0      # deg/s
+
     def __init__(self):
         self._open = False
         self._inbox: asyncio.Queue[str] = asyncio.Queue()
         self._start_time = 0.0
+        self._last_motion_time = 0.0
+        self._motion_cmd = 1  # STOP
+        self._x = 0.0
+        self._y = 0.0
+        self._heading = 0.0  # degrees
         # Mock room: 2m x 2m box with an interior partition
         hw, hd = 1.0, 1.0
         self._wall_geom = [
@@ -71,6 +80,39 @@ class MockTransport(Transport):
         """Return mock wall geometry for 3D visualization."""
         return list(self._wall_geom)
 
+    def get_position(self) -> tuple[float, float, float]:
+        """Get dead-reckoned position (x, y, z)."""
+        self._step_dead_reckoning()
+        return (self._x, self._y, 0.0)
+
+    def get_heading(self) -> float:
+        """Get current heading in degrees."""
+        self._step_dead_reckoning()
+        return self._heading
+
+    def _step_dead_reckoning(self) -> None:
+        """Update position based on current motion and elapsed time."""
+        now = time.monotonic()
+        dt = now - self._last_motion_time if self._last_motion_time > 0 else 0
+        if dt <= 0 or dt > 1.0:
+            self._last_motion_time = now
+            return
+        self._last_motion_time = now
+
+        cmd = self._motion_cmd
+        if cmd == 3:  # forward
+            rad = math.radians(self._heading)
+            self._x += self.FORWARD_SPEED * dt * math.cos(rad)
+            self._y += self.FORWARD_SPEED * dt * math.sin(rad)
+        elif cmd == 4:  # backward
+            rad = math.radians(self._heading)
+            self._x -= self.FORWARD_SPEED * dt * math.cos(rad)
+            self._y -= self.FORWARD_SPEED * dt * math.sin(rad)
+        elif cmd == 5:  # turn left
+            self._heading += self.TURN_SPEED * dt
+        elif cmd == 6:  # turn right
+            self._heading -= self.TURN_SPEED * dt
+
     def _process_cmd(self, cmd: str) -> Optional[str]:
         """Parse incoming CMD and generate appropriate response."""
         cmd = cmd.strip()
@@ -96,13 +138,10 @@ class MockTransport(Transport):
 
         # Function 3: Motion control
         if func == "3":
-            motion_names = {
-                "1": "stop", "2": "stand", "3": "forward", "4": "backward",
-                "5": "turn_left", "6": "turn_right", "7": "shift_left", "8": "shift_right",
-            }
-            sub = parts[1] if len(parts) > 1 else "?"
-            name = motion_names.get(sub, f"unknown({sub})")
-            logger.debug("Mock: motion %s", name)
+            sub = parts[1] if len(parts) > 1 else "1"
+            self._step_dead_reckoning()
+            self._motion_cmd = int(sub)
+            self._last_motion_time = time.monotonic()
             return "CMD|3|OK|$"
 
         # Function 4: Ultrasonic

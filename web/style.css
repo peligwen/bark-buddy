@@ -108,6 +108,8 @@ header h1 {
 #panel-left {
     flex: 1 1 0%;
     min-width: 300px;
+    padding-left: 24px;
+    padding-right: 24px;
 }
 
 #panel-right {
@@ -142,6 +144,7 @@ header h1 {
     display: flex;
     justify-content: space-around;
     flex-direction: row;
+    padding: 8px 10px !important;
 }
 
 .status-item {
@@ -179,9 +182,9 @@ header h1 {
 
 #dog-3d-container {
     width: 100%;
-    min-height: 300px;
-    height: 40vh;
-    max-height: 500px;
+    min-height: 250px;
+    height: 34vh;
+    max-height: 420px;
     cursor: grab;
 }
 
@@ -199,7 +202,8 @@ header h1 {
 #telemetry {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 6px;
+    padding: 8px 10px !important;
 }
 
 .gauge {
@@ -411,7 +415,7 @@ header h1 {
 
 #map-canvas {
     width: 100%;
-    height: auto;
+    max-height: 220px;
     background: #faf9f6;
     border-radius: 6px;
     border: 1px solid var(--border);

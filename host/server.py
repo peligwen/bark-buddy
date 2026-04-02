@@ -351,11 +351,17 @@ class Server:
                         "motion": self._motion,
                         "action": self._action,
                     }
-                    # Include sim joint data when available
-                    if self._transport and hasattr(self._transport, "get_joint_states"):
-                        joints = self._transport.get_joint_states()
-                        if joints:
-                            imu_msg["joints"] = joints
+                    # Include sim/mock data when available
+                    if self._transport:
+                        if hasattr(self._transport, "get_joint_states"):
+                            joints = self._transport.get_joint_states()
+                            if joints:
+                                imu_msg["joints"] = joints
+                        if hasattr(self._transport, "get_position"):
+                            pos = self._transport.get_position()
+                            imu_msg["pos"] = {"x": round(pos[0], 4), "y": round(pos[1], 4)}
+                        if hasattr(self._transport, "get_heading"):
+                            imu_msg["heading"] = round(self._transport.get_heading(), 1)
                     await self._broadcast(imu_msg)
 
                 # Ultrasonic polling (5 Hz) — skip during scan to avoid serial contention
