@@ -191,6 +191,7 @@
         if (msg.battery_mv != null) {
             var pct = batteryPercent(msg.battery_mv);
             document.getElementById("battery-val").textContent = pct + "%";
+            recordBattery(pct);
         }
         if (msg.mode != null) {
             document.getElementById("mode-val").textContent = msg.mode;
@@ -776,6 +777,95 @@
         };
     }
 
+    // --- Battery Graph ---
+    var battHistory = [];  // [{time, pct}]
+    var BATT_MAX_POINTS = 300;  // ~5 min at 1Hz
+
+    function setupBatteryGraph() {
+        document.getElementById("batt-stat").addEventListener("click", function (e) {
+            e.stopPropagation();
+            var popup = document.getElementById("batt-popup");
+            popup.classList.toggle("hidden");
+            if (!popup.classList.contains("hidden")) drawBattGraph();
+        });
+        document.getElementById("batt-popup-close").addEventListener("click", function () {
+            document.getElementById("batt-popup").classList.add("hidden");
+        });
+    }
+
+    function recordBattery(pct) {
+        var now = Date.now() / 1000;
+        battHistory.push({ time: now, pct: pct });
+        if (battHistory.length > BATT_MAX_POINTS) battHistory.shift();
+        if (!document.getElementById("batt-popup").classList.contains("hidden")) {
+            drawBattGraph();
+        }
+    }
+
+    function drawBattGraph() {
+        var canvas = document.getElementById("batt-canvas");
+        var rect = canvas.parentElement.getBoundingClientRect();
+        canvas.width = Math.floor(rect.width);
+        canvas.height = 120;
+        var ctx = canvas.getContext("2d");
+        var w = canvas.width - 16, h = canvas.height - 16;
+        var ox = 8, oy = 8;
+
+        ctx.fillStyle = "#151820";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        if (battHistory.length < 2) {
+            ctx.fillStyle = "#4b5160";
+            ctx.font = "11px monospace";
+            ctx.fillText("Waiting for data...", ox + 4, oy + h / 2);
+            return;
+        }
+
+        var tMin = battHistory[0].time;
+        var tMax = battHistory[battHistory.length - 1].time;
+        var tRange = Math.max(tMax - tMin, 1);
+
+        // Grid lines at 25%, 50%, 75%
+        ctx.strokeStyle = "#252a35";
+        ctx.lineWidth = 1;
+        for (var g = 25; g <= 75; g += 25) {
+            var gy = oy + h - (g / 100) * h;
+            ctx.beginPath();
+            ctx.moveTo(ox, gy);
+            ctx.lineTo(ox + w, gy);
+            ctx.stroke();
+        }
+
+        // Battery line
+        ctx.beginPath();
+        ctx.strokeStyle = "#22c55e";
+        ctx.lineWidth = 2;
+        for (var i = 0; i < battHistory.length; i++) {
+            var pt = battHistory[i];
+            var x = ox + ((pt.time - tMin) / tRange) * w;
+            var y = oy + h - (Math.max(0, Math.min(100, pt.pct)) / 100) * h;
+            if (pt.pct < 20) ctx.strokeStyle = "#ef4444";
+            else if (pt.pct < 40) ctx.strokeStyle = "#f59e0b";
+            else ctx.strokeStyle = "#22c55e";
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+
+        // Current value
+        var last = battHistory[battHistory.length - 1];
+        ctx.fillStyle = "#e0e0e0";
+        ctx.font = "11px monospace";
+        ctx.fillText(last.pct + "%", ox + w - 30, oy + 12);
+
+        // Time range label
+        var mins = Math.floor(tRange / 60);
+        var secs = Math.floor(tRange % 60);
+        ctx.fillStyle = "#4b5160";
+        ctx.font = "9px monospace";
+        ctx.fillText(mins > 0 ? mins + "m " + secs + "s" : secs + "s", ox + 2, oy + h - 2);
+    }
+
     // --- Sim Noise Panel ---
     var noiseValueIds = {
         "packet_drop_pct": "val-drop",
@@ -832,5 +922,6 @@
     setupReset();
     setupTransport();
     setupNoisePanel();
+    setupBatteryGraph();
     connect();
 })();

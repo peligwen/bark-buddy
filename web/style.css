@@ -145,6 +145,46 @@ header h1 {
 .transport-menu button:hover { background: var(--bg-card-hover); }
 .transport-menu button[data-transport="wifi-setup"] { border-top: 1px solid var(--border); color: var(--text-muted); }
 
+.batt-clickable { cursor: pointer; }
+.batt-clickable:hover { color: var(--text); }
+
+.popup {
+    position: fixed;
+    top: 50px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+    z-index: 300;
+    min-width: 320px;
+    overflow: hidden;
+}
+.popup.hidden { display: none; }
+.popup-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid var(--border);
+}
+.popup-close {
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    font-size: 1rem;
+    cursor: pointer;
+    padding: 0 4px;
+}
+.popup-close:hover { color: var(--text); }
+#batt-canvas { display: block; width: 100%; height: 120px; padding: 8px; }
+
 #wifi-banner {
     padding: 6px 16px;
     background: var(--green-muted);
