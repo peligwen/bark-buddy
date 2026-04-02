@@ -130,6 +130,7 @@ var Dog3D = (function () {
         dogGroup.position.y = standingHeight();
         scene.add(dogGroup);
 
+        initUltraHit();
         setupControls();
         window.addEventListener("resize", onResize);
         animate();
@@ -398,11 +399,31 @@ var Dog3D = (function () {
         });
     }
 
-    // --- Ultrasonic beam ---
+    // --- Ultrasonic beam + hit point ---
+    var ultraHit = null; // hit point marker (added to scene, not dogGroup)
+
+    function initUltraHit() {
+        var geo = new THREE.SphereGeometry(0.03 * S, 10, 10);
+        var mat = new THREE.MeshBasicMaterial({ color: 0xff3333 });
+        ultraHit = new THREE.Mesh(geo, mat);
+        ultraHit.visible = false;
+        scene.add(ultraHit);
+
+        // Ring around hit point for visibility
+        var ringGeo = new THREE.RingGeometry(0.04 * S, 0.06 * S, 16);
+        var ringMat = new THREE.MeshBasicMaterial({
+            color: 0xff3333, side: THREE.DoubleSide,
+            transparent: true, opacity: 0.4,
+        });
+        var ring = new THREE.Mesh(ringGeo, ringMat);
+        ring.rotation.x = -Math.PI / 2;
+        ultraHit.add(ring);
+    }
 
     function updateUltraBeam() {
         if (ultraDistance == null || ultraDistance > 2500) {
             if (ultraBeam) ultraBeam.visible = false;
+            if (ultraHit) ultraHit.visible = false;
             return;
         }
         if (!ultraBeam) return;
@@ -436,15 +457,40 @@ var Dog3D = (function () {
             ultraBeam.material.color.setHex(COL.beam);
             ultraBeam.material.opacity = 0.12;
         }
+
+        // Hit point: sensor position + distance along dog's forward direction (world space)
+        if (ultraHit && dogGroup) {
+            // Sensor tip in local dog space
+            var localHit = new THREE.Vector3(sx + len, sy, 0);
+            // Transform to world space via dogGroup
+            dogGroup.localToWorld(localHit);
+            ultraHit.position.copy(localHit);
+            ultraHit.visible = true;
+
+            // Color hit marker by distance
+            if (ultraDistance < 150) {
+                ultraHit.material.color.setHex(0xff2222);
+            } else if (ultraDistance < 400) {
+                ultraHit.material.color.setHex(0xff8800);
+            } else {
+                ultraHit.material.color.setHex(0x33aaff);
+            }
+        }
     }
 
     // --- Camera ---
 
+    var camTargetX = 0, camTargetZ = 0;
+
     function updateCameraPosition() {
-        camera.position.x = cameraAngle.radius * Math.cos(cameraAngle.phi) * Math.sin(cameraAngle.theta);
+        // Smoothly follow dog position
+        camTargetX += (currentX - camTargetX) * 0.08;
+        camTargetZ += (currentZ - camTargetZ) * 0.08;
+
+        camera.position.x = camTargetX + cameraAngle.radius * Math.cos(cameraAngle.phi) * Math.sin(cameraAngle.theta);
         camera.position.y = cameraAngle.radius * Math.sin(cameraAngle.phi);
-        camera.position.z = cameraAngle.radius * Math.cos(cameraAngle.phi) * Math.cos(cameraAngle.theta);
-        camera.lookAt(0, standingHeight() * 0.3, 0);
+        camera.position.z = camTargetZ + cameraAngle.radius * Math.cos(cameraAngle.phi) * Math.cos(cameraAngle.theta);
+        camera.lookAt(camTargetX, standingHeight() * 0.3, camTargetZ);
     }
 
     function setupControls() {
@@ -536,6 +582,7 @@ var Dog3D = (function () {
             updateUltraBeam();
         }
 
+        updateCameraPosition();
         renderer.render(scene, camera);
     }
 
@@ -615,7 +662,8 @@ var Dog3D = (function () {
                 targetX = msg.pos.x * S;
                 targetZ = msg.pos.y * S;
             }
-            // Heading: sim degrees (CCW positive) -> scene radians (CW positive around Y)
+            // Heading: sim degrees -> scene radians around Y
+            // rotation.y=-90° faces +Z (sim left), so negate heading
             if (msg.heading != null) {
                 targetYaw = -msg.heading * (Math.PI / 180);
             }
