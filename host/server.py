@@ -353,6 +353,8 @@ class Server:
             status["wifi_available"] = True
             status["wifi_ip"] = wifi_info.get("ip", "")
             status["wifi_ssid"] = wifi_info.get("ssid", "")
+        if isinstance(self._transport, MockTransport):
+            status["noise_params"] = self._transport.get_noise_params()
         await ws.send_str(json.dumps(status))
 
         # Send version hash for stale client detection
@@ -549,6 +551,18 @@ class Server:
                     **self._map.to_dict(),
                 })
 
+        elif msg_type == "cmd_sim_noise":
+            if isinstance(self._transport, MockTransport):
+                self._transport.set_noise_params(msg.get("params", {}))
+                await ws.send_str(json.dumps({
+                    "type": "sim_noise_ack", "ok": True,
+                    "params": self._transport.get_noise_params(),
+                }))
+            else:
+                await ws.send_str(json.dumps({
+                    "type": "sim_noise_ack", "ok": False, "error": "Not in sim mode",
+                }))
+
         elif msg_type == "cmd_transport":
             mode = msg.get("mode", "sim")
             if msg.get("wifi_host"):
@@ -663,6 +677,10 @@ class Server:
                     if battery is not None and self._ws_clients:
                         await self._broadcast_status(battery_mv=battery)
                     last_battery = now
+
+                # Point cloud decay (skip during scan)
+                if not self._scan.running:
+                    self._map.decay_tick()
 
                 await asyncio.sleep(imu_interval)
 

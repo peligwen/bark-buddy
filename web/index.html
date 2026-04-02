@@ -107,6 +107,24 @@
                     <span id="patrol-wp"></span>
                 </div>
             </div>
+
+            <div id="sim-panel" class="ctrl-section hidden">
+                <h2>Sim Noise</h2>
+                <div class="noise-grid">
+                    <label>Pkt Drop <span id="val-drop">0</span>%</label>
+                    <input type="range" min="0" max="50" value="0" data-noise="packet_drop_pct">
+                    <label>Latency <span id="val-lat">0</span>ms</label>
+                    <input type="range" min="0" max="500" step="10" value="0" data-noise="latency_base_ms">
+                    <label>Jitter <span id="val-jit">0</span>ms</label>
+                    <input type="range" min="0" max="200" step="5" value="0" data-noise="latency_jitter_ms">
+                    <label>Sonar &sigma; <span id="val-snoise">0</span>mm</label>
+                    <input type="range" min="0" max="100" value="0" data-noise="sonar_noise_mm">
+                    <label>Outliers <span id="val-out">0</span>%</label>
+                    <input type="range" min="0" max="20" value="0" data-noise="sonar_outlier_pct">
+                    <label>IMU Drift <span id="val-drift">0</span>&deg;/s</label>
+                    <input type="range" min="0" max="5" step="0.1" value="0" data-noise="imu_drift_dps">
+                </div>
+            </div>
         </div>
     </div>
 

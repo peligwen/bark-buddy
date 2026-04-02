@@ -212,6 +212,19 @@
         if (msg.wifi_available && msg.wifi_ip) {
             showWifiBanner(msg.wifi_ip, msg.wifi_ssid);
         }
+        // Show sim panel only in sim mode
+        var simPanel = document.getElementById("sim-panel");
+        if (msg.transport != null) {
+            if (msg.transport === "sim") {
+                simPanel.classList.remove("hidden");
+            } else {
+                simPanel.classList.add("hidden");
+            }
+        }
+        // Sync noise slider values from server
+        if (msg.noise_params) {
+            syncNoiseSliders(msg.noise_params);
+        }
     }
 
     function setBalanceState(enabled) {
@@ -485,18 +498,20 @@
         document.getElementById("scan-progress-text").textContent = msg.progress + "%";
         document.getElementById("map-points").textContent = mapPoints.length + " pts";
 
-        // Rebuild 3D walls from scan data
-        Dog3D.setScanPoints(mapPoints);
+        // Rebuild 3D walls — will be updated on scan_complete with full data
     }
+
+    var mapWalls = [];
 
     function renderFullMap(data) {
         mapPoints = data.points || [];
         mapScans = data.scans || [];
+        mapWalls = data.walls || [];
         mapBounds = data.bounds || mapBounds;
         document.getElementById("map-points").textContent = (data.point_count || 0) + " pts";
         document.getElementById("map-scans").textContent = (data.scan_count || 0) + " scans";
         drawMap();
-        Dog3D.setScanPoints(mapPoints);
+        Dog3D.setMapData(data);
     }
 
     function updateMapBoundsFromPoint(x, y) {
@@ -574,23 +589,42 @@
             ctx.fill();
         }
 
-        // Obstacle points
+        // Wall segments (thick lines)
+        if (mapWalls && mapWalls.length > 0) {
+            ctx.strokeStyle = "#6366f1";
+            ctx.lineWidth = 3;
+            ctx.lineCap = "round";
+            for (var wi = 0; wi < mapWalls.length; wi++) {
+                var wall = mapWalls[wi];
+                ctx.globalAlpha = 0.3 + 0.7 * (wall.confidence || 0.5);
+                ctx.beginPath();
+                ctx.moveTo(toCanvasX(wall.x1), toCanvasY(wall.y1));
+                ctx.lineTo(toCanvasX(wall.x2), toCanvasY(wall.y2));
+                ctx.stroke();
+            }
+            ctx.globalAlpha = 1.0;
+        }
+
+        // Obstacle points — colored by confidence
         for (var i = 0; i < mapPoints.length; i++) {
             var p = mapPoints[i];
             var px = toCanvasX(p.x);
             var py = toCanvasY(p.y);
-            var d = p.distance_mm;
-            if (d < 150) {
-                ctx.fillStyle = "#ef4444";
-            } else if (d < 400) {
+            var conf = p.confidence != null ? p.confidence : 1.0;
+            // Green (high confidence) → yellow → red (low confidence)
+            if (conf > 0.6) {
+                ctx.fillStyle = "#22c55e";
+            } else if (conf > 0.3) {
                 ctx.fillStyle = "#f59e0b";
             } else {
-                ctx.fillStyle = "#22c55e";
+                ctx.fillStyle = "#ef4444";
             }
+            ctx.globalAlpha = 0.4 + 0.6 * conf;
             ctx.beginPath();
             ctx.arc(px, py, 3, 0, Math.PI * 2);
             ctx.fill();
         }
+        ctx.globalAlpha = 1.0;
 
         // Dog position + heading triangle
         var dx = toCanvasX(dogMapState.x);
@@ -737,6 +771,51 @@
         };
     }
 
+    // --- Sim Noise Panel ---
+    var noiseValueIds = {
+        "packet_drop_pct": "val-drop",
+        "latency_base_ms": "val-lat",
+        "latency_jitter_ms": "val-jit",
+        "sonar_noise_mm": "val-snoise",
+        "sonar_outlier_pct": "val-out",
+        "imu_drift_dps": "val-drift",
+    };
+
+    function setupNoisePanel() {
+        var sliders = document.querySelectorAll("#sim-panel input[data-noise]");
+        var debounceTimer = null;
+
+        function sendNoiseParams() {
+            var params = {};
+            sliders.forEach(function (s) {
+                params[s.dataset.noise] = parseFloat(s.value);
+            });
+            send({ type: "cmd_sim_noise", params: params });
+        }
+
+        sliders.forEach(function (slider) {
+            slider.addEventListener("input", function () {
+                // Update displayed value
+                var valEl = document.getElementById(noiseValueIds[slider.dataset.noise]);
+                if (valEl) valEl.textContent = slider.value;
+                // Debounced send
+                clearTimeout(debounceTimer);
+                debounceTimer = setTimeout(sendNoiseParams, 150);
+            });
+        });
+    }
+
+    function syncNoiseSliders(params) {
+        for (var key in params) {
+            var slider = document.querySelector('#sim-panel input[data-noise="' + key + '"]');
+            if (slider) {
+                slider.value = params[key];
+                var valEl = document.getElementById(noiseValueIds[key]);
+                if (valEl) valEl.textContent = Math.round(params[key] * 10) / 10;
+            }
+        }
+    }
+
     // --- Init ---
     Dog3D.init("dog-3d-container");
     setupDpad();
@@ -747,5 +826,6 @@
     setupLock();
     setupReset();
     setupTransport();
+    setupNoisePanel();
     connect();
 })();
