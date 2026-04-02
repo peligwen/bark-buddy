@@ -515,10 +515,16 @@ var Dog3D = (function () {
         var r = cameraAngle.radius;
         var phi = cameraAngle.phi;
 
-        camera.position.x = camTargetX + r * Math.cos(phi) * Math.sin(chaseAngle);
-        camera.position.y = r * Math.sin(phi);
-        camera.position.z = camTargetZ + r * Math.cos(phi) * Math.cos(chaseAngle);
-        camera.lookAt(camTargetX, standingHeight() * 0.3, camTargetZ);
+        // Look-at point: just forward and above the dog's nose
+        var fwdOffset = BODY_L * 0.8; // forward from dog center
+        var lookX = camTargetX + fwdOffset * Math.cos(camYaw);
+        var lookZ = camTargetZ - fwdOffset * Math.sin(camYaw);
+        var lookY = standingHeight() + BODY_H * 1.5;
+
+        camera.position.x = lookX + r * Math.cos(phi) * Math.sin(chaseAngle);
+        camera.position.y = lookY + r * Math.sin(phi);
+        camera.position.z = lookZ + r * Math.cos(phi) * Math.cos(chaseAngle);
+        camera.lookAt(lookX, lookY, lookZ);
     }
 
     function setupControls() {
