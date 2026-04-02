@@ -64,6 +64,12 @@ var Dog3D = (function () {
         container = document.getElementById(containerId);
         if (!container) return;
 
+        // Defer init if the container has no dimensions yet (flex layout not computed)
+        if (container.clientWidth === 0 || container.clientHeight === 0) {
+            requestAnimationFrame(function () { init(containerId); });
+            return;
+        }
+
         scene = new THREE.Scene();
         scene.background = new THREE.Color(0xf0f0f0);
         scene.fog = new THREE.Fog(0xf0f0f0, 20, 40);

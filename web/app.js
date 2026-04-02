@@ -427,7 +427,7 @@
         var h = canvas.height;
 
         // Clear
-        ctx.fillStyle = "#0a0a1a";
+        ctx.fillStyle = "#faf9f6";
         ctx.fillRect(0, 0, w, h);
 
         var rangeX = mapBounds.max_x - mapBounds.min_x;
@@ -441,7 +441,7 @@
         function toCanvasY(y) { return h / 2 - (y - centerY) * scale; } // flip Y
 
         // Grid lines
-        ctx.strokeStyle = "#1a1a3e";
+        ctx.strokeStyle = "#e0ddd5";
         ctx.lineWidth = 1;
         var gridStep = gridStepForRange(range);
         var gx = Math.floor(mapBounds.min_x / gridStep) * gridStep;
@@ -458,14 +458,14 @@
         }
 
         // Origin cross
-        ctx.strokeStyle = "#334";
+        ctx.strokeStyle = "#bbb5a8";
         ctx.lineWidth = 1;
         var ox = toCanvasX(0), oy = toCanvasY(0);
         ctx.beginPath(); ctx.moveTo(ox - 8, oy); ctx.lineTo(ox + 8, oy); ctx.stroke();
         ctx.beginPath(); ctx.moveTo(ox, oy - 8); ctx.lineTo(ox, oy + 8); ctx.stroke();
 
         // Scan origins
-        ctx.fillStyle = "#4ecca3";
+        ctx.fillStyle = "#d4880e";
         for (var s = 0; s < mapScans.length; s++) {
             var sc = mapScans[s];
             var sx = toCanvasX(sc.x);
@@ -483,11 +483,11 @@
             // Color by distance: close = red, medium = yellow, far = dim
             var d = p.distance_mm;
             if (d < 150) {
-                ctx.fillStyle = "#e94560";
+                ctx.fillStyle = "#c93d3d";
             } else if (d < 400) {
-                ctx.fillStyle = "#f0a500";
+                ctx.fillStyle = "#d4880e";
             } else {
-                ctx.fillStyle = "#4ecca3";
+                ctx.fillStyle = "#3a9a5c";
             }
             ctx.beginPath();
             ctx.arc(px, py, 3, 0, Math.PI * 2);
@@ -495,7 +495,7 @@
         }
 
         // Scale label
-        ctx.fillStyle = "#666";
+        ctx.fillStyle = "#9a9590";
         ctx.font = "10px monospace";
         ctx.fillText(gridStep.toFixed(1) + "m grid", 4, h - 4);
     }
