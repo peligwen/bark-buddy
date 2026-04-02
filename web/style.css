@@ -67,12 +67,6 @@ header h1 {
     overflow: visible;
 }
 
-#header-row-2 {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    min-width: 0;
-}
 .stat {
     font-size: 0.7rem;
     color: var(--text-muted);
@@ -242,6 +236,20 @@ header h1 {
 
 #dog-view-section { padding: 0; }
 
+#telem-overlay {
+    position: absolute;
+    bottom: 6px;
+    left: 8px;
+    display: flex;
+    gap: 12px;
+    font-size: 0.6rem;
+    font-family: "SF Mono", "Fira Code", monospace;
+    color: rgba(255,255,255,0.6);
+    pointer-events: none;
+    z-index: 1;
+}
+#telem-overlay .stat-label { color: rgba(255,255,255,0.35); }
+
 #dog-3d-container {
     width: 100%;
     height: 100%;
@@ -408,7 +416,6 @@ header h1 {
     header h1 { font-size: 0.75rem; }
     #header-row-1 { gap: 6px; }
     #header-row-1 .stat { font-size: 0.55rem; }
-    #header-row-2 { gap: 6px; }
     .stat { font-size: 0.55rem; }
     #header-right { margin-left: 0; gap: 5px; }
     .header-btn { font-size: 0.6rem; padding: 3px 8px; }

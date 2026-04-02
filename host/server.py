@@ -204,6 +204,29 @@ class Server:
             await self._broadcast_status()
             return {"ok": False, "error": str(e), "transport": "sim"}
 
+    async def _add_live_point(self, distance_mm: int) -> None:
+        """Add an ultrasonic reading as a map point using current position/heading."""
+        import math
+        if not hasattr(self._transport, "get_position") or not hasattr(self._transport, "get_heading"):
+            return
+        pos = self._transport.get_position()
+        heading = self._transport.get_heading()
+        rad = math.radians(heading)
+        dist_m = distance_mm / 1000.0
+        x = pos[0] + dist_m * math.cos(rad)
+        y = pos[1] + dist_m * math.sin(rad)
+        point = self._map._cloud.add_point(x=x, y=y, z=0.09, distance_mm=distance_mm, source="ultrasonic")
+        # Broadcast live point for real-time 2D map
+        if point and self._ws_clients:
+            await self._broadcast({
+                "type": "scan_point",
+                "x": round(x, 3),
+                "y": round(y, 3),
+                "distance_mm": distance_mm,
+                "progress": 0,
+                "confidence": round(point.confidence, 2),
+            })
+
     async def _update_led_status(self):
         """Update sonar LED based on current state."""
         if not hasattr(self._transport, 'set_led_status'):
@@ -627,8 +650,11 @@ class Server:
         imu_interval = 1.0 / IMU_POLL_HZ
         ultra_interval = 1.0 / ULTRASONIC_POLL_HZ
         battery_interval = 1.0 / BATTERY_POLL_HZ
+        wall_regen_interval = 5.0
         last_ultra = 0.0
         last_battery = 0.0
+        last_wall_regen = 0.0
+        last_point_count = 0
         imu_count = 0
 
         while True:
@@ -661,7 +687,7 @@ class Server:
                             odom["heading"] = round(self._transport.get_heading(), 1)
                         await self._broadcast(odom)
 
-                # Ultrasonic polling (5 Hz) — skip during scan to avoid serial contention
+                # Ultrasonic polling — skip during scan to avoid serial contention
                 if now - last_ultra >= ultra_interval and not self._scan.running:
                     dist = await self._dog.read_ultrasonic()
                     if dist is not None and self._ws_clients:
@@ -669,6 +695,9 @@ class Server:
                             "type": "telem_ultrasonic",
                             "distance_mm": dist,
                         })
+                        # Continuous mapping: add each reading as a point
+                        if dist < 3000 and self._transport:
+                            await self._add_live_point(dist)
                     last_ultra = now
 
                 # Battery polling (0.5 Hz)
@@ -681,6 +710,18 @@ class Server:
                 # Point cloud decay (skip during scan)
                 if not self._scan.running:
                     self._map.decay_tick()
+
+                # Regenerate walls periodically if new points were added
+                current_count = self._map.point_count
+                if (now - last_wall_regen >= wall_regen_interval
+                        and current_count != last_point_count
+                        and self._ws_clients):
+                    await self._broadcast({
+                        "type": "map_data",
+                        **self._map.to_dict(),
+                    })
+                    last_wall_regen = now
+                    last_point_count = current_count
 
                 await asyncio.sleep(imu_interval)
 

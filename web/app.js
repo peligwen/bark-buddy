@@ -489,7 +489,8 @@
     }
 
     function addScanPoint(msg) {
-        mapPoints.push({ x: msg.x, y: msg.y, distance_mm: msg.distance_mm });
+        mapPoints.push({ x: msg.x, y: msg.y, distance_mm: msg.distance_mm,
+                         confidence: msg.confidence != null ? msg.confidence : 0.5 });
         updateMapBoundsFromPoint(msg.x, msg.y);
         drawMap();
 
