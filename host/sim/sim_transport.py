@@ -17,11 +17,12 @@ import asyncio
 import logging
 import math
 import os
-import time
 from typing import Optional
 
 import pybullet as p
 import pybullet_data
+
+from comms import Transport
 
 logger = logging.getLogger(__name__)
 
@@ -42,14 +43,6 @@ JOINT_RR_KNEE = 11
 # Ultrasonic sensor link index
 ULTRASONIC_LINK = 0
 
-# All controllable joint indices
-ALL_JOINTS = [
-    JOINT_FL_HIP, JOINT_FL_KNEE,
-    JOINT_FR_HIP, JOINT_FR_KNEE,
-    JOINT_RL_HIP, JOINT_RL_KNEE,
-    JOINT_RR_HIP, JOINT_RR_KNEE,
-]
-
 # Standing pose (radians)
 STAND_HIP = 0.3         # slight forward lean for standing
 STAND_KNEE = -0.6       # bent knees for standing
@@ -66,8 +59,13 @@ ULTRASONIC_NUM_RAYS = 5
 # Simulated battery
 BATTERY_MV = 7400
 
+# Hip and knee joint indices for convenience
+_HIPS = [JOINT_FL_HIP, JOINT_FR_HIP, JOINT_RL_HIP, JOINT_RR_HIP]
+_KNEES = [JOINT_FL_KNEE, JOINT_FR_KNEE, JOINT_RL_KNEE, JOINT_RR_KNEE]
+_FOOT_LINKS = [3, 6, 9, 12]
 
-class SimTransport:
+
+class SimTransport(Transport):
     """
     PyBullet physics transport implementing the Transport interface.
 
@@ -78,16 +76,16 @@ class SimTransport:
     def __init__(self, speed_factor: float = 1.0, gui: bool = False):
         """
         Args:
-            speed_factor: Simulation speed multiplier. 1.0 = real-time,
-                         10.0 = 10x faster (for tests).
+            speed_factor: Simulation speed multiplier. >1.0 runs more
+                         physics steps per CMD cycle for faster-than-realtime.
             gui: If True, open PyBullet GUI window for visual debugging.
         """
         self._speed_factor = speed_factor
         self._gui = gui
         self._open = False
-        self._client = None
-        self._robot = None
-        self._plane = None
+        self._client: Optional[int] = None
+        self._robot: Optional[int] = None
+        self._plane: Optional[int] = None
         self._walls: list[int] = []
 
         # Motion state
@@ -104,35 +102,39 @@ class SimTransport:
 
         mode = p.GUI if self._gui else p.DIRECT
         self._client = p.connect(mode)
-        p.setAdditionalSearchPath(pybullet_data.getDataPath())
-        p.setGravity(0, 0, -9.81)
-        p.setTimeStep(SIM_TIMESTEP)
+        c = self._client
+
+        p.setAdditionalSearchPath(pybullet_data.getDataPath(), physicsClientId=c)
+        p.setGravity(0, 0, -9.81, physicsClientId=c)
+        p.setTimeStep(SIM_TIMESTEP, physicsClientId=c)
 
         # Ground plane
-        self._plane = p.loadURDF("plane.urdf")
-        p.changeDynamics(self._plane, -1, lateralFriction=1.0)
+        self._plane = p.loadURDF("plane.urdf", physicsClientId=c)
+        p.changeDynamics(self._plane, -1, lateralFriction=1.0, physicsClientId=c)
 
         # Load robot
         urdf_path = os.path.join(os.path.dirname(__file__), "mechdog.urdf")
         self._robot = p.loadURDF(
-            urdf_path, [0, 0, SPAWN_HEIGHT], useFixedBase=False
+            urdf_path, [0, 0, SPAWN_HEIGHT], useFixedBase=False,
+            physicsClientId=c,
         )
 
         # Set foot friction
-        for joint_idx in [3, 6, 9, 12]:  # ankle (fixed) joints = foot links
-            p.changeDynamics(self._robot, joint_idx,
-                             lateralFriction=1.0, rollingFriction=0.01)
+        for link_idx in _FOOT_LINKS:
+            p.changeDynamics(self._robot, link_idx,
+                             lateralFriction=1.0, rollingFriction=0.01,
+                             physicsClientId=c)
 
         # Initialize standing pose — reset joint states first for stability
-        for hip in [JOINT_FL_HIP, JOINT_FR_HIP, JOINT_RL_HIP, JOINT_RR_HIP]:
-            p.resetJointState(self._robot, hip, STAND_HIP)
-        for knee in [JOINT_FL_KNEE, JOINT_FR_KNEE, JOINT_RL_KNEE, JOINT_RR_KNEE]:
-            p.resetJointState(self._robot, knee, STAND_KNEE)
+        for hip in _HIPS:
+            p.resetJointState(self._robot, hip, STAND_HIP, physicsClientId=c)
+        for knee in _KNEES:
+            p.resetJointState(self._robot, knee, STAND_KNEE, physicsClientId=c)
         self._set_standing_pose()
 
         # Let robot settle
         for _ in range(480):
-            p.stepSimulation()
+            p.stepSimulation(physicsClientId=c)
         self._sim_time = 480 * SIM_TIMESTEP
 
         self._open = True
@@ -165,16 +167,8 @@ class SimTransport:
 
     def add_wall(self, start: tuple, end: tuple, height: float = 0.3,
                  thickness: float = 0.02) -> int:
-        """Add a wall segment to the simulation for ultrasonic mapping tests.
-
-        Args:
-            start: (x, y) start position in meters
-            end: (x, y) end position in meters
-            height: wall height in meters
-            thickness: wall thickness in meters
-
-        Returns: PyBullet body ID
-        """
+        """Add a wall segment to the simulation for ultrasonic mapping tests."""
+        c = self._client
         sx, sy = start
         ex, ey = end
         cx, cy = (sx + ex) / 2, (sy + ey) / 2
@@ -183,12 +177,15 @@ class SimTransport:
         angle = math.atan2(dy, dx)
 
         col = p.createCollisionShape(p.GEOM_BOX,
-                                     halfExtents=[length / 2, thickness / 2, height / 2])
+                                     halfExtents=[length / 2, thickness / 2, height / 2],
+                                     physicsClientId=c)
         vis = p.createVisualShape(p.GEOM_BOX,
                                   halfExtents=[length / 2, thickness / 2, height / 2],
-                                  rgbaColor=[0.5, 0.5, 0.5, 1])
+                                  rgbaColor=[0.5, 0.5, 0.5, 1],
+                                  physicsClientId=c)
         quat = p.getQuaternionFromEuler([0, 0, angle])
-        body = p.createMultiBody(0, col, vis, [cx, cy, height / 2], quat)
+        body = p.createMultiBody(0, col, vis, [cx, cy, height / 2], quat,
+                                 physicsClientId=c)
         self._walls.append(body)
         return body
 
@@ -200,6 +197,36 @@ class SimTransport:
         self.add_wall((hw, -hd), (hw, hd), height)     # right
         self.add_wall((hw, hd), (-hw, hd), height)     # back
         self.add_wall((-hw, hd), (-hw, -hd), height)   # left
+
+    def clear_walls(self) -> None:
+        """Remove all walls from the simulation."""
+        c = self._client
+        for body in self._walls:
+            p.removeBody(body, physicsClientId=c)
+        self._walls.clear()
+
+    # --- Pose reset utility (for tests) ---
+
+    def reset_pose(self, position: list = None, yaw: float = 0.0) -> None:
+        """Reset robot to a given position and heading with standing pose.
+
+        Args:
+            position: [x, y, z] or None for [0, 0, SPAWN_HEIGHT]
+            yaw: heading in degrees
+        """
+        c = self._client
+        if position is None:
+            position = [0, 0, SPAWN_HEIGHT]
+        orn = p.getQuaternionFromEuler([0, 0, math.radians(yaw)])
+        p.resetBasePositionAndOrientation(self._robot, position, orn,
+                                          physicsClientId=c)
+        for hip in _HIPS:
+            p.resetJointState(self._robot, hip, STAND_HIP, physicsClientId=c)
+        for knee in _KNEES:
+            p.resetJointState(self._robot, knee, STAND_KNEE, physicsClientId=c)
+        self._set_standing_pose()
+        for _ in range(240):
+            p.stepSimulation(physicsClientId=c)
 
     # --- CMD processing ---
 
@@ -213,37 +240,31 @@ class SimTransport:
         func = int(parts[0])
 
         if func == 1:
-            # Posture/balance: CMD|1|sub|val|$
             sub = int(parts[1]) if len(parts) > 1 else 0
-            if sub == 3:  # balance toggle
+            if sub == 3:
                 self._balance_enabled = bool(int(parts[2])) if len(parts) > 2 else False
             return "CMD|1|OK|$"
 
         elif func == 2:
-            # Action group: CMD|2|1|code|$
             action_code = int(parts[2]) if len(parts) > 2 else 1
             self._execute_action(action_code)
             return "CMD|2|OK|$"
 
         elif func == 3:
-            # Motion: CMD|3|code|$
             motion_code = int(parts[1]) if len(parts) > 1 else 1
             self._motion_cmd = motion_code
             self._step_motion()
             return "CMD|3|OK|$"
 
         elif func == 4:
-            # Ultrasonic: CMD|4|1|$
             dist_mm = self._read_ultrasonic_sim()
             return f"CMD|4|{dist_mm}|$"
 
         elif func == 5:
-            # IMU: CMD|5|$
             pitch, roll = self._read_imu_sim()
             return f"CMD|5|{pitch:.1f}|{roll:.1f}|$"
 
         elif func == 6:
-            # Battery: CMD|6|$
             return f"CMD|6|{BATTERY_MV}|$"
 
         return "CMD|ERR|$"
@@ -251,94 +272,98 @@ class SimTransport:
     # --- Physics stepping ---
 
     def _step_motion(self) -> None:
-        """Step the simulation forward based on current motion command.
-
-        Re-applies target velocity each step (physics dissipates it via
-        friction/contacts). Also corrects body pitch/roll to simulate
-        the stock firmware's self-balance keeping the body level.
-        """
+        """Step the simulation forward based on current motion command."""
+        c = self._client
         cmd = self._motion_cmd
-        steps_per_cmd = max(1, int(0.1 / SIM_TIMESTEP))
+        # speed_factor multiplies physics steps per CMD cycle
+        steps_per_cmd = max(1, int(0.1 * self._speed_factor / SIM_TIMESTEP))
 
         for _ in range(steps_per_cmd):
             self._set_standing_pose()
 
-            if cmd >= 3:
-                pos, orn = p.getBasePositionAndOrientation(self._robot)
+            if cmd in (3, 4):
+                # Forward/backward: level body, then set linear velocity
+                pos, orn = p.getBasePositionAndOrientation(self._robot,
+                                                           physicsClientId=c)
                 yaw = p.getEulerFromQuaternion(orn)[2]
+                level_orn = p.getQuaternionFromEuler([0, 0, yaw])
+                p.resetBasePositionAndOrientation(self._robot, pos, level_orn,
+                                                   physicsClientId=c)
+                sign = 1.0 if cmd == 3 else -1.0
+                p.resetBaseVelocity(self._robot,
+                                    [sign * FORWARD_SPEED * math.cos(yaw),
+                                     sign * FORWARD_SPEED * math.sin(yaw), 0],
+                                    physicsClientId=c)
+            elif cmd in (5, 6):
+                # Turn: kinematic yaw update (stock firmware uses
+                # stepping turn gait that physically relocates feet)
+                pos, orn = p.getBasePositionAndOrientation(self._robot,
+                                                           physicsClientId=c)
+                yaw = p.getEulerFromQuaternion(orn)[2]
+                sign = 1.0 if cmd == 5 else -1.0
+                new_yaw = yaw + sign * math.radians(TURN_SPEED) * SIM_TIMESTEP
+                new_orn = p.getQuaternionFromEuler([0, 0, new_yaw])
+                p.resetBasePositionAndOrientation(self._robot, pos, new_orn,
+                                                   physicsClientId=c)
+                p.resetBaseVelocity(self._robot, [0, 0, 0], [0, 0, 0],
+                                    physicsClientId=c)
+            # cmd 1 (stop), 2 (stand), 7/8 (shift): just hold standing pose
 
-                if cmd in (3, 4):
-                    # Forward/backward: level body, then set linear velocity
-                    level_orn = p.getQuaternionFromEuler([0, 0, yaw])
-                    p.resetBasePositionAndOrientation(self._robot, pos, level_orn)
-                    sign = 1.0 if cmd == 3 else -1.0
-                    p.resetBaseVelocity(self._robot,
-                                        [sign * FORWARD_SPEED * math.cos(yaw),
-                                         sign * FORWARD_SPEED * math.sin(yaw), 0])
-                elif cmd in (5, 6):
-                    # Turn: kinematic yaw update (stock firmware uses
-                    # stepping turn gait that physically relocates feet)
-                    sign = 1.0 if cmd == 5 else -1.0
-                    new_yaw = yaw + sign * math.radians(TURN_SPEED) * SIM_TIMESTEP
-                    new_orn = p.getQuaternionFromEuler([0, 0, new_yaw])
-                    p.resetBasePositionAndOrientation(self._robot, pos, new_orn)
-                    p.resetBaseVelocity(self._robot, [0, 0, 0], [0, 0, 0])
-
-            p.stepSimulation()
+            p.stepSimulation(physicsClientId=c)
             self._sim_time += SIM_TIMESTEP
 
     def _set_standing_pose(self) -> None:
         """Set all joints to standing position."""
-        for hip in [JOINT_FL_HIP, JOINT_FR_HIP, JOINT_RL_HIP, JOINT_RR_HIP]:
+        c = self._client
+        for hip in _HIPS:
             p.setJointMotorControl2(self._robot, hip, p.POSITION_CONTROL,
-                                    targetPosition=STAND_HIP, force=5.0)
-        for knee in [JOINT_FL_KNEE, JOINT_FR_KNEE, JOINT_RL_KNEE, JOINT_RR_KNEE]:
+                                    targetPosition=STAND_HIP, force=5.0,
+                                    physicsClientId=c)
+        for knee in _KNEES:
             p.setJointMotorControl2(self._robot, knee, p.POSITION_CONTROL,
-                                    targetPosition=STAND_KNEE, force=5.0)
+                                    targetPosition=STAND_KNEE, force=5.0,
+                                    physicsClientId=c)
 
     def _execute_action(self, code: int) -> None:
         """Execute an action group (simplified — just step sim forward)."""
-        # Actions are complex servo choreography; for sim, just step time
-        steps = int(1.0 / SIM_TIMESTEP)  # ~1 second of sim time
+        c = self._client
+        steps = int(1.0 / SIM_TIMESTEP)
         for _ in range(steps):
             self._set_standing_pose()
-            p.stepSimulation()
+            p.stepSimulation(physicsClientId=c)
             self._sim_time += SIM_TIMESTEP
 
     # --- Sensor simulation ---
 
     def _read_imu_sim(self) -> tuple[float, float]:
         """Read simulated IMU from body orientation."""
-        _, orn = p.getBasePositionAndOrientation(self._robot)
+        _, orn = p.getBasePositionAndOrientation(self._robot,
+                                                  physicsClientId=self._client)
         euler = p.getEulerFromQuaternion(orn)
-        # euler is (roll, pitch, yaw) in PyBullet
         roll_deg = math.degrees(euler[0])
         pitch_deg = math.degrees(euler[1])
         return pitch_deg, roll_deg
 
     def _read_ultrasonic_sim(self) -> int:
         """Read simulated ultrasonic distance using ray casting."""
-        # Get ultrasonic sensor position and orientation
-        link_state = p.getLinkState(self._robot, ULTRASONIC_LINK)
-        sensor_pos = link_state[0]   # world position
-        sensor_orn = link_state[1]   # world orientation quaternion
+        c = self._client
+        link_state = p.getLinkState(self._robot, ULTRASONIC_LINK,
+                                    physicsClientId=c)
+        sensor_pos = link_state[0]
+        sensor_orn = link_state[1]
 
-        # Forward direction in sensor frame → world frame
         rot_matrix = p.getMatrixFromQuaternion(sensor_orn)
         forward = [rot_matrix[0], rot_matrix[3], rot_matrix[6]]
 
-        # Cast rays in a cone pattern
         min_dist = ULTRASONIC_MAX_RANGE
 
         for i in range(ULTRASONIC_NUM_RAYS):
             if ULTRASONIC_NUM_RAYS == 1:
                 angle_offset = 0
             else:
-                # Spread rays across the cone
-                t = i / (ULTRASONIC_NUM_RAYS - 1) - 0.5  # -0.5 to 0.5
+                t = i / (ULTRASONIC_NUM_RAYS - 1) - 0.5
                 angle_offset = math.radians(ULTRASONIC_CONE_HALF * 2 * t)
 
-            # Rotate forward direction by angle_offset around Z axis
             cos_a = math.cos(angle_offset)
             sin_a = math.sin(angle_offset)
             ray_dir = [
@@ -353,27 +378,30 @@ class SimTransport:
                 sensor_pos[2] + ray_dir[2] * ULTRASONIC_MAX_RANGE,
             ]
 
-            result = p.rayTest(sensor_pos, ray_end)
-            if result[0][0] != -1 and result[0][0] != self._robot:
+            result = p.rayTest(sensor_pos, ray_end, physicsClientId=c)
+            hit_id = result[0][0]
+            if hit_id != -1 and hit_id != self._robot and hit_id != self._plane:
                 hit_fraction = result[0][2]
                 dist = hit_fraction * ULTRASONIC_MAX_RANGE
                 if dist < min_dist:
                     min_dist = dist
 
-        return int(min_dist * 1000)  # convert to mm
+        return int(min_dist * 1000)
 
     # --- Utility ---
 
     def get_position(self) -> tuple[float, float, float]:
         """Get the robot's current world position (x, y, z)."""
-        pos, _ = p.getBasePositionAndOrientation(self._robot)
+        pos, _ = p.getBasePositionAndOrientation(self._robot,
+                                                  physicsClientId=self._client)
         return pos
 
     def get_heading(self) -> float:
         """Get the robot's current heading in degrees."""
-        _, orn = p.getBasePositionAndOrientation(self._robot)
+        _, orn = p.getBasePositionAndOrientation(self._robot,
+                                                  physicsClientId=self._client)
         euler = p.getEulerFromQuaternion(orn)
-        return math.degrees(euler[2])  # yaw
+        return math.degrees(euler[2])
 
     @property
     def sim_time(self) -> float:

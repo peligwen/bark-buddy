@@ -25,7 +25,7 @@ import os
 sys.path.insert(0, os.path.dirname(__file__))
 
 from sim.sim_transport import SimTransport
-from comms import DogComms
+from comms import DogComms, Transport
 
 logging.basicConfig(level=logging.WARNING, format="%(name)s %(message)s")
 logger = logging.getLogger("test_sim")
@@ -40,9 +40,10 @@ async def run_tests():
         t = SimTransport()
         dog = DogComms(t)
         await dog.connect()
-        ok = t.is_open() and dog.connected
+        ok = t.is_open() and dog.connected and isinstance(t, Transport)
         results["sim_connect"] = ok
-        logger.info("sim_connect: %s", "PASS" if ok else "FAIL")
+        logger.info("sim_connect: isinstance(Transport)=%s -> %s",
+                     isinstance(t, Transport), "PASS" if ok else "FAIL")
     except Exception as e:
         results["sim_connect"] = False
         logger.info("sim_connect: FAIL (%s)", e)
@@ -62,6 +63,7 @@ async def run_tests():
 
     # --- sim_forward ---
     try:
+        t.reset_pose()
         pos1 = t.get_position()
         for _ in range(20):
             await dog.move_forward()
@@ -74,21 +76,9 @@ async def run_tests():
         results["sim_forward"] = False
         logger.info("sim_forward: FAIL (%s)", e)
 
-    await dog.stop()
-
     # --- sim_backward ---
     try:
-        pos3 = t.get_position()
-        # Face forward first (heading may have drifted)
-        import pybullet as p
-        p.resetBasePositionAndOrientation(t._robot, list(pos3), [0, 0, 0, 1])
-        for hip in [1, 4, 7, 10]:
-            p.resetJointState(t._robot, hip, 0.3)
-        for knee in [2, 5, 8, 11]:
-            p.resetJointState(t._robot, knee, -0.6)
-        for _ in range(120):
-            p.stepSimulation()
-
+        t.reset_pose()
         pos3 = t.get_position()
         for _ in range(20):
             await dog.move_backward()
@@ -101,10 +91,9 @@ async def run_tests():
         results["sim_backward"] = False
         logger.info("sim_backward: FAIL (%s)", e)
 
-    await dog.stop()
-
     # --- sim_turn_left ---
     try:
+        t.reset_pose()
         h1 = t.get_heading()
         for _ in range(20):
             await dog.turn_left()
@@ -117,10 +106,9 @@ async def run_tests():
         results["sim_turn_left"] = False
         logger.info("sim_turn_left: FAIL (%s)", e)
 
-    await dog.stop()
-
     # --- sim_turn_right ---
     try:
+        t.reset_pose()
         h3 = t.get_heading()
         for _ in range(20):
             await dog.turn_right()
@@ -133,19 +121,9 @@ async def run_tests():
         results["sim_turn_right"] = False
         logger.info("sim_turn_right: FAIL (%s)", e)
 
-    await dog.stop()
-
     # --- sim_imu ---
     try:
-        # Reset to standing
-        p.resetBasePositionAndOrientation(t._robot, [0, 0, 0.14], [0, 0, 0, 1])
-        for hip in [1, 4, 7, 10]:
-            p.resetJointState(t._robot, hip, 0.3)
-        for knee in [2, 5, 8, 11]:
-            p.resetJointState(t._robot, knee, -0.6)
-        for _ in range(240):
-            p.stepSimulation()
-
+        t.reset_pose()
         imu = await dog.read_imu()
         ok = abs(imu["pitch"]) < 5 and abs(imu["roll"]) < 5
         results["sim_imu"] = ok
@@ -157,8 +135,10 @@ async def run_tests():
 
     # --- sim_ultrasonic_open ---
     try:
+        t.reset_pose()
+        t.clear_walls()
         dist = await dog.read_ultrasonic()
-        ok = dist == 3000  # max range, no obstacles
+        ok = dist == 3000
         results["sim_ultrasonic_open"] = ok
         logger.info("sim_ultrasonic_open: %dmm -> %s", dist, "PASS" if ok else "FAIL")
     except Exception as e:
@@ -167,6 +147,8 @@ async def run_tests():
 
     # --- sim_ultrasonic_wall ---
     try:
+        t.reset_pose()
+        t.clear_walls()
         t.add_box_room(2.0, 2.0)
         dist = await dog.read_ultrasonic()
         ok = 500 < dist < 1500
@@ -188,20 +170,12 @@ async def run_tests():
 
     # --- sim_room_walls ---
     try:
-        # Turn to face different walls and check distances
-        p.resetBasePositionAndOrientation(t._robot, [0, 0, 0.14], [0, 0, 0, 1])
-        for hip in [1, 4, 7, 10]:
-            p.resetJointState(t._robot, hip, 0.3)
-        for knee in [2, 5, 8, 11]:
-            p.resetJointState(t._robot, knee, -0.6)
-        for _ in range(240):
-            p.stepSimulation()
-
+        t.reset_pose()
+        t.clear_walls()
+        t.add_box_room(2.0, 2.0)
         d_fwd = await dog.read_ultrasonic()
 
-        # Turn 90° left (face +Y wall)
-        for _ in range(20):
-            await dog.turn_left()
+        t.reset_pose(yaw=90)
         d_left = await dog.read_ultrasonic()
 
         ok = 500 < d_fwd < 1500 and 500 < d_left < 1500
@@ -214,24 +188,14 @@ async def run_tests():
 
     # --- sim_heading_forward ---
     try:
-        # Reset facing +Y (90° left from +X)
-        p.resetBasePositionAndOrientation(
-            t._robot, [0, 0, 0.14],
-            p.getQuaternionFromEuler([0, 0, math.pi / 2]))
-        for hip in [1, 4, 7, 10]:
-            p.resetJointState(t._robot, hip, 0.3)
-        for knee in [2, 5, 8, 11]:
-            p.resetJointState(t._robot, knee, -0.6)
-        for _ in range(240):
-            p.stepSimulation()
-
+        t.clear_walls()
+        t.reset_pose(yaw=90)
         pos_a = t.get_position()
         for _ in range(20):
             await dog.move_forward()
         pos_b = t.get_position()
         dy = pos_b[1] - pos_a[1]
         dx = pos_b[0] - pos_a[0]
-        # Should move mostly in +Y direction
         ok = dy > 0.05 and abs(dx) < dy
         results["sim_heading_forward"] = ok
         logger.info("sim_heading_forward: dx=%.3f dy=%.3f -> %s",
