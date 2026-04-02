@@ -74,6 +74,7 @@
         if (msg.type === "telem_imu") {
             updateGauge("pitch", msg.pitch);
             updateGauge("roll", msg.roll);
+            Dog3D.updateIMU(msg.pitch, msg.roll);
         } else if (msg.type === "telem_status") {
             updateStatus(msg);
         } else if (msg.type === "balance_state") {
@@ -82,8 +83,10 @@
             updateUltrasonic(msg.distance_mm);
         } else if (msg.type === "event_fall") {
             showFallAlert(true);
+            Dog3D.setFallen(true);
         } else if (msg.type === "event_recovered") {
             showFallAlert(false);
+            Dog3D.setFallen(false);
         } else if (msg.type === "patrol_position") {
             updatePatrolPosition(msg);
         } else if (msg.type === "patrol_waypoint") {
@@ -504,6 +507,7 @@
     }
 
     // --- Init ---
+    Dog3D.init("dog-3d-container");
     setupDpad();
     setupActions();
     setupKeyboard();

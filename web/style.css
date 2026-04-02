@@ -88,6 +88,31 @@ main {
 .status-value.warn-text { color: #f0a500; }
 .status-value.danger-text { color: #e94560; }
 
+/* 3D Dog View */
+#dog-view-section {
+    background: #16213e;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid #0f3460;
+}
+
+#dog-3d-container {
+    width: 100%;
+    height: 280px;
+    cursor: grab;
+}
+
+#dog-3d-container:active {
+    cursor: grabbing;
+}
+
+#dog-3d-container canvas {
+    display: block;
+    width: 100% !important;
+    height: 100% !important;
+    border-radius: 8px;
+}
+
 /* Fall alert */
 #fall-alert {
     padding: 12px;
