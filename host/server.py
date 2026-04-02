@@ -14,7 +14,9 @@ import os
 from aiohttp import web
 
 from behaviors.balance import BalanceLayer
+from behaviors.map_store import MapStore
 from behaviors.patrol import PatrolBehavior, Waypoint
+from behaviors.scan import ScanBehavior
 from comms import DogComms, DIRECTION_MAP
 from mock_serial import MockTransport
 
@@ -34,7 +36,9 @@ class Server:
         self._poll_task: asyncio.Task | None = None
         self._balance = BalanceLayer(dog)
         self._patrol = PatrolBehavior(dog)
-        self._mode = "remote"  # remote | patrol
+        self._scan = ScanBehavior(dog)
+        self._map = MapStore()
+        self._mode = "remote"  # remote | patrol | scan
 
     async def start(self, host: str = "0.0.0.0", port: int = 8080):
         app = web.Application()
@@ -63,6 +67,10 @@ class Server:
         self._patrol.on_patrol_complete(self._on_patrol_complete)
         self._patrol.on_position_update(self._on_position_update)
 
+        # Register scan callbacks
+        self._scan.on_point(self._on_scan_point)
+        self._scan.on_complete(self._on_scan_complete)
+
         self._poll_task = asyncio.create_task(self._telemetry_loop())
         self._reconnect_task = asyncio.create_task(self._reconnect_loop())
 
@@ -74,6 +82,8 @@ class Server:
                     await task
                 except asyncio.CancelledError:
                     pass
+        if self._scan.running:
+            await self._scan.cancel()
         if self._patrol.running:
             await self._patrol.stop()
         await self._balance.stop()
@@ -113,6 +123,36 @@ class Server:
             "heading": round(pos["heading"], 1),
         })
 
+    async def _on_scan_point(self, point, progress: int):
+        """Broadcast each scan point as it's captured."""
+        await self._broadcast({
+            "type": "scan_point",
+            "angle": round(point.angle, 1),
+            "distance_mm": point.distance_mm,
+            "x": round(point.x, 3),
+            "y": round(point.y, 3),
+            "progress": progress,
+        })
+
+    def _scan_task_done(self, task: asyncio.Task):
+        """Handle scan task completion, including unexpected errors."""
+        exc = task.exception() if not task.cancelled() else None
+        if exc:
+            logger.error("Scan task failed: %s", exc)
+            self._mode = "remote"
+            asyncio.create_task(self._broadcast_status())
+
+    async def _on_scan_complete(self, result):
+        """Store scan result and broadcast the full map."""
+        self._map.add_scan(result)
+        self._mode = "remote"
+        await self._broadcast({"type": "scan_complete"})
+        await self._broadcast_status()
+        await self._broadcast({
+            "type": "map_data",
+            **self._map.to_dict(),
+        })
+
     async def _ws_handler(self, request: web.Request) -> web.WebSocketResponse:
         ws = web.WebSocketResponse()
         await ws.prepare(request)
@@ -126,6 +166,7 @@ class Server:
             "balance": self._balance.enabled,
             "fallen": self._balance.fallen,
             "connected": self._dog.connected,
+            "scanning": self._scan.running,
         }))
 
         try:
@@ -151,6 +192,8 @@ class Server:
         msg_type = msg.get("type")
 
         if msg_type == "cmd_move":
+            if self._mode == "scan":
+                return  # block movement during scan
             direction = msg.get("direction", "stop")
             if direction in DIRECTION_MAP:
                 await self._dog.move(direction)
@@ -158,6 +201,8 @@ class Server:
                 logger.warning("Unknown direction: %s", direction)
 
         elif msg_type == "cmd_stand":
+            if self._mode == "scan":
+                return
             await self._dog.stand()
 
         elif msg_type == "cmd_balance":
@@ -199,6 +244,37 @@ class Server:
             code = msg.get("action", 1)
             await self._dog.action(code)
 
+        elif msg_type == "cmd_scan":
+            action = msg.get("action", "start")
+            if action == "start" and not self._scan.running:
+                # Use patrol's dead reckoning position as scan origin
+                pos = self._patrol.position
+                self._mode = "scan"
+                await self._broadcast_status()
+                self._scan._task = asyncio.create_task(self._scan.execute(
+                    origin_x=pos["x"], origin_y=pos["y"],
+                    origin_heading=pos["heading"],
+                ))
+                self._scan._task.add_done_callback(self._scan_task_done)
+            elif action == "stop":
+                await self._scan.cancel()
+                self._mode = "remote"
+                await self._broadcast_status()
+
+        elif msg_type == "cmd_map":
+            action = msg.get("action", "get")
+            if action == "get":
+                await self._broadcast({
+                    "type": "map_data",
+                    **self._map.to_dict(),
+                })
+            elif action == "clear":
+                self._map.clear()
+                await self._broadcast({
+                    "type": "map_data",
+                    **self._map.to_dict(),
+                })
+
         else:
             logger.warning("Unknown WS message type: %s", msg_type)
 
@@ -210,6 +286,7 @@ class Server:
             "balance": self._balance.enabled,
             "fallen": self._balance.fallen,
             "connected": self._dog.connected,
+            "scanning": self._scan.running,
             "battery_mv": battery_mv,
         })
 
@@ -246,8 +323,8 @@ class Server:
                         "roll": imu["roll"],
                     })
 
-                # Ultrasonic polling (5 Hz)
-                if now - last_ultra >= ultra_interval:
+                # Ultrasonic polling (5 Hz) — skip during scan to avoid serial contention
+                if now - last_ultra >= ultra_interval and not self._scan.running:
                     dist = await self._dog.read_ultrasonic()
                     if dist is not None and self._ws_clients:
                         await self._broadcast({

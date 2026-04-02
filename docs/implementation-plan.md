@@ -59,18 +59,31 @@ Minimal working versions of remote control, balance & recovery, and patrol using
 | Composability | Patrol + balance active simultaneously |
 | Ultrasonic | Distance display updates, color warnings for close objects |
 
-## Milestone 2 Roadmap
+## Milestone 2: Ultrasonic Mapping
 
-### Ultrasonic Mapping
-- Record ultrasonic distance readings with heading/position during patrol
-- Build a 2D occupancy-style map from sweep data (turn in place, sample distances)
-- Visualize scanned map in web UI (polar plot or 2D grid)
-- Use map data for obstacle-aware waypoint planning
+### Phase 1: Scan Behavior & Map Store ✅
+
+1. ~~ScanBehavior~~ → `behaviors/scan.py` — 360° sweep in 15° steps, median-filtered readings
+2. ~~MapStore~~ → `behaviors/map_store.py` — accumulates scan results into point cloud
+3. ~~Server integration~~ → `cmd_scan` (start/stop), `cmd_map` (get/clear) WebSocket commands
+4. ~~Web UI~~ → canvas-based 2D map with color-coded distance points, scan progress bar
+5. ~~Tests~~ → 10 checks: scan execute/cancel/coords/serialization, map add/bounds/clear/dict, WS scan/map
+
+### Phase 2: Multi-Scan & Patrol Integration (Planned)
+
+- Scan at each patrol waypoint to build composite map
+- Merge overlapping scans with position correction
+- Map persistence (save/load)
+
+### Phase 3: Obstacle-Aware Planning (Planned)
+
+- Use map data to identify obstacles
+- Generate obstacle-aware waypoint paths
+- Real-time obstacle avoidance during patrol
 
 ### Other Goals
 - 3D orientation model in web UI (Three.js)
 - Physics simulator for host-side testing (PyBullet/MuJoCo)
-- Sensor-based room mapping (ultrasonic mapping feeds into this)
 - Custom firmware for advanced gaits and fine-grained servo control
 - WiFi transport
 

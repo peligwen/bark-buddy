@@ -87,6 +87,24 @@
                 <span id="patrol-wp">Waypoint: --</span>
             </div>
         </section>
+
+        <section id="scan-section">
+            <h2>Ultrasonic Map</h2>
+            <div id="scan-controls">
+                <button class="action-btn" id="btn-scan-start">Scan Area</button>
+                <button class="action-btn" id="btn-scan-stop" disabled>Stop Scan</button>
+                <button class="action-btn" id="btn-map-clear">Clear Map</button>
+            </div>
+            <div id="scan-progress" class="hidden">
+                <div class="progress-bar"><div id="scan-progress-fill" class="progress-fill"></div></div>
+                <span id="scan-progress-text">0%</span>
+            </div>
+            <canvas id="map-canvas" width="360" height="360"></canvas>
+            <div id="map-info">
+                <span id="map-points">Points: 0</span>
+                <span id="map-scans">Scans: 0</span>
+            </div>
+        </section>
     </main>
 
     <script src="app.js"></script>

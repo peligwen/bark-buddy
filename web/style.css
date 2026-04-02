@@ -275,3 +275,74 @@ main {
 }
 
 #patrol-status.hidden { display: none; }
+
+/* Scan / Map section */
+#scan-section {
+    padding: 12px;
+    background: #16213e;
+    border-radius: 8px;
+}
+
+#scan-section h2 {
+    font-size: 0.9rem;
+    color: #888;
+    margin-bottom: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+#scan-controls {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+#scan-progress {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+#scan-progress.hidden { display: none; }
+
+.progress-bar {
+    flex: 1;
+    height: 8px;
+    background: #0f3460;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.progress-fill {
+    height: 100%;
+    width: 0%;
+    background: #4ecca3;
+    border-radius: 4px;
+    transition: width 0.2s;
+}
+
+#scan-progress-text {
+    font-size: 0.8rem;
+    font-family: monospace;
+    color: #4ecca3;
+    width: 36px;
+    text-align: right;
+}
+
+#map-canvas {
+    width: 100%;
+    height: auto;
+    background: #0a0a1a;
+    border-radius: 8px;
+    border: 1px solid #0f3460;
+}
+
+#map-info {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.8rem;
+    font-family: monospace;
+    color: #666;
+    margin-top: 6px;
+}
