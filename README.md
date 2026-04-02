@@ -2,78 +2,34 @@
 
 Give our Hiwonder MechDog Open Source AI Robot Dog some real brains.
 
-## Vision
+## What Is This?
 
-Use Claude to write firmware for the dog that enables real-world capabilities like patrolling and inspecting areas, carrying objects, balancing, and recovering from a fall. Explore the capabilities!
+Firmware and host software for the [Hiwonder MechDog](https://www.hiwonder.com/) robot dog. Uses a hybrid C++/Python architecture: C++ runs on the MechDog controller for real-time servo and IMU control, while Python runs on a local dev machine for high-level behaviors and a web-based remote control interface.
 
-## Milestone 1: Thin MVP
+## Current Milestone: Thin MVP
 
-A minimal working version of each core capability to validate the full architecture end-to-end.
+| Capability | Description |
+|---|---|
+| Remote Control | Web UI to walk, turn, and stop the dog |
+| Balance & Recovery | IMU-based tilt correction and fall recovery |
+| Patrol | Autonomous predefined movement sequences |
 
-### Priority Capabilities
-
-1. **Remote Control** — Web interface to manually command the dog (walk, turn, stop)
-2. **Balance & Recovery** — Basic self-balancing using IMU data; detect a fall and attempt to stand back up
-3. **Patrol & Inspect** — Walk a predefined path autonomously
-
-### Tech Stack
-
-- **C/C++ (MechDog controller):** Low-level servo control, real-time gait loops, IMU reading
-- **Python (local dev machine):** High-level behavior logic, web server for remote control, AI integration
-- **Communication:** Serial or WiFi between MechDog controller and Python host
-
-### AI Integration
-
-- **Offline:** Claude generates behavior scripts and firmware code during development
-- **Runtime (future):** Local network server running a small model (Ollama/Llama/Phi) for decision-making — skipped for first milestone
-
-### Architecture
+## Architecture
 
 ```
-┌─────────────────┐      WiFi/Serial      ┌──────────────────┐
-│  Local Dev PC   │◄────────────────────►  │  MechDog (Stock) │
-│                 │                        │                  │
-│  Python Host    │                        │  C/C++ Firmware  │
-│  - Web Server   │   Commands/Telemetry   │  - Servo Control │
-│  - Behavior     │                        │  - IMU Reading   │
-│    Engine       │                        │  - Gait Engine   │
-│  - (Future: AI) │                        │                  │
-└─────────────────┘                        └──────────────────┘
-       ▲
-       │ HTTP
-       ▼
-┌─────────────────┐
-│  Browser (UI)   │
-│  Remote Control │
-└─────────────────┘
+Browser (Web UI)  ←HTTP/WS→  Python Host (Dev PC)  ←Serial/WiFi→  C++ Firmware (MechDog)
 ```
 
-### Project Structure
+See [docs/architecture.md](docs/architecture.md) for details.
 
-```
-bark-buddy/
-├── README.md
-├── SCOPE.md               # Detailed scope & implementation plan
-├── firmware/              # C/C++ code for MechDog controller
-│   ├── src/
-│   │   ├── main.cpp       # Entry point, serial/WiFi comm
-│   │   ├── gait.cpp       # Gait engine (walk, turn, stand)
-│   │   ├── balance.cpp    # IMU-based balancing
-│   │   └── servos.cpp     # Servo abstraction layer
-│   ├── include/
-│   └── platformio.ini     # Build config (PlatformIO)
-├── host/                  # Python host application
-│   ├── server.py          # Web server + WebSocket handler
-│   ├── behaviors/
-│   │   ├── remote.py      # Manual remote control mode
-│   │   ├── balance.py     # Balance & recovery behavior
-│   │   └── patrol.py      # Autonomous patrol behavior
-│   ├── comms.py           # Serial/WiFi communication with dog
-│   └── requirements.txt
-├── web/                   # Web UI for remote control
-│   ├── index.html
-│   ├── style.css
-│   └── app.js
-└── docs/
-    └── protocol.md        # Communication protocol spec
-```
+## Getting Started
+
+> **Prerequisites:** Stock Hiwonder MechDog, PlatformIO, Python 3.11+
+
+*Setup instructions will be added as implementation progresses.*
+
+## Documentation
+
+- [Architecture & Tech Stack](docs/architecture.md)
+- [Implementation Plan](docs/implementation-plan.md)
+- Communication Protocol (docs/protocol.md — TBD)
