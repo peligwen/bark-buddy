@@ -39,14 +39,24 @@ class MockTransport(Transport):
         self._x = 0.0
         self._y = 0.0
         self._heading = 0.0  # degrees
-        # Mock room: 2m x 2m box with an interior partition
-        hw, hd = 1.0, 1.0
+        # Mock room: triangle with interior partition
+        # Vertices: A=(1.5, 0), B=(-0.75, 1.3), C=(-0.75, -1.3)
+        # Dog starts at origin facing +X (toward vertex A)
+        ax, ay = 1.5, 0.0
+        bx, by = -0.75, 1.3
+        cx, cy = -0.75, -1.3
+        def _wall(x1, y1, x2, y2):
+            mx, my = (x1 + x2) / 2, (y1 + y2) / 2
+            dx, dy = x2 - x1, y2 - y1
+            length = math.sqrt(dx * dx + dy * dy)
+            angle = math.atan2(dy, dx)
+            return {"cx": mx, "cy": my, "length": length,
+                    "thickness": 0.02, "height": 0.3, "angle": angle}
         self._wall_geom = [
-            {"cx": 0.0, "cy": -hd, "length": 2.0, "thickness": 0.02, "height": 0.3, "angle": 0.0},
-            {"cx": hw, "cy": 0.0, "length": 2.0, "thickness": 0.02, "height": 0.3, "angle": math.pi / 2},
-            {"cx": 0.0, "cy": hd, "length": 2.0, "thickness": 0.02, "height": 0.3, "angle": 0.0},
-            {"cx": -hw, "cy": 0.0, "length": 2.0, "thickness": 0.02, "height": 0.3, "angle": math.pi / 2},
-            {"cx": 0.3, "cy": 0.4, "length": 0.6, "thickness": 0.02, "height": 0.3, "angle": 0.0},
+            _wall(ax, ay, bx, by),   # A→B (front-left)
+            _wall(bx, by, cx, cy),   # B→C (back wall)
+            _wall(cx, cy, ax, ay),   # C→A (front-right)
+            _wall(-0.3, 0.5, -0.3, -0.5),  # interior partition
         ]
 
     async def open(self) -> None:
