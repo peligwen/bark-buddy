@@ -8,6 +8,7 @@
     var balanceEnabled = false;
     var hasLock = false;
     var lockHolder = null;
+    var operatorName = new URLSearchParams(location.search).get("name") || "Operator";
 
     function canControl() {
         // Allow if no one holds the lock, or if we hold it
@@ -30,7 +31,8 @@
                 clearInterval(reconnectTimer);
                 reconnectTimer = null;
             }
-            // Request existing map data on connect
+            // Identify this client and request existing data
+            send({ type: "cmd_identify", name: operatorName });
             send({ type: "cmd_map", action: "get" });
         };
 
@@ -119,6 +121,16 @@
             }
         } else if (msg.type === "reset") {
             Dog3D.reset();
+            // Reset local UI state
+            setScanRunning(false);
+            setPatrolRunning(false);
+        } else if (msg.type === "version") {
+            if (window._appVersion && msg.hash !== window._appVersion) {
+                if (confirm("A new version is available. Reload?")) {
+                    location.reload();
+                }
+            }
+            window._appVersion = msg.hash;
         }
     }
 
@@ -536,18 +548,22 @@
         lockHolder = msg.holder;
         var btn = document.getElementById("btn-lock");
         var text = document.getElementById("lock-text");
+        var header = document.querySelector("header");
         if (msg.is_you) {
             btn.textContent = "Release";
             btn.classList.add("locked");
             text.textContent = "You have control";
+            header.className = "control-self";
         } else if (msg.locked) {
             btn.textContent = "Request";
             btn.classList.remove("locked");
             text.textContent = msg.holder + " has control";
+            header.className = "control-other";
         } else {
             btn.textContent = "Take Control";
             btn.classList.remove("locked");
             text.textContent = "";
+            header.className = "";
         }
     }
 
@@ -556,7 +572,7 @@
             if (hasLock) {
                 send({ type: "cmd_unlock" });
             } else {
-                send({ type: "cmd_lock", name: "Operator" });
+                send({ type: "cmd_lock", name: operatorName });
             }
         });
     }

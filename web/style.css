@@ -44,6 +44,9 @@ header {
     flex-shrink: 0;
 }
 
+header.control-self { background: #2e8b57; }  /* green — you have control */
+header.control-other { background: #b35c00; } /* amber — someone else has control */
+
 header h1 {
     font-size: 1rem;
     font-weight: 700;

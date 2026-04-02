@@ -7,6 +7,7 @@ real-time remote control and telemetry.
 
 import argparse
 import asyncio
+import hashlib
 import json
 import logging
 import os
@@ -42,11 +43,13 @@ class Server:
         self._mode = "remote"  # remote | patrol | scan
         self._motion = "stop"  # last motion direction
         self._action = None    # last action code or None
+        self._web_hash = self._compute_web_hash(web_dir)
         # Control lock
         self._lock_holder: web.WebSocketResponse | None = None
         self._lock_name: str = ""
         self._lock_time: float = 0.0
         self._lock_timeout: float = 30.0  # seconds of inactivity before auto-release
+        self._client_names: dict[web.WebSocketResponse, str] = {}
 
     async def start(self, host: str = "0.0.0.0", port: int = 8080):
         app = web.Application()
@@ -161,6 +164,16 @@ class Server:
             **self._map.to_dict(),
         })
 
+    @staticmethod
+    def _compute_web_hash(web_dir: str) -> str:
+        """Hash web files to detect when clients need to reload."""
+        h = hashlib.md5()
+        for name in sorted(os.listdir(web_dir)):
+            path = os.path.join(web_dir, name)
+            if os.path.isfile(path):
+                h.update(open(path, "rb").read())
+        return h.hexdigest()[:8]
+
     # --- Control lock ---
 
     def _check_lock_timeout(self) -> None:
@@ -223,6 +236,11 @@ class Server:
             "scanning": self._scan.running,
         }))
 
+        # Send version hash for stale client detection
+        await ws.send_str(json.dumps({
+            "type": "version", "hash": self._web_hash,
+        }))
+
         # Send lock status
         lock_msg = self._lock_status_msg()
         lock_msg["is_you"] = (ws is self._lock_holder)
@@ -236,6 +254,7 @@ class Server:
                     logger.warning("WebSocket error: %s", ws.exception())
         finally:
             self._ws_clients.discard(ws)
+            self._client_names.pop(ws, None)
             # Release lock if this client held it
             if self._lock_holder is ws:
                 self._lock_holder = None
@@ -255,6 +274,11 @@ class Server:
             return
 
         msg_type = msg.get("type")
+
+        # --- Identity ---
+        if msg_type == "cmd_identify":
+            self._client_names[ws] = msg.get("name", "Operator")
+            return
 
         # --- Lock commands (always allowed) ---
         if msg_type == "cmd_lock":
@@ -304,7 +328,7 @@ class Server:
             # Auto-acquire lock on first control if no one holds it
             if self._lock_holder is None:
                 self._lock_holder = ws
-                self._lock_name = "Operator"
+                self._lock_name = self._client_names.get(ws, "Operator")
                 self._lock_time = _time.monotonic()
                 await self._broadcast_lock_status()
             # Refresh lock timeout on any control action
@@ -407,7 +431,10 @@ class Server:
             self._action = None
             self._mode = "remote"
             await self._broadcast_status()
+            # Recompute web hash in case files changed
+            self._web_hash = self._compute_web_hash(self._web_dir)
             await self._broadcast({"type": "reset"})
+            await self._broadcast({"type": "version", "hash": self._web_hash})
 
         else:
             logger.warning("Unknown WS message type: %s", msg_type)
