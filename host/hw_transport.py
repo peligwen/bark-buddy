@@ -29,7 +29,8 @@ MOTION_CMDS = {
 
 # REPL init commands — run once after connecting
 INIT_COMMANDS = [
-    "import Hiwonder_IIC, HW_MechDog",
+    "import Hiwonder, Hiwonder_IIC, HW_MechDog",
+    "Hiwonder.disableLowPowerAlarm()",
     "_dog = HW_MechDog.__global_dog",
     "_imu = _dog.__imu",
     "_bus = Hiwonder_IIC.IIC(1)",
