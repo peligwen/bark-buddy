@@ -29,9 +29,10 @@ BATTERY_POLL_HZ = 0.5
 
 
 class Server:
-    def __init__(self, dog: DogComms, web_dir: str):
+    def __init__(self, dog: DogComms, web_dir: str, transport=None):
         self._dog = dog
         self._web_dir = web_dir
+        self._transport = transport  # kept for sim joint reads
         self._ws_clients: set[web.WebSocketResponse] = set()
         self._poll_task: asyncio.Task | None = None
         self._balance = BalanceLayer(dog)
@@ -39,6 +40,8 @@ class Server:
         self._scan = ScanBehavior(dog)
         self._map = MapStore()
         self._mode = "remote"  # remote | patrol | scan
+        self._motion = "stop"  # last motion direction
+        self._action = None    # last action code or None
 
     async def start(self, host: str = "0.0.0.0", port: int = 8080):
         app = web.Application()
@@ -197,6 +200,8 @@ class Server:
             direction = msg.get("direction", "stop")
             if direction in DIRECTION_MAP:
                 await self._dog.move(direction)
+                self._motion = direction
+                self._action = None
             else:
                 logger.warning("Unknown direction: %s", direction)
 
@@ -204,6 +209,8 @@ class Server:
             if self._mode == "scan":
                 return
             await self._dog.stand()
+            self._motion = "stand"
+            self._action = None
 
         elif msg_type == "cmd_balance":
             enabled = msg.get("enabled", True)
@@ -243,6 +250,8 @@ class Server:
         elif msg_type == "cmd_action":
             code = msg.get("action", 1)
             await self._dog.action(code)
+            self._action = code
+            self._motion = "stop"
 
         elif msg_type == "cmd_scan":
             action = msg.get("action", "start")
@@ -317,11 +326,19 @@ class Server:
                 # IMU polling via balance layer (handles fall detection too)
                 imu = await self._balance.update()
                 if imu and self._ws_clients:
-                    await self._broadcast({
+                    imu_msg = {
                         "type": "telem_imu",
                         "pitch": imu["pitch"],
                         "roll": imu["roll"],
-                    })
+                        "motion": self._motion,
+                        "action": self._action,
+                    }
+                    # Include sim joint data when available
+                    if self._transport and hasattr(self._transport, "get_joint_states"):
+                        joints = self._transport.get_joint_states()
+                        if joints:
+                            imu_msg["joints"] = joints
+                    await self._broadcast(imu_msg)
 
                 # Ultrasonic polling (5 Hz) — skip during scan to avoid serial contention
                 if now - last_ultra >= ultra_interval and not self._scan.running:
@@ -387,7 +404,7 @@ async def main(args):
     dog = DogComms(transport)
     web_dir = os.path.join(os.path.dirname(__file__), "..", "web")
     web_dir = os.path.abspath(web_dir)
-    server = Server(dog, web_dir)
+    server = Server(dog, web_dir, transport=transport)
     await server.start(host=args.host, port=args.port)
 
 

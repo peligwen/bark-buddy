@@ -403,6 +403,34 @@ class SimTransport(Transport):
         euler = p.getEulerFromQuaternion(orn)
         return math.degrees(euler[2])
 
+    def get_joint_states(self) -> dict:
+        """Read all joint angles and foot positions for telemetry.
+
+        Returns dict with hip/knee angles (radians) and foot positions (meters)
+        for all four legs.
+        """
+        if not self._open or self._robot is None:
+            return {}
+        c = self._client
+        joints = {}
+        leg_names = ["fl", "fr", "rl", "rr"]
+        hip_indices = [JOINT_FL_HIP, JOINT_FR_HIP, JOINT_RL_HIP, JOINT_RR_HIP]
+        knee_indices = [JOINT_FL_KNEE, JOINT_FR_KNEE, JOINT_RL_KNEE, JOINT_RR_KNEE]
+
+        for name, hip_idx, knee_idx, foot_link in zip(
+            leg_names, hip_indices, knee_indices, _FOOT_LINKS
+        ):
+            hip_state = p.getJointState(self._robot, hip_idx, physicsClientId=c)
+            knee_state = p.getJointState(self._robot, knee_idx, physicsClientId=c)
+            foot_state = p.getLinkState(self._robot, foot_link, physicsClientId=c)
+            joints[name] = {
+                "hip": hip_state[0],    # angle in radians
+                "knee": knee_state[0],  # angle in radians
+                "foot": list(foot_state[0]),  # [x, y, z] world position
+            }
+
+        return joints
+
     @property
     def sim_time(self) -> float:
         """Current simulation time in seconds."""

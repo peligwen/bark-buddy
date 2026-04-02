@@ -74,7 +74,7 @@
         if (msg.type === "telem_imu") {
             updateGauge("pitch", msg.pitch);
             updateGauge("roll", msg.roll);
-            Dog3D.updateIMU(msg.pitch, msg.roll);
+            Dog3D.updateIMU(msg);
         } else if (msg.type === "telem_status") {
             updateStatus(msg);
         } else if (msg.type === "balance_state") {
@@ -175,6 +175,7 @@
     }
 
     function updateUltrasonic(mm) {
+        Dog3D.updateUltrasonic(mm);
         var el = document.getElementById("ultra-val");
         if (mm < 100) {
             el.textContent = mm + "mm";
