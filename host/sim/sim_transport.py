@@ -212,7 +212,11 @@ class SimTransport(Transport):
         self._walls.clear()
         self._wall_geom.clear()
 
-    # --- Pose reset utility (for tests) ---
+    # --- Pose reset ---
+
+    def reset(self) -> None:
+        """Reset robot to origin with standing pose."""
+        self.reset_pose()
 
     def reset_pose(self, position: list = None, yaw: float = 0.0) -> None:
         """Reset robot to a given position and heading with standing pose.
@@ -409,10 +413,6 @@ class SimTransport(Transport):
                                                   physicsClientId=self._client)
         euler = p.getEulerFromQuaternion(orn)
         return math.degrees(euler[2])
-
-    def get_walls(self) -> list[dict]:
-        """Return wall geometry for 3D visualization."""
-        return list(self._wall_geom)
 
     def get_joint_states(self) -> dict:
         """Read all joint angles and foot positions for telemetry.

@@ -76,9 +76,13 @@ class MockTransport(Transport):
     def is_open(self) -> bool:
         return self._open
 
-    def get_walls(self) -> list[dict]:
-        """Return mock wall geometry for 3D visualization."""
-        return list(self._wall_geom)
+    def reset(self) -> None:
+        """Reset dead reckoning to origin."""
+        self._x = 0.0
+        self._y = 0.0
+        self._heading = 0.0
+        self._motion_cmd = 1
+        self._last_motion_time = time.monotonic()
 
     def get_position(self) -> tuple[float, float, float]:
         """Get dead-reckoned position (x, y, z)."""

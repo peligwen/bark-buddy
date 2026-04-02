@@ -64,6 +64,10 @@ class Transport(abc.ABC):
     @abc.abstractmethod
     def is_open(self) -> bool: ...
 
+    def reset(self) -> None:
+        """Reset internal state (position, heading, etc). Optional override."""
+        pass
+
 
 class SerialTransport(Transport):
     """USB serial transport using pyserial-asyncio."""

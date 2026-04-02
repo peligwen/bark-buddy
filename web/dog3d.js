@@ -654,15 +654,15 @@ var Dog3D = (function () {
         updateIMU: function (msg) {
             targetPitch = msg.pitch;
             targetRoll = msg.roll;
-            if (msg.motion != null) currentMotion = msg.motion;
-            if (msg.action !== undefined) currentAction = msg.action;
             if (msg.joints) simJoints = msg.joints;
-            // Position: sim (x,y) -> scene (x, z), scaled by S
-            if (msg.pos) {
-                targetX = msg.pos.x * S;
-                targetZ = msg.pos.y * S;
+        },
+
+        updateOdometry: function (msg) {
+            if (msg.motion != null) currentMotion = msg.motion;
+            if (msg.x != null && msg.y != null) {
+                targetX = msg.x * S;
+                targetZ = msg.y * S;
             }
-            // Heading: sim degrees -> scene radians around Y
             if (msg.heading != null) {
                 targetYaw = msg.heading * (Math.PI / 180);
             }

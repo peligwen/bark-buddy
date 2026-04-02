@@ -228,15 +228,6 @@ class Server:
         lock_msg["is_you"] = (ws is self._lock_holder)
         await ws.send_str(json.dumps(lock_msg))
 
-        # Send wall geometry if transport provides it
-        if self._transport and hasattr(self._transport, "get_walls"):
-            walls = self._transport.get_walls()
-            if walls:
-                await ws.send_str(json.dumps({
-                    "type": "sim_walls",
-                    "walls": walls,
-                }))
-
         try:
             async for raw_msg in ws:
                 if raw_msg.type == web.WSMsgType.TEXT:
@@ -310,6 +301,12 @@ class Server:
                     "holder": self._lock_name,
                 }))
                 return
+            # Auto-acquire lock on first control if no one holds it
+            if self._lock_holder is None:
+                self._lock_holder = ws
+                self._lock_name = "Operator"
+                self._lock_time = _time.monotonic()
+                await self._broadcast_lock_status()
             # Refresh lock timeout on any control action
             if self._lock_holder is ws:
                 self._lock_time = _time.monotonic()
@@ -403,34 +400,13 @@ class Server:
                     **self._map.to_dict(),
                 })
 
-        elif msg_type == "cmd_walls":
-            if self._transport and hasattr(self._transport, "get_walls"):
-                walls = self._transport.get_walls()
-                if walls:
-                    await self._broadcast({
-                        "type": "sim_walls",
-                        "walls": walls,
-                    })
-
         elif msg_type == "cmd_reset":
-            # Reset transport position/heading to origin
-            if self._transport and hasattr(self._transport, "reset_pose"):
-                self._transport.reset_pose()
-            elif self._transport and hasattr(self._transport, "_x"):
-                # MockTransport: reset dead reckoning
-                self._transport._x = 0.0
-                self._transport._y = 0.0
-                self._transport._heading = 0.0
-                self._transport._motion_cmd = 1
+            if self._transport:
+                self._transport.reset()
             self._motion = "stop"
             self._action = None
             self._mode = "remote"
             await self._broadcast_status()
-            # Resend walls
-            if self._transport and hasattr(self._transport, "get_walls"):
-                walls = self._transport.get_walls()
-                if walls:
-                    await self._broadcast({"type": "sim_walls", "walls": walls})
             await self._broadcast({"type": "reset"})
 
         else:
@@ -479,21 +455,24 @@ class Server:
                         "type": "telem_imu",
                         "pitch": imu["pitch"],
                         "roll": imu["roll"],
-                        "motion": self._motion,
-                        "action": self._action,
                     }
-                    # Include sim/mock data when available
-                    if self._transport:
-                        if hasattr(self._transport, "get_joint_states"):
-                            joints = self._transport.get_joint_states()
-                            if joints:
-                                imu_msg["joints"] = joints
+                    # Include sim joint data when available (diagnostic only)
+                    if self._transport and hasattr(self._transport, "get_joint_states"):
+                        joints = self._transport.get_joint_states()
+                        if joints:
+                            imu_msg["joints"] = joints
+                    await self._broadcast(imu_msg)
+
+                    # Odometry: dead-reckoned position + heading (separate from IMU)
+                    if self._transport and self._ws_clients:
+                        odom = {"type": "telem_odometry", "motion": self._motion}
                         if hasattr(self._transport, "get_position"):
                             pos = self._transport.get_position()
-                            imu_msg["pos"] = {"x": round(pos[0], 4), "y": round(pos[1], 4)}
+                            odom["x"] = round(pos[0], 4)
+                            odom["y"] = round(pos[1], 4)
                         if hasattr(self._transport, "get_heading"):
-                            imu_msg["heading"] = round(self._transport.get_heading(), 1)
-                    await self._broadcast(imu_msg)
+                            odom["heading"] = round(self._transport.get_heading(), 1)
+                        await self._broadcast(odom)
 
                 # Ultrasonic polling (5 Hz) — skip during scan to avoid serial contention
                 if now - last_ultra >= ultra_interval and not self._scan.running:

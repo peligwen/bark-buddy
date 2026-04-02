@@ -30,9 +30,8 @@
                 clearInterval(reconnectTimer);
                 reconnectTimer = null;
             }
-            // Request existing map and wall data on connect
+            // Request existing map data on connect
             send({ type: "cmd_map", action: "get" });
-            send({ type: "cmd_walls" });
         };
 
         ws.onclose = function () {
@@ -83,6 +82,8 @@
             updateGauge("pitch", msg.pitch);
             updateGauge("roll", msg.roll);
             Dog3D.updateIMU(msg);
+        } else if (msg.type === "telem_odometry") {
+            Dog3D.updateOdometry(msg);
         } else if (msg.type === "telem_status") {
             updateStatus(msg);
         } else if (msg.type === "balance_state") {
@@ -108,8 +109,6 @@
             setScanRunning(false);
         } else if (msg.type === "map_data") {
             renderFullMap(msg);
-        } else if (msg.type === "sim_walls") {
-            Dog3D.setWalls(msg.walls);
         } else if (msg.type === "lock_status") {
             updateLockUI(msg);
         } else if (msg.type === "lock_denied") {
@@ -557,8 +556,7 @@
             if (hasLock) {
                 send({ type: "cmd_unlock" });
             } else {
-                var name = prompt("Your name:", "Operator") || "Operator";
-                send({ type: "cmd_lock", name: name });
+                send({ type: "cmd_lock", name: "Operator" });
             }
         });
     }
