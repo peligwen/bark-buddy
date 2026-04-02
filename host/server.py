@@ -42,6 +42,11 @@ class Server:
         self._mode = "remote"  # remote | patrol | scan
         self._motion = "stop"  # last motion direction
         self._action = None    # last action code or None
+        # Control lock
+        self._lock_holder: web.WebSocketResponse | None = None
+        self._lock_name: str = ""
+        self._lock_time: float = 0.0
+        self._lock_timeout: float = 30.0  # seconds of inactivity before auto-release
 
     async def start(self, host: str = "0.0.0.0", port: int = 8080):
         app = web.Application()
@@ -156,6 +161,52 @@ class Server:
             **self._map.to_dict(),
         })
 
+    # --- Control lock ---
+
+    def _check_lock_timeout(self) -> None:
+        """Release lock if holder timed out."""
+        if self._lock_holder and self._lock_time:
+            import time
+            if time.monotonic() - self._lock_time > self._lock_timeout:
+                self._lock_holder = None
+                self._lock_name = ""
+
+    def _is_locked_by(self, ws: web.WebSocketResponse) -> bool:
+        """Check if the given client holds the lock."""
+        self._check_lock_timeout()
+        return self._lock_holder is ws
+
+    def _is_locked(self) -> bool:
+        """Check if any client holds the lock."""
+        self._check_lock_timeout()
+        return self._lock_holder is not None
+
+    def _can_control(self, ws: web.WebSocketResponse) -> bool:
+        """Check if the given client is allowed to send commands."""
+        self._check_lock_timeout()
+        return self._lock_holder is None or self._lock_holder is ws
+
+    def _lock_status_msg(self) -> dict:
+        self._check_lock_timeout()
+        return {
+            "type": "lock_status",
+            "locked": self._lock_holder is not None,
+            "holder": self._lock_name if self._lock_holder else None,
+            "is_you": False,  # overridden per-client
+        }
+
+    async def _broadcast_lock_status(self) -> None:
+        msg = self._lock_status_msg()
+        dead = set()
+        for ws in self._ws_clients:
+            m = dict(msg)
+            m["is_you"] = (ws is self._lock_holder)
+            try:
+                await ws.send_str(json.dumps(m))
+            except (ConnectionError, ConnectionResetError):
+                dead.add(ws)
+        self._ws_clients -= dead
+
     async def _ws_handler(self, request: web.Request) -> web.WebSocketResponse:
         ws = web.WebSocketResponse()
         await ws.prepare(request)
@@ -172,6 +223,11 @@ class Server:
             "scanning": self._scan.running,
         }))
 
+        # Send lock status
+        lock_msg = self._lock_status_msg()
+        lock_msg["is_you"] = (ws is self._lock_holder)
+        await ws.send_str(json.dumps(lock_msg))
+
         # Send wall geometry if transport provides it
         if self._transport and hasattr(self._transport, "get_walls"):
             walls = self._transport.get_walls()
@@ -184,17 +240,23 @@ class Server:
         try:
             async for raw_msg in ws:
                 if raw_msg.type == web.WSMsgType.TEXT:
-                    await self._handle_ws_message(raw_msg.data)
+                    await self._handle_ws_message(raw_msg.data, ws)
                 elif raw_msg.type == web.WSMsgType.ERROR:
                     logger.warning("WebSocket error: %s", ws.exception())
         finally:
             self._ws_clients.discard(ws)
+            # Release lock if this client held it
+            if self._lock_holder is ws:
+                self._lock_holder = None
+                self._lock_name = ""
+                await self._broadcast_lock_status()
             logger.info("WebSocket client disconnected (%d remaining)", len(self._ws_clients))
 
         return ws
 
-    async def _handle_ws_message(self, data: str):
+    async def _handle_ws_message(self, data: str, ws: web.WebSocketResponse):
         """Handle a JSON message from the browser."""
+        import time as _time
         try:
             msg = json.loads(data)
         except json.JSONDecodeError:
@@ -203,9 +265,58 @@ class Server:
 
         msg_type = msg.get("type")
 
+        # --- Lock commands (always allowed) ---
+        if msg_type == "cmd_lock":
+            name = msg.get("name", "Anonymous")
+            if self._can_control(ws):
+                self._lock_holder = ws
+                self._lock_name = name
+                self._lock_time = _time.monotonic()
+                await self._broadcast_lock_status()
+            elif self._lock_holder is not None:
+                # Send challenge to current holder
+                await self._lock_holder.send_str(json.dumps({
+                    "type": "lock_challenge",
+                    "challenger": name,
+                }))
+                # Notify challenger they need to wait
+                await ws.send_str(json.dumps({
+                    "type": "lock_denied",
+                    "holder": self._lock_name,
+                }))
+            return
+
+        if msg_type == "cmd_unlock":
+            if self._lock_holder is ws:
+                self._lock_holder = None
+                self._lock_name = ""
+                await self._broadcast_lock_status()
+            return
+
+        if msg_type == "cmd_lock_yield":
+            # Current holder yields to a challenger
+            if self._lock_holder is ws:
+                self._lock_holder = None
+                self._lock_name = ""
+                await self._broadcast_lock_status()
+            return
+
+        # --- Control commands (gated by lock) ---
+        if msg_type in ("cmd_move", "cmd_stand", "cmd_balance", "cmd_patrol",
+                         "cmd_action", "cmd_scan"):
+            if not self._can_control(ws):
+                await ws.send_str(json.dumps({
+                    "type": "lock_denied",
+                    "holder": self._lock_name,
+                }))
+                return
+            # Refresh lock timeout on any control action
+            if self._lock_holder is ws:
+                self._lock_time = _time.monotonic()
+
         if msg_type == "cmd_move":
             if self._mode == "scan":
-                return  # block movement during scan
+                return
             direction = msg.get("direction", "stop")
             if direction in DIRECTION_MAP:
                 await self._dog.move(direction)
@@ -227,7 +338,6 @@ class Server:
                 await self._balance.start()
             else:
                 await self._balance.stop()
-            # Broadcast updated balance state
             await self._broadcast({
                 "type": "balance_state",
                 "enabled": self._balance.enabled,
@@ -265,7 +375,6 @@ class Server:
         elif msg_type == "cmd_scan":
             action = msg.get("action", "start")
             if action == "start" and not self._scan.running:
-                # Use patrol's dead reckoning position as scan origin
                 pos = self._patrol.position
                 self._mode = "scan"
                 await self._broadcast_status()
@@ -279,6 +388,7 @@ class Server:
                 self._mode = "remote"
                 await self._broadcast_status()
 
+        # --- Non-gated commands ---
         elif msg_type == "cmd_map":
             action = msg.get("action", "get")
             if action == "get":
@@ -301,6 +411,27 @@ class Server:
                         "type": "sim_walls",
                         "walls": walls,
                     })
+
+        elif msg_type == "cmd_reset":
+            # Reset transport position/heading to origin
+            if self._transport and hasattr(self._transport, "reset_pose"):
+                self._transport.reset_pose()
+            elif self._transport and hasattr(self._transport, "_x"):
+                # MockTransport: reset dead reckoning
+                self._transport._x = 0.0
+                self._transport._y = 0.0
+                self._transport._heading = 0.0
+                self._transport._motion_cmd = 1
+            self._motion = "stop"
+            self._action = None
+            self._mode = "remote"
+            await self._broadcast_status()
+            # Resend walls
+            if self._transport and hasattr(self._transport, "get_walls"):
+                walls = self._transport.get_walls()
+                if walls:
+                    await self._broadcast({"type": "sim_walls", "walls": walls})
+            await self._broadcast({"type": "reset"})
 
         else:
             logger.warning("Unknown WS message type: %s", msg_type)

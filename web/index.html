@@ -9,7 +9,9 @@
 <body>
     <header>
         <h1>Bark-Buddy</h1>
-        <div id="status">
+        <div id="header-right">
+            <button id="btn-lock" class="header-btn">Take Control</button>
+            <span id="lock-text"></span>
             <span id="conn-indicator" class="indicator disconnected"></span>
             <span id="conn-text">Disconnected</span>
         </div>
@@ -120,6 +122,13 @@
                     <button class="action-btn" id="btn-scan-start">Scan Area</button>
                     <button class="action-btn" id="btn-scan-stop" disabled>Stop Scan</button>
                     <button class="action-btn" id="btn-map-clear">Clear Map</button>
+                </div>
+            </section>
+
+            <section id="system-section">
+                <h2>System</h2>
+                <div class="action-grid">
+                    <button class="action-btn" id="btn-reset">Reset Position</button>
                 </div>
             </section>
         </div>

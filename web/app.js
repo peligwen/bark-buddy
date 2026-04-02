@@ -6,6 +6,8 @@
 
     // --- State ---
     var balanceEnabled = false;
+    var hasLock = false;
+    var lockHolder = null;
 
     // --- WebSocket connection ---
     var ws = null;
@@ -103,6 +105,16 @@
             renderFullMap(msg);
         } else if (msg.type === "sim_walls") {
             Dog3D.setWalls(msg.walls);
+        } else if (msg.type === "lock_status") {
+            updateLockUI(msg);
+        } else if (msg.type === "lock_denied") {
+            // Could show a toast; for now just update UI
+        } else if (msg.type === "lock_challenge") {
+            if (confirm(msg.challenger + " wants control. Yield?")) {
+                send({ type: "cmd_lock_yield" });
+            }
+        } else if (msg.type === "reset") {
+            Dog3D.reset();
         }
     }
 
@@ -510,6 +522,44 @@
         return 2.0;
     }
 
+    // --- Lock UI ---
+    function updateLockUI(msg) {
+        hasLock = msg.is_you;
+        lockHolder = msg.holder;
+        var btn = document.getElementById("btn-lock");
+        var text = document.getElementById("lock-text");
+        if (msg.is_you) {
+            btn.textContent = "Release";
+            btn.classList.add("locked");
+            text.textContent = "You have control";
+        } else if (msg.locked) {
+            btn.textContent = "Request";
+            btn.classList.remove("locked");
+            text.textContent = msg.holder + " has control";
+        } else {
+            btn.textContent = "Take Control";
+            btn.classList.remove("locked");
+            text.textContent = "";
+        }
+    }
+
+    function setupLock() {
+        document.getElementById("btn-lock").addEventListener("click", function () {
+            if (hasLock) {
+                send({ type: "cmd_unlock" });
+            } else {
+                var name = prompt("Your name:", "Operator") || "Operator";
+                send({ type: "cmd_lock", name: name });
+            }
+        });
+    }
+
+    function setupReset() {
+        document.getElementById("btn-reset").addEventListener("click", function () {
+            send({ type: "cmd_reset" });
+        });
+    }
+
     // --- Init ---
     Dog3D.init("dog-3d-container");
     setupDpad();
@@ -517,5 +567,7 @@
     setupKeyboard();
     setupPatrol();
     setupScan();
+    setupLock();
+    setupReset();
     connect();
 })();

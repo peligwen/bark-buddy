@@ -51,12 +51,36 @@ header h1 {
     letter-spacing: 0.5px;
 }
 
-#status {
+#header-right {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 8px;
     font-size: 0.8rem;
     color: rgba(255,255,255,0.85);
+}
+
+.header-btn {
+    padding: 4px 10px;
+    border: 1px solid rgba(255,255,255,0.3);
+    border-radius: 4px;
+    background: rgba(255,255,255,0.15);
+    color: #fff;
+    font-size: 0.75rem;
+    cursor: pointer;
+}
+
+.header-btn:hover {
+    background: rgba(255,255,255,0.25);
+}
+
+.header-btn.locked {
+    background: var(--green);
+    border-color: var(--green);
+}
+
+#lock-text {
+    font-size: 0.7rem;
+    opacity: 0.8;
 }
 
 .indicator {

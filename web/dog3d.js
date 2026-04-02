@@ -627,7 +627,7 @@ var Dog3D = (function () {
 
             // Rotation: sim angle is around Z axis (yaw in XY plane)
             // In scene, yaw rotates around Y axis
-            mesh.rotation.y = -w.angle;
+            mesh.rotation.y = w.angle;
 
             mesh.castShadow = true;
             mesh.receiveShadow = true;
@@ -663,14 +663,29 @@ var Dog3D = (function () {
                 targetZ = msg.pos.y * S;
             }
             // Heading: sim degrees -> scene radians around Y
-            // rotation.y=-90° faces +Z (sim left), so negate heading
             if (msg.heading != null) {
-                targetYaw = -msg.heading * (Math.PI / 180);
+                targetYaw = msg.heading * (Math.PI / 180);
             }
         },
 
         updateUltrasonic: function (distance_mm) {
             ultraDistance = distance_mm;
+        },
+
+        reset: function () {
+            targetPitch = targetRoll = 0;
+            currentPitch = currentRoll = 0;
+            targetX = targetZ = targetYaw = 0;
+            currentX = currentZ = currentYaw = 0;
+            camTargetX = camTargetZ = 0;
+            currentMotion = "stop";
+            currentAction = null;
+            walkPhase = 0;
+            simJoints = null;
+            if (dogGroup) {
+                dogGroup.position.set(0, standingHeight(), 0);
+                dogGroup.rotation.set(0, 0, 0);
+            }
         },
 
         setWalls: function (walls) {
