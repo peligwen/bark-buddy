@@ -651,6 +651,17 @@ var Dog3D = (function () {
     return {
         init: init,
 
+        // Debug: expose current state for testing
+        debug: function () {
+            return {
+                targetX: targetX, targetZ: targetZ, targetYaw: targetYaw,
+                currentX: currentX, currentZ: currentZ, currentYaw: currentYaw,
+                headingDeg: targetYaw * (180 / Math.PI),
+                motion: currentMotion,
+                ultraDistance: ultraDistance,
+            };
+        },
+
         updateIMU: function (msg) {
             targetPitch = msg.pitch;
             targetRoll = msg.roll;
@@ -663,8 +674,10 @@ var Dog3D = (function () {
                 targetX = msg.x * S;
                 targetZ = msg.y * S;
             }
+            // rotation.y = +90° faces -Z, but heading=90° (turned left) should
+            // face +Z (sim +Y), so negate to get correct visual direction
             if (msg.heading != null) {
-                targetYaw = msg.heading * (Math.PI / 180);
+                targetYaw = -msg.heading * (Math.PI / 180);
             }
         },
 
