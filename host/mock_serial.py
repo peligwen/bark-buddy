@@ -113,9 +113,9 @@ class MockTransport(Transport):
             self._x -= self.FORWARD_SPEED * dt * math.cos(rad)
             self._y -= self.FORWARD_SPEED * dt * math.sin(rad)
         elif cmd == 5:  # turn left
-            self._heading += self.TURN_SPEED * dt
-        elif cmd == 6:  # turn right
             self._heading -= self.TURN_SPEED * dt
+        elif cmd == 6:  # turn right
+            self._heading += self.TURN_SPEED * dt
 
     def _raycast_ultrasonic(self) -> int:
         """Cast a ray from dog position along heading, return distance to nearest wall in mm."""

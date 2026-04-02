@@ -32,7 +32,9 @@ var Dog3D = (function () {
 
     // Camera orbit
     var isDragging = false, prevMouse = { x: 0, y: 0 };
-    var cameraAngle = { theta: Math.PI / 5, phi: Math.PI / 5.5, radius: 8.5 };
+    // Chase camera: theta is offset from dog's yaw (0 = directly behind)
+    var cameraAngle = { thetaOffset: 0, phi: Math.PI / 5, radius: 6 };
+    var camYaw = 0; // smoothed camera yaw tracking the dog
 
     // Telemetry targets (smoothed)
     var targetPitch = 0, targetRoll = 0;
@@ -203,11 +205,25 @@ var Dog3D = (function () {
             group.add(ear);
         });
 
-        // Tail nub
+        // Tail nub + red flag
         var tail = new THREE.Mesh(new THREE.BoxGeometry(BODY_L * 0.12, BODY_H * 0.4, BODY_H * 0.4), accentMat);
         tail.position.set(-BODY_L / 2 - BODY_L * 0.06, BODY_H * 0.3, 0);
         tail.rotation.z = -0.3;
         group.add(tail);
+
+        var flagPole = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.003 * S, 0.003 * S, 0.08 * S, 6),
+            mat(0x444444)
+        );
+        flagPole.position.set(-BODY_L / 2 - BODY_L * 0.1, BODY_H * 0.7, 0);
+        group.add(flagPole);
+
+        var flag = new THREE.Mesh(
+            new THREE.PlaneGeometry(0.04 * S, 0.025 * S),
+            new THREE.MeshBasicMaterial({ color: 0xdd2222, side: THREE.DoubleSide })
+        );
+        flag.position.set(-BODY_L / 2 - BODY_L * 0.1 - 0.02 * S, BODY_H * 0.95, 0);
+        group.add(flag);
 
         // Ultrasonic sensors (two small cylinders on front face)
         var usGeo = new THREE.CylinderGeometry(0.02 * S, 0.02 * S, 0.02 * S, 8);
@@ -487,9 +503,20 @@ var Dog3D = (function () {
         camTargetX += (currentX - camTargetX) * 0.08;
         camTargetZ += (currentZ - camTargetZ) * 0.08;
 
-        camera.position.x = camTargetX + cameraAngle.radius * Math.cos(cameraAngle.phi) * Math.sin(cameraAngle.theta);
-        camera.position.y = cameraAngle.radius * Math.sin(cameraAngle.phi);
-        camera.position.z = camTargetZ + cameraAngle.radius * Math.cos(cameraAngle.phi) * Math.cos(cameraAngle.theta);
+        // Smoothly follow dog yaw (with angle wrapping)
+        var yawDiff = currentYaw - camYaw;
+        if (yawDiff > Math.PI) yawDiff -= 2 * Math.PI;
+        if (yawDiff < -Math.PI) yawDiff += 2 * Math.PI;
+        camYaw += yawDiff * 0.05;
+
+        // Chase camera: orbit behind the dog (yaw + π = behind, plus user offset)
+        var chaseAngle = camYaw + Math.PI + cameraAngle.thetaOffset;
+        var r = cameraAngle.radius;
+        var phi = cameraAngle.phi;
+
+        camera.position.x = camTargetX + r * Math.cos(phi) * Math.sin(chaseAngle);
+        camera.position.y = r * Math.sin(phi);
+        camera.position.z = camTargetZ + r * Math.cos(phi) * Math.cos(chaseAngle);
         camera.lookAt(camTargetX, standingHeight() * 0.3, camTargetZ);
     }
 
@@ -509,7 +536,7 @@ var Dog3D = (function () {
             var dy = e.clientY - prevMouse.y;
             prevMouse.x = e.clientX;
             prevMouse.y = e.clientY;
-            cameraAngle.theta -= dx * 0.008;
+            cameraAngle.thetaOffset -= dx * 0.008;
             cameraAngle.phi = Math.max(0.1, Math.min(Math.PI / 2 - 0.05, cameraAngle.phi + dy * 0.008));
             updateCameraPosition();
         });
