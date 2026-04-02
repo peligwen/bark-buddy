@@ -91,7 +91,7 @@ class BalanceLayer:
         roll = abs(imu["roll"])
         max_tilt = max(pitch, roll)
 
-        now = asyncio.get_event_loop().time()
+        now = asyncio.get_running_loop().time()
 
         if self._fallen:
             # Check for recovery

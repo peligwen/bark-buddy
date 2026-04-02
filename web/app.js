@@ -35,7 +35,11 @@
         };
 
         ws.onmessage = function (event) {
-            handleMessage(JSON.parse(event.data));
+            try {
+                handleMessage(JSON.parse(event.data));
+            } catch (e) {
+                // Ignore malformed messages
+            }
         };
     }
 
@@ -277,9 +281,17 @@
             var dir = keyMap[e.key];
             if (dir && pressed[e.key]) {
                 delete pressed[e.key];
-                send({ type: "cmd_move", direction: "stop" });
                 var btn = document.querySelector('[data-dir="' + dir + '"]');
                 if (btn) btn.classList.remove("pressed");
+
+                // Find if another direction key is still held
+                var remaining = Object.keys(pressed).filter(function (k) { return keyMap[k]; });
+                if (remaining.length > 0) {
+                    // Re-send the most recently pressed direction
+                    send({ type: "cmd_move", direction: keyMap[remaining[remaining.length - 1]] });
+                } else {
+                    send({ type: "cmd_move", direction: "stop" });
+                }
             }
         });
     }

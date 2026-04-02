@@ -176,9 +176,8 @@ class PatrolBehavior:
         await asyncio.sleep(duration)
         await self._dog.stop()
 
-        # Update dead reckoning heading
-        self._heading += angle_deg
-        self._heading = self._heading % 360
+        # Update dead reckoning heading (keep in -180..+180)
+        self._heading = self._normalize_angle(self._heading + angle_deg)
         await self._notify_position()
 
         # Brief pause for stability
@@ -209,11 +208,7 @@ class PatrolBehavior:
     @staticmethod
     def _normalize_angle(angle: float) -> float:
         """Normalize angle to -180..+180."""
-        while angle > 180:
-            angle -= 360
-        while angle < -180:
-            angle += 360
-        return angle
+        return ((angle + 180) % 360) - 180
 
     @staticmethod
     async def _fire(callback: Callable, *args) -> None:

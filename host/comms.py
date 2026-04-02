@@ -84,6 +84,10 @@ class SerialTransport(Transport):
     async def close(self) -> None:
         if self._writer:
             self._writer.close()
+            try:
+                await self._writer.wait_closed()
+            except Exception:
+                pass
             self._reader = None
             self._writer = None
 

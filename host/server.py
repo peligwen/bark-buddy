@@ -103,14 +103,7 @@ class Server:
     async def _on_patrol_complete(self):
         self._mode = "remote"
         await self._broadcast({"type": "patrol_complete"})
-        await self._broadcast({
-            "type": "telem_status",
-            "mode": self._mode,
-            "balance": self._balance.enabled,
-            "fallen": self._balance.fallen,
-            "connected": self._dog.connected,
-            "battery_mv": None,
-        })
+        await self._broadcast_status()
 
     async def _on_position_update(self, pos: dict):
         await self._broadcast({
@@ -133,7 +126,6 @@ class Server:
             "balance": self._balance.enabled,
             "fallen": self._balance.fallen,
             "connected": self._dog.connected,
-            "battery_mv": None,
         }))
 
         try:
@@ -184,33 +176,24 @@ class Server:
             action = msg.get("action", "stop")
             if action == "start":
                 waypoints_raw = msg.get("waypoints", [])
-                waypoints = [
-                    Waypoint(x=w["x"], y=w["y"], heading=w.get("heading", 0))
-                    for w in waypoints_raw
-                ]
+                try:
+                    waypoints = [
+                        Waypoint(x=float(w["x"]), y=float(w["y"]),
+                                 heading=float(w.get("heading", 0)))
+                        for w in waypoints_raw
+                    ]
+                except (KeyError, TypeError, ValueError):
+                    logger.warning("Invalid waypoint data: %s", waypoints_raw)
+                    return
                 if waypoints:
                     self._patrol.set_waypoints(waypoints)
                     self._mode = "patrol"
                     await self._patrol.start()
-                    await self._broadcast({
-                        "type": "telem_status",
-                        "mode": self._mode,
-                        "balance": self._balance.enabled,
-                        "fallen": self._balance.fallen,
-                        "connected": self._dog.connected,
-                        "battery_mv": None,
-                    })
+                    await self._broadcast_status()
             elif action == "stop":
                 await self._patrol.stop()
                 self._mode = "remote"
-                await self._broadcast({
-                    "type": "telem_status",
-                    "mode": self._mode,
-                    "balance": self._balance.enabled,
-                    "fallen": self._balance.fallen,
-                    "connected": self._dog.connected,
-                    "battery_mv": None,
-                })
+                await self._broadcast_status()
 
         elif msg_type == "cmd_action":
             code = msg.get("action", 1)
@@ -218,6 +201,17 @@ class Server:
 
         else:
             logger.warning("Unknown WS message type: %s", msg_type)
+
+    async def _broadcast_status(self, battery_mv=None):
+        """Broadcast current status to all clients."""
+        await self._broadcast({
+            "type": "telem_status",
+            "mode": self._mode,
+            "balance": self._balance.enabled,
+            "fallen": self._balance.fallen,
+            "connected": self._dog.connected,
+            "battery_mv": battery_mv,
+        })
 
     async def _broadcast(self, msg: dict):
         """Send a JSON message to all connected WebSocket clients."""
@@ -241,7 +235,7 @@ class Server:
 
         while True:
             try:
-                now = asyncio.get_event_loop().time()
+                now = asyncio.get_running_loop().time()
 
                 # IMU polling via balance layer (handles fall detection too)
                 imu = await self._balance.update()
@@ -266,14 +260,7 @@ class Server:
                 if now - last_battery >= battery_interval:
                     battery = await self._dog.read_battery()
                     if battery is not None and self._ws_clients:
-                        await self._broadcast({
-                            "type": "telem_status",
-                            "battery_mv": battery,
-                            "connected": self._dog.connected,
-                            "mode": self._mode,
-                            "balance": self._balance.enabled,
-                            "fallen": self._balance.fallen,
-                        })
+                        await self._broadcast_status(battery_mv=battery)
                     last_battery = now
 
                 await asyncio.sleep(imu_interval)
@@ -293,14 +280,7 @@ class Server:
                 await asyncio.sleep(2)
                 if not self._dog.connected:
                     logger.warning("Connection lost — attempting reconnect (backoff=%ds)", backoff)
-                    await self._broadcast({
-                        "type": "telem_status",
-                        "connected": False,
-                        "mode": self._mode,
-                        "balance": self._balance.enabled,
-                        "fallen": self._balance.fallen,
-                        "battery_mv": None,
-                    })
+                    await self._broadcast_status()
                     try:
                         await self._dog.disconnect()
                         await asyncio.sleep(backoff)
@@ -308,14 +288,7 @@ class Server:
                         await self._balance.start()
                         backoff = 1
                         logger.info("Reconnected successfully")
-                        await self._broadcast({
-                            "type": "telem_status",
-                            "connected": True,
-                            "mode": self._mode,
-                            "balance": self._balance.enabled,
-                            "fallen": self._balance.fallen,
-                            "battery_mv": None,
-                        })
+                        await self._broadcast_status()
                     except Exception:
                         backoff = min(backoff * 2, 16)
                         logger.warning("Reconnect failed, next attempt in %ds", backoff)

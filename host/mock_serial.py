@@ -47,6 +47,8 @@ class MockTransport(Transport):
             await self._inbox.put(response)
 
     async def recv(self, timeout: float = READ_TIMEOUT) -> Optional[str]:
+        if not self._open:
+            raise ConnectionError("Mock not open")
         try:
             return await asyncio.wait_for(self._inbox.get(), timeout=timeout)
         except asyncio.TimeoutError:
