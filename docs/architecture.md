@@ -3,17 +3,18 @@
 ## System Overview
 
 ```
-┌─────────────────┐      Serial (→WiFi)     ┌──────────────────┐
-│  Local Dev PC   │◄────────────────────►   │  MechDog (Stock) │
-│                 │                         │                  │
-│  Python Host    │   Bidirectional JSON    │  C/C++ Firmware  │
-│  - Web Server   │   (tagged messages)     │  - Servo Control │
-│  - Behavior     │                         │  - IMU Reading   │
-│    Engine       │                         │  - Gait Engine   │
-│  - (Future: AI) │                         │  - Balance Layer │
-└─────────────────┘                         └──────────────────┘
+┌─────────────────┐      USB Serial (UART)   ┌──────────────────┐
+│  Local Dev PC   │◄────────────────────►    │  MechDog (Stock) │
+│                 │                          │                  │
+│  Python Host    │   CMD protocol           │  Stock Firmware  │
+│  - Web Server   │   (text-based)           │  - ESP32-S3      │
+│  - Behavior     │                          │  - Servo Control │
+│    Engine       │                          │  - MPU6050 IMU   │
+│  - CMD comms    │                          │  - Self-Balance  │
+│  - (Future: AI) │                          │  - 8x PWM Servos │
+└─────────────────┘                          └──────────────────┘
        ▲
-       │ HTTP/WebSocket
+       │ HTTP/WebSocket (JSON)
        ▼
 ┌─────────────────┐
 │  Browser (UI)   │
@@ -23,24 +24,23 @@
 
 ## Hardware
 
-- **Stock Hiwonder MechDog** — servos + controller board + IMU
+- **Stock Hiwonder MechDog** — ESP32-S3, 8 coreless PWM servos (2/leg), MPU6050 IMU
+- **Stock firmware** — built-in CMD protocol for motion, balance, IMU, battery
 - No Raspberry Pi or extra sensors for Milestone 1
 
 ## Tech Stack
 
 | Layer | Language | Tools | Responsibility |
 |---|---|---|---|
-| Firmware | C++17 | PlatformIO | Servo control, parametric gait/IK, IMU reading, balance (comp. filter + PID), serial comms |
-| Host | Python 3.11+ | asyncio, websockets | Behavior layers, web server, communication bridge, mock serial for dev |
+| MechDog | Stock firmware | ESP32-S3 + MPU6050 | Servo control, built-in balance, IMU, CMD protocol |
+| Host | Python 3.11+ | asyncio, pyserial-asyncio, aiohttp | Behavior layers, CMD translation, web server, telemetry polling |
 | Web UI | HTML/CSS/JS | Vanilla (no framework) | D-pad remote control, 2D gauges, status dashboard |
 
 ## Communication
 
-- **Transport:** Serial (USB) initially, WiFi later via abstracted transport layer
-- **Protocol:** Bidirectional tagged JSON messages — both sides send independently
-- **Firmware ↔ Host:** Commands down, telemetry up, acks as needed
-- **Host ↔ Browser:** WebSocket for real-time control and telemetry
-- **Connection loss:** Auto-reconnect with servo freeze
+- **Host → MechDog:** CMD text protocol over USB serial (`CMD|<func>|<data>|$`)
+- **Host ↔ Browser:** WebSocket with JSON messages
+- **Telemetry:** Host polls IMU + battery at regular intervals, pushes to browser
 - Protocol spec: see `docs/protocol.md`
 
 ## Behavior Model
@@ -51,19 +51,20 @@ Composable layers, not exclusive modes:
 ┌──────────────────────────────┐
 │  Active Behavior (top layer) │  ← Remote control OR Patrol
 ├──────────────────────────────┤
-│  Balance Layer (always-on)   │  ← Complementary filter + PID
+│  Balance Layer               │  ← Toggles stock self-balance (CMD|1|3|1|$)
 ├──────────────────────────────┤
-│  Gait Engine                 │  ← Parametric / IK
+│  CMD Protocol Layer          │  ← Translates behavior commands to CMD strings
 ├──────────────────────────────┤
-│  Servo Abstraction           │
+│  Serial Transport            │  ← pyserial-asyncio
 └──────────────────────────────┘
 ```
 
-Balance correction runs continuously beneath whatever behavior is active.
+Balance is toggled on the stock firmware. Higher-level behaviors (patrol, remote)
+issue movement commands that the CMD layer translates to serial commands.
 
 ## AI Integration (Future)
 
-- **Development time:** Claude generates firmware and behavior code
+- **Development time:** Claude generates behavior code
 - **Runtime (post-MVP):** Local network server running Ollama/Llama/Phi for decision-making
 
 ## Project Structure
@@ -72,22 +73,17 @@ Balance correction runs continuously beneath whatever behavior is active.
 bark-buddy/
 ├── CLAUDE.md              # Claude Code project context (auto-loaded)
 ├── README.md              # Human-facing project overview
-├── firmware/              # C/C++ — MechDog controller
-│   ├── src/
-│   │   ├── main.cpp       # Entry point, serial comm, message routing
-│   │   ├── gait.cpp       # Parametric gait engine / IK
-│   │   ├── balance.cpp    # Complementary filter + PID balance
-│   │   └── servos.cpp     # Servo abstraction layer
-│   ├── include/
-│   │   └── protocol.h     # Message types and structures
-│   └── platformio.ini     # PlatformIO build config
+├── firmware/              # C/C++ — future custom firmware (not used for MVP)
+│   ├── src/main.cpp       # Reference: custom firmware scaffold
+│   ├── include/protocol.h # Reference: JSON protocol types
+│   └── platformio.ini     # ESP32-S3 PlatformIO config
 ├── host/                  # Python — local dev machine
 │   ├── server.py          # Web server + WebSocket handler
-│   ├── comms.py           # Abstract transport (serial/WiFi)
-│   ├── mock_serial.py     # Serial stub for dev without hardware
+│   ├── comms.py           # CMD protocol layer + serial transport
+│   ├── mock_serial.py     # Mock transport for dev without hardware
 │   ├── behaviors/
 │   │   ├── remote.py      # Manual remote control layer
-│   │   ├── balance.py     # Balance & recovery layer
+│   │   ├── balance.py     # Balance toggle + monitoring
 │   │   └── patrol.py      # Patrol behavior (waypoint navigation)
 │   └── requirements.txt
 ├── web/                   # Static web UI
@@ -98,5 +94,5 @@ bark-buddy/
     ├── architecture.md    # This file
     ├── decisions.md       # Design decisions log
     ├── implementation-plan.md
-    └── protocol.md        # Communication protocol spec
+    └── protocol.md        # CMD + WebSocket protocol spec
 ```

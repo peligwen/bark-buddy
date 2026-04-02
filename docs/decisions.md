@@ -2,20 +2,28 @@
 
 Captured during project scoping (April 2026).
 
+## Firmware Approach
+
+| Decision | Choice | Rationale |
+|----------|--------|-----------|
+| Firmware | Use stock firmware + CMD protocol | MechDog's ESP32-S3 ships with working motion, balance, and IMU. No need to flash custom firmware for MVP. Python host sends CMD strings over serial |
+| Custom firmware | Deferred to post-MVP | Full servo/gait control available later via Hiwonder Arduino libraries (MechDog_Arduino, MPU6050) |
+
 ## Communication
 
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
-| Transport | Serial first, WiFi later | USB serial for early dev; abstract transport layer so WiFi swaps in without protocol changes |
-| Protocol pattern | Full bidirectional tagged messages | Both sides send anytime, type-tagged JSON. Mirrors WebSocket pattern on browser side |
-| Connection loss | Auto-reconnect with freeze | Firmware freezes servos on link drop; both sides attempt reconnection; resume on restore |
+| Transport | USB serial (115200 baud) | Direct UART connection to ESP32-S3. WiFi deferred |
+| Dog protocol | Stock CMD text protocol | `CMD|func|data|$` format. Already implemented on the dog |
+| Browser protocol | WebSocket + JSON | Clean decoupled protocol for the web UI side |
+| Connection loss | Retry with backoff | Detect serial timeout (500ms), retry open with exponential backoff |
 
 ## Firmware / Algorithms
 
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
-| Gait engine | Parametric gait / IK | Build on MechDog's existing IK locomotion; parameterize step height, stride, speed |
-| Balance | Complementary filter + PID | Fuse accel + gyro for stable tilt estimate; PID loop drives continuous leg corrections |
+| Gait engine | Stock firmware motion commands | Forward/backward/turn/shift via CMD|3. Custom parametric gait/IK deferred to custom firmware phase |
+| Balance | Stock self-balance toggle | CMD|1|3|1 enables built-in MPU6050 balance. Custom complementary filter + PID deferred |
 | Behavior model | Composable layers | Balance runs as always-on layer; remote and patrol stack on top. Not exclusive modes |
 
 ## Patrol / Navigation
@@ -37,4 +45,4 @@ Captured during project scoping (April 2026).
 
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
-| Testing strategy | Mock serial for host, real hardware for firmware | Python mock stub enables host/web dev without dog; physics sim is a late goal |
+| Testing strategy | Mock serial for host, real hardware for integration | Python mock stub enables host/web dev without dog; physics sim is a late goal |

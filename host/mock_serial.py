@@ -1,17 +1,17 @@
 """
-Mock serial transport for development without MechDog hardware.
+Mock transport for development without MechDog hardware.
 
-Echoes commands with acks and generates fake IMU telemetry so the host
-and web UI can be developed and tested independently.
+Simulates the stock CMD protocol responses so the host and web UI
+can be developed and tested independently.
 """
 
 import asyncio
-import json
 import logging
 import math
 import time
+from typing import Optional
 
-from comms import Transport
+from comms import Transport, READ_TIMEOUT
 
 logger = logging.getLogger(__name__)
 
@@ -20,122 +20,88 @@ class MockTransport(Transport):
     """
     Simulated serial connection to a fake MechDog.
 
-    - Responds to pings with pongs
-    - Acks all known commands
-    - Streams fake IMU telemetry at ~20 Hz
-    - Streams fake status at ~1 Hz
+    - Acks motion/posture/action commands with CMD|<func>|OK|$
+    - Returns fake IMU tilt data (gentle sinusoidal sway)
+    - Returns fake battery voltage
     """
 
     def __init__(self):
         self._open = False
         self._inbox: asyncio.Queue[str] = asyncio.Queue()
-        self._outbox: asyncio.Queue[str] = asyncio.Queue()
-        self._task: asyncio.Task | None = None
+        self._start_time = 0.0
 
     async def open(self) -> None:
         self._open = True
-        self._task = asyncio.create_task(self._simulate())
+        self._start_time = time.monotonic()
         logger.info("MockTransport opened")
 
     async def close(self) -> None:
         self._open = False
-        if self._task:
-            self._task.cancel()
-            try:
-                await self._task
-            except asyncio.CancelledError:
-                pass
         logger.info("MockTransport closed")
 
-    async def readline(self) -> str:
-        return await self._inbox.get()
+    async def send(self, data: str) -> None:
+        if not self._open:
+            raise ConnectionError("Mock not open")
+        response = self._process_cmd(data)
+        if response:
+            await self._inbox.put(response)
 
-    async def writeline(self, line: str) -> None:
-        await self._outbox.put(line)
+    async def recv(self, timeout: float = READ_TIMEOUT) -> Optional[str]:
+        try:
+            return await asyncio.wait_for(self._inbox.get(), timeout=timeout)
+        except asyncio.TimeoutError:
+            return None
 
     def is_open(self) -> bool:
         return self._open
 
-    async def _simulate(self) -> None:
-        """Run the fake firmware loop."""
-        imu_interval = 0.05   # 20 Hz
-        status_interval = 1.0  # 1 Hz
-        last_imu = 0.0
-        last_status = 0.0
-        start = time.monotonic()
+    def _process_cmd(self, cmd: str) -> Optional[str]:
+        """Parse incoming CMD and generate appropriate response."""
+        cmd = cmd.strip()
+        if not (cmd.startswith("CMD|") and cmd.endswith("|$")):
+            return None
 
-        while self._open:
-            now = time.monotonic()
-            elapsed = now - start
+        inner = cmd[4:-2]  # strip CMD| and |$
+        parts = inner.split("|")
+        if not parts:
+            return None
 
-            # Process any incoming commands
-            try:
-                line = self._outbox.get_nowait()
-                await self._handle_command(line)
-            except asyncio.QueueEmpty:
-                pass
+        func = parts[0]
 
-            # Stream fake IMU telemetry
-            if now - last_imu >= imu_interval:
-                await self._send_imu(elapsed)
-                last_imu = now
+        # Function 1: Posture adjustment
+        if func == "1":
+            logger.debug("Mock: posture command %s", parts)
+            return "CMD|1|OK|$"
 
-            # Stream fake status
-            if now - last_status >= status_interval:
-                await self._send_status()
-                last_status = now
+        # Function 2: Action groups
+        if func == "2":
+            logger.debug("Mock: action command %s", parts)
+            return "CMD|2|OK|$"
 
-            await asyncio.sleep(0.01)  # 100 Hz tick
+        # Function 3: Motion control
+        if func == "3":
+            motion_names = {
+                "1": "stop", "2": "stand", "3": "forward", "4": "backward",
+                "5": "turn_left", "6": "turn_right", "7": "shift_left", "8": "shift_right",
+            }
+            sub = parts[1] if len(parts) > 1 else "?"
+            name = motion_names.get(sub, f"unknown({sub})")
+            logger.debug("Mock: motion %s", name)
+            return "CMD|3|OK|$"
 
-    async def _handle_command(self, line: str) -> None:
-        try:
-            msg = json.loads(line)
-        except json.JSONDecodeError:
-            return
+        # Function 4: Ultrasonic
+        if func == "4":
+            return "CMD|4|250|$"  # 250mm fake distance
 
-        msg_type = msg.get("type")
-        if not msg_type:
-            return
+        # Function 5: IMU data
+        if func == "5":
+            elapsed = time.monotonic() - self._start_time
+            pitch = round(1.5 * math.sin(elapsed * 0.5), 1)
+            roll = round(0.8 * math.cos(elapsed * 0.3), 1)
+            return f"CMD|5|{pitch}|{roll}|$"
 
-        if msg_type == "ping":
-            await self._respond({"type": "pong"})
-        elif msg_type.startswith("cmd_"):
-            await self._respond({
-                "type": "ack",
-                "ref_type": msg_type,
-                "ok": True,
-            })
-            logger.debug("Mock acked: %s", msg_type)
-        else:
-            await self._respond({
-                "type": "ack",
-                "ref_type": msg_type,
-                "ok": False,
-                "error": "unknown_type",
-            })
+        # Function 6: Battery
+        if func == "6":
+            return "CMD|6|7400|$"  # 7.4V fake battery
 
-    async def _send_imu(self, elapsed: float) -> None:
-        # Gentle sinusoidal sway to simulate a standing dog
-        await self._respond({
-            "type": "telem_imu",
-            "pitch": round(1.5 * math.sin(elapsed * 0.5), 2),
-            "roll": round(0.8 * math.cos(elapsed * 0.3), 2),
-            "yaw": round((elapsed * 2.0) % 360, 1),
-            "ax": round(0.01 * math.sin(elapsed), 4),
-            "ay": round(-0.02 * math.cos(elapsed), 4),
-            "az": 9.81,
-            "gx": 0.0,
-            "gy": 0.0,
-            "gz": 0.0,
-        })
-
-    async def _send_status(self) -> None:
-        await self._respond({
-            "type": "telem_status",
-            "mode": "idle",
-            "battery_pct": 85,
-            "servo_errors": [],
-        })
-
-    async def _respond(self, msg: dict) -> None:
-        await self._inbox.put(json.dumps(msg, separators=(",", ":")))
+        return None

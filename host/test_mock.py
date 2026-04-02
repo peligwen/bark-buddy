@@ -1,11 +1,11 @@
-"""Quick smoke test: connect to MockTransport, send commands, receive telemetry."""
+"""Smoke test: verify CMD protocol round-trip with MockTransport."""
 
 import asyncio
 import logging
 import sys
 
 sys.path.insert(0, ".")
-from comms import DogComms, MSG_PONG, MSG_ACK, MSG_TELEM_IMU, MSG_TELEM_STATUS
+from comms import DogComms
 from mock_serial import MockTransport
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
@@ -14,52 +14,49 @@ logger = logging.getLogger("test_mock")
 
 async def main():
     transport = MockTransport()
-    comms = DogComms(transport)
+    dog = DogComms(transport)
 
-    results = {"pong": False, "ack": False, "imu": False, "status": False}
+    results: dict[str, bool] = {}
 
-    def on_pong(msg):
-        results["pong"] = True
-        logger.info("Got pong")
+    await dog.connect()
 
-    def on_ack(msg):
-        results["ack"] = True
-        logger.info("Got ack: ref_type=%s ok=%s", msg.get("ref_type"), msg.get("ok"))
+    # Test motion commands
+    results["move_forward"] = await dog.move_forward()
+    logger.info("move_forward: %s", results["move_forward"])
 
-    def on_imu(msg):
-        results["imu"] = True
-        logger.info(
-            "Got IMU: pitch=%.1f roll=%.1f yaw=%.1f",
-            msg.get("pitch", 0), msg.get("roll", 0), msg.get("yaw", 0),
-        )
+    results["turn_left"] = await dog.turn_left()
+    logger.info("turn_left: %s", results["turn_left"])
 
-    def on_status(msg):
-        results["status"] = True
-        logger.info("Got status: mode=%s battery=%s%%", msg.get("mode"), msg.get("battery_pct"))
+    results["stop"] = await dog.stop()
+    logger.info("stop: %s", results["stop"])
 
-    comms.on(MSG_PONG, on_pong)
-    comms.on(MSG_ACK, on_ack)
-    comms.on(MSG_TELEM_IMU, on_imu)
-    comms.on(MSG_TELEM_STATUS, on_status)
+    results["stand"] = await dog.stand()
+    logger.info("stand: %s", results["stand"])
 
-    await comms.connect()
+    # Test balance toggle
+    results["enable_balance"] = await dog.enable_balance()
+    logger.info("enable_balance: %s", results["enable_balance"])
 
-    # Wait a moment for telemetry to start flowing
-    await asyncio.sleep(1.5)
+    results["disable_balance"] = await dog.disable_balance()
+    logger.info("disable_balance: %s", results["disable_balance"])
 
-    # Send a move command
-    logger.info("Sending cmd_move forward...")
-    await comms.send_move("forward", 0.5)
-    await asyncio.sleep(0.5)
+    # Test action
+    results["action_wave"] = await dog.action(1)
+    logger.info("action_wave: %s", results["action_wave"])
 
-    # Send stand
-    logger.info("Sending cmd_stand...")
-    await comms.send_stand()
-    await asyncio.sleep(0.5)
+    # Test IMU read
+    imu = await dog.read_imu()
+    results["read_imu"] = imu is not None and "pitch" in imu and "roll" in imu
+    logger.info("read_imu: %s -> %s", results["read_imu"], imu)
 
-    await comms.disconnect()
+    # Test battery read
+    battery = await dog.read_battery()
+    results["read_battery"] = battery is not None and battery > 0
+    logger.info("read_battery: %s -> %smV", results["read_battery"], battery)
 
-    # Report results
+    await dog.disconnect()
+
+    # Report
     logger.info("--- Results ---")
     all_ok = True
     for key, value in results.items():

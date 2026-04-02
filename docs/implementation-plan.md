@@ -2,70 +2,67 @@
 
 ## Scope
 
-Minimal working versions of remote control, balance & recovery, and patrol to validate the architecture. See [decisions.md](decisions.md) for design rationale.
+Minimal working versions of remote control, balance & recovery, and patrol using the MechDog's stock firmware and CMD protocol. No custom firmware needed.
 
 ## Phases
 
-### Phase 1: Communication Foundation
+### Phase 1: Communication Foundation ✅
 
-1. Research MechDog stock controller (board type, existing SDK/protocol, serial interface)
-2. Define bidirectional tagged JSON protocol (`docs/protocol.md`)
-3. Write C++ firmware entry point: serial comms, message parser, message router
-4. Write Python `comms.py` with abstract transport layer (serial impl + WiFi interface for later)
-5. Write `mock_serial.py` — serial stub that echoes commands and generates fake IMU data
-6. Verify: host sends command via mock → gets ack; mock streams fake telemetry → host receives
+1. ~~Define protocol spec~~ → Using stock CMD protocol (`CMD|func|data|$`)
+2. ~~Write Python comms layer~~ → `comms.py` with CMD protocol + abstract transport
+3. ~~Write mock transport~~ → `mock_serial.py` for dev without hardware
+4. ~~Verify round-trip~~ → Smoke test passes
 
 ### Phase 2: Basic Movement (Remote Control)
 
-1. Implement servo abstraction layer in C++ (`servos.cpp`)
-2. Implement parametric gait engine / IK in C++ (`gait.cpp`) — forward, backward, turn L/R, stop
-3. Build Python web server (`server.py`) — serves static files + WebSocket
-4. Create web UI with on-screen D-pad (`web/index.html`, `app.js`, `style.css`)
-5. Wire end-to-end: browser → WebSocket → Python → serial → firmware → servos
-6. Verify: open web UI, tap D-pad, dog moves
+1. Build Python web server (`server.py`) — serves static files + WebSocket
+2. Create web UI with on-screen D-pad (`web/index.html`, `app.js`, `style.css`)
+3. Wire WebSocket to comms layer: browser D-pad → JSON → Python → CMD → serial
+4. Verify on mock: D-pad sends correct CMD strings, mock acks them
+5. Verify on hardware: D-pad controls move the dog
 
-### Phase 3: Balance & Recovery
+### Phase 3: Balance & Telemetry
 
-1. Read IMU data on MechDog controller (accelerometer + gyroscope)
-2. Implement complementary filter for stable tilt estimation
-3. Implement PID controller for continuous balance correction (`balance.cpp`)
-4. Wire balance as a composable layer — runs beneath remote control
-5. Stream IMU telemetry to Python host → forward to browser
-6. Implement fall detection + stand-up recovery sequence
-7. Verify: push dog → corrects; tip over → recovery; telemetry visible in UI
+1. Enable stock self-balance via `CMD|1|3|1|$`
+2. Poll IMU data (`CMD|5|$`) at 10 Hz, push to browser via WebSocket
+3. Poll battery (`CMD|6|$`) at 0.5 Hz, push to browser
+4. Display 2D gauges for pitch/roll in web UI
+5. Display battery level and connection status
+6. Verify: enable balance → push dog → it corrects; telemetry shows in UI
 
 ### Phase 4: Patrol
 
 1. Define waypoint format: `(x, y, heading)` in local coordinate frame
-2. Implement dead reckoning — IMU heading + step counting for position estimation
+2. Implement dead reckoning — IMU heading + timed movement for position estimation
 3. Implement patrol behavior in Python (`behaviors/patrol.py`) — navigate waypoint sequence
 4. Add patrol mode toggle to web UI
-5. Verify: start patrol → dog navigates waypoint path, balance layer active throughout
+5. Verify: start patrol → dog navigates waypoint path
 
 ### Phase 5: Integration & Polish
 
 1. Mode switching via web UI (remote / patrol) — balance always composable
-2. Status dashboard: 2D gauges for pitch/roll, status bar for mode/connection
-3. Auto-reconnect with servo freeze on connection loss
-4. Error handling for lost connection, invalid messages, servo faults
+2. Status dashboard: 2D gauges for pitch/roll, battery, mode, connection
+3. Reconnection handling: detect serial timeout, retry with backoff
+4. Action group triggers in UI (sit, wave, stretch)
 
 ## Verification Matrix
 
 | Capability | Test |
 |---|---|
-| Remote Control | Open web UI, D-pad controls move the dog |
-| Balance | Push dog lightly → PID correction; tip over → stand-up recovery |
+| Remote Control | Open web UI, D-pad controls move the dog via CMD protocol |
+| Balance | Enable balance → push dog → stock firmware corrects |
+| Telemetry | IMU gauges + battery update in real-time in web UI |
 | Patrol | Start patrol → dog navigates waypoints via dead reckoning |
-| Telemetry | IMU gauges update in real-time in web UI |
-| Connection Loss | Unplug serial → dog freezes → replug → resumes |
-| Composability | Patrol + balance active simultaneously; remote + balance active simultaneously |
+| Connection Loss | Unplug serial → UI shows disconnected → replug → resumes |
+| Composability | Patrol + balance active simultaneously |
 
 ## Late Goals (post-MVP)
 
 - 3D orientation model in web UI (Three.js)
 - Physics simulator for host-side testing (PyBullet/MuJoCo)
 - Sensor-based room mapping for patrol navigation
-- WiFi transport (swap serial for TCP via abstract transport layer)
+- Custom firmware for advanced gaits and fine-grained servo control
+- WiFi transport
 
 ## Out of Scope (Milestone 1)
 
