@@ -276,6 +276,27 @@ header h1 {
 
 #dog-view-section { padding: 0; }
 
+.overlay-toggle {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    background: transparent;
+    color: var(--text-dim);
+    font-size: 0.5rem;
+    font-weight: 700;
+    cursor: pointer;
+    pointer-events: auto;
+    vertical-align: middle;
+    margin-left: 4px;
+    padding: 0;
+    line-height: 14px;
+    text-align: center;
+}
+.overlay-toggle:hover { background: var(--bg-card-hover); color: var(--text); }
+.overlay-toggle.active { background: rgba(0, 255, 255, 0.2); color: #00ffff; border-color: #00ffff; }
+
 #telem-overlay {
     position: absolute;
     bottom: 6px;

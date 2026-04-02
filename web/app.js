@@ -923,5 +923,18 @@
     setupTransport();
     setupNoisePanel();
     setupBatteryGraph();
+
+    // Kinematics overlay toggle
+    (function () {
+        var btn = document.getElementById("btn-overlay");
+        var on = false;
+        btn.addEventListener("click", function (e) {
+            e.stopPropagation();
+            on = !on;
+            Dog3D.toggleOverlay(on);
+            btn.classList.toggle("active", on);
+        });
+    })();
+
     connect();
 })();

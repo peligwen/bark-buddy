@@ -637,6 +637,7 @@ var Dog3D = (function () {
             updateUltraBeam();
         }
 
+        updateOverlay();
         updateCameraPosition();
         renderer.render(scene, camera);
     }
@@ -783,6 +784,150 @@ var Dog3D = (function () {
         }
     }
 
+    // --- Debug overlay: wireframe body, joint indicators, IMU axes ---
+    var overlayGroup = null;
+    var overlayVisible = false;
+    var imuAxes = null;
+    var horizonRing = null;
+    var jointMarkers = {};  // {legName: {hip: mesh, knee: mesh}}
+    var linkLines = {};     // {legName: line}
+
+    function buildOverlay() {
+        if (overlayGroup) return;
+        overlayGroup = new THREE.Group();
+        dogGroup.add(overlayGroup);
+
+        // Wireframe body box — bright cyan edges
+        var bodyGeo = new THREE.BoxGeometry(BODY_L * 1.05, BODY_H * 1.3, BODY_W * 1.05);
+        var wireframe = new THREE.LineSegments(
+            new THREE.EdgesGeometry(bodyGeo),
+            new THREE.LineBasicMaterial({ color: 0x00ffff })
+        );
+        overlayGroup.add(wireframe);
+
+        // IMU coordinate axes (RGB = XYZ) — prominent
+        var axisLen = BODY_L * 1.2;
+        imuAxes = new THREE.Group();
+        imuAxes.add(makeArrow(0, 0, 0, axisLen, 0, 0, 0xff4444));       // X = red = forward
+        imuAxes.add(makeArrow(0, 0, 0, 0, axisLen * 0.7, 0, 0x44ff44)); // Y = green = up
+        imuAxes.add(makeArrow(0, 0, 0, 0, 0, axisLen * 0.7, 0x4488ff)); // Z = blue = lateral
+        overlayGroup.add(imuAxes);
+
+        // Horizon ring — stays level in world space
+        var ringGeo = new THREE.RingGeometry(BODY_L * 0.7, BODY_L * 0.75, 32);
+        horizonRing = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({
+            color: 0x00ffcc, transparent: true, opacity: 0.35, side: THREE.DoubleSide
+        }));
+        horizonRing.rotation.x = -Math.PI / 2;
+        scene.add(horizonRing);
+
+        // Joint markers for each leg — large glowing spheres
+        var legNames = ["fl", "fr", "rl", "rr"];
+
+        legNames.forEach(function (name) {
+            var leg = legs[name];
+            if (!leg) return;
+
+            var hipMarker = makeGlowMarker(0, 0, 0, 0x00ff88, 0.02 * S);
+            leg.hipPivot.add(hipMarker);
+
+            var kneeMarker = makeGlowMarker(0, 0, 0, 0xff8800, 0.02 * S);
+            leg.kneePivot.add(kneeMarker);
+
+            var footMarker = makeGlowMarker(0, -LOWER_LEN, 0, 0xff00ff, 0.015 * S);
+            leg.kneePivot.add(footMarker);
+
+            jointMarkers[name] = { hip: hipMarker, knee: kneeMarker, foot: footMarker };
+        });
+
+        overlayGroup.visible = false;
+        horizonRing.visible = false;
+    }
+
+    function makeArrow(x1, y1, z1, x2, y2, z2, color) {
+        var group = new THREE.Group();
+        // Shaft — cylinder
+        var dx = x2 - x1, dy = y2 - y1, dz = z2 - z1;
+        var len = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        var shaft = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.008 * S, 0.008 * S, len, 6),
+            new THREE.MeshBasicMaterial({ color: color })
+        );
+        shaft.position.set((x1 + x2) / 2, (y1 + y2) / 2, (z1 + z2) / 2);
+        shaft.lookAt(x2, y2, z2);
+        shaft.rotateX(Math.PI / 2);
+        group.add(shaft);
+        // Tip sphere
+        var tip = new THREE.Mesh(
+            new THREE.SphereGeometry(0.02 * S, 8, 8),
+            new THREE.MeshBasicMaterial({ color: color })
+        );
+        tip.position.set(x2, y2, z2);
+        group.add(tip);
+        return group;
+    }
+
+    function makeGlowMarker(x, y, z, color, radius) {
+        var group = new THREE.Group();
+        // Core sphere
+        var core = new THREE.Mesh(
+            new THREE.SphereGeometry(radius, 10, 10),
+            new THREE.MeshBasicMaterial({ color: color })
+        );
+        group.add(core);
+        // Outer glow ring
+        var ring = new THREE.Mesh(
+            new THREE.RingGeometry(radius * 1.3, radius * 2.0, 16),
+            new THREE.MeshBasicMaterial({
+                color: color, transparent: true, opacity: 0.3,
+                side: THREE.DoubleSide, depthWrite: false
+            })
+        );
+        group.add(ring);
+        group.position.set(x, y, z);
+        return group;
+    }
+
+    function updateOverlay() {
+        if (!overlayVisible || !overlayGroup) return;
+
+        // Update joint colors based on angle (green=neutral, yellow=mid, red=limit)
+        ["fl", "fr", "rl", "rr"].forEach(function (name) {
+            var leg = legs[name];
+            var markers = jointMarkers[name];
+            if (!leg || !markers) return;
+
+            var hipAngle = Math.abs(leg.hipPivot.rotation.z - STAND_HIP);
+            var kneeAngle = Math.abs(leg.kneePivot.rotation.z - STAND_KNEE);
+
+            markers.hip.material.color.setHex(angleColor(hipAngle, 0.5));
+            markers.knee.material.color.setHex(angleColor(kneeAngle, 0.8));
+        });
+
+        // Horizon ring: stays level at dog's world position
+        if (horizonRing && dogGroup) {
+            horizonRing.position.set(
+                dogGroup.position.x,
+                dogGroup.position.y,
+                dogGroup.position.z
+            );
+        }
+    }
+
+    function angleColor(deviation, maxDev) {
+        var t = Math.min(deviation / maxDev, 1.0);
+        if (t < 0.3) return 0x00ff88;   // green — near neutral
+        if (t < 0.7) return 0xffcc00;   // yellow — mid range
+        return 0xff4444;                  // red — near limit
+    }
+
+    function toggleOverlay(show) {
+        if (!overlayGroup) buildOverlay();
+        overlayVisible = show;
+        overlayGroup.visible = show;
+        if (horizonRing) horizonRing.visible = show;
+    }
+
     // --- Public API ---
 
     return {
@@ -847,6 +992,10 @@ var Dog3D = (function () {
 
         clearScanWalls: function () {
             clearWalls();
+        },
+
+        toggleOverlay: function (show) {
+            toggleOverlay(show);
         },
 
         setFallen: function (fallen) {
