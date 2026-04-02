@@ -56,6 +56,9 @@ class Server:
         self._mode = "remote"  # remote | patrol | scan
         self._motion = "stop"  # last motion direction
         self._action = None    # last action code or None
+        self._last_motion_time = 0.0   # for servo idle timeout
+        self._servos_idle = False
+        self._servo_idle_timeout = 30.0  # seconds
         self._web_hash = self._compute_web_hash(web_dir)
         # Control lock
         self._lock_holder: web.WebSocketResponse | None = None
@@ -488,9 +491,19 @@ class Server:
                 return
             direction = msg.get("direction", "stop")
             if direction in DIRECTION_MAP:
+                # Wake servos if idle
+                if self._servos_idle and direction != "stop":
+                    if hasattr(self._transport, '_exec'):
+                        try:
+                            await self._transport._exec(
+                                "_dog.set_default_pose()")
+                        except Exception:
+                            pass
+                    self._servos_idle = False
                 await self._dog.move(direction)
                 self._motion = direction
                 self._action = None
+                self._last_motion_time = asyncio.get_running_loop().time()
             else:
                 logger.warning("Unknown direction: %s", direction)
 
@@ -717,6 +730,20 @@ class Server:
                 # Point cloud decay (skip during scan)
                 if not self._scan.running:
                     self._map.decay_tick()
+
+                # Servo idle timeout — detach servos to save power
+                if (self._last_motion_time > 0
+                        and not self._servos_idle
+                        and self._motion == "stop"
+                        and now - self._last_motion_time > self._servo_idle_timeout
+                        and hasattr(self._transport, '_exec')):
+                    try:
+                        await self._transport._exec(
+                            "HW_MechDog.__servos.pwm_servo_deinit()")
+                        self._servos_idle = True
+                        logger.info("Servo idle timeout — detached")
+                    except Exception:
+                        pass
 
                 # Regenerate walls periodically if new points were added
                 current_count = self._map.point_count

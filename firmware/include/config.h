@@ -78,5 +78,8 @@ static const uint16_t STANDING_POSE[8] = {
 #define GAIT_FREQUENCY       2.0f    // Hz (steps per second)
 #define GAIT_PHASE_OFFSET    3.14159f // PI — diagonal pairs antiphase
 
+// --- Servo Idle ---
+#define SERVO_IDLE_TIMEOUT_MS   30000   // detach servos after 30s no movement
+
 // --- LED Brightness ---
 #define LED_BRIGHTNESS  15  // 0-255, kept dim for subtle indicator

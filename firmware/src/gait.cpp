@@ -11,16 +11,30 @@
 static GaitState state = GaitState::STOP;
 static float speed = 1.0f;
 static unsigned long last_update = 0;
-static float phase = 0.0f;  // gait phase in radians
+static unsigned long last_active = 0;  // last time a non-idle state was set
+static bool idle_detached = false;
+static float phase = 0.0f;
 
 void gait_init() {
     state = GaitState::STAND;
     speed = 0.0f;
     phase = 0.0f;
     last_update = millis();
+    last_active = millis();
+    idle_detached = false;
 }
 
 void gait_set_state(GaitState new_state, float new_speed) {
+    // Any movement command wakes servos from idle
+    if (new_state != GaitState::STOP && new_state != GaitState::STAND) {
+        last_active = millis();
+        if (idle_detached) {
+            servos_init();  // re-attach with soft-start
+            idle_detached = false;
+        }
+    } else if (new_state == GaitState::STAND) {
+        last_active = millis();  // standing is active (hold pose)
+    }
     state = new_state;
     speed = new_speed;
     if (new_state == GaitState::STOP || new_state == GaitState::STAND) {
@@ -43,6 +57,15 @@ static uint16_t angle_to_us(uint8_t servo_index, float offset_deg) {
 }
 
 void gait_update(unsigned long now_ms) {
+    // Idle timeout: detach servos to save power
+    if (!idle_detached && servos_active()
+        && (state == GaitState::STOP)
+        && (now_ms - last_active > SERVO_IDLE_TIMEOUT_MS)) {
+        servos_detach_all();
+        idle_detached = true;
+        return;
+    }
+
     if (!servos_active()) return;
 
     float dt = (now_ms - last_update) / 1000.0f;
