@@ -23,6 +23,8 @@
                 clearInterval(reconnectTimer);
                 reconnectTimer = null;
             }
+            // Request existing map data on connect
+            send({ type: "cmd_map", action: "get" });
         };
 
         ws.onclose = function () {
@@ -368,9 +370,6 @@
         btnClear.addEventListener("click", function () {
             send({ type: "cmd_map", action: "clear" });
         });
-
-        // Request existing map data on setup
-        send({ type: "cmd_map", action: "get" });
 
         drawMap();
     }

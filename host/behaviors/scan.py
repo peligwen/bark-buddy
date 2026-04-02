@@ -22,6 +22,7 @@ TURN_SPEED_DPS = 45.0       # estimated turn speed (match patrol)
 SETTLE_TIME = 0.3           # seconds to wait after turning before reading
 READINGS_PER_STEP = 3       # ultrasonic readings to average per step
 READING_DELAY = 0.1         # seconds between readings at same angle
+MAX_RANGE_MM = 3000         # ignore readings beyond this (no obstacle)
 
 
 @dataclass
@@ -78,6 +79,7 @@ class ScanBehavior:
     def __init__(self, dog: DogComms):
         self._dog = dog
         self._running = False
+        self._task: Optional[asyncio.Task] = None
         self._on_point: Optional[Callable] = None
         self._on_complete: Optional[Callable] = None
 
@@ -116,7 +118,7 @@ class ScanBehavior:
 
                 # Take readings at current angle
                 distance = await self._read_averaged()
-                if distance is not None:
+                if distance is not None and distance < MAX_RANGE_MM:
                     point = result.add_point(current_angle, distance)
                     progress = round((step + 1) / total_steps * 100)
                     if self._on_point:
@@ -133,7 +135,6 @@ class ScanBehavior:
                 await self._turn_amount(return_angle)
 
             await self._dog.stop()
-            self._running = False
 
             logger.info("Scan complete: %d points", len(result.points))
             if self._on_complete:
@@ -142,12 +143,24 @@ class ScanBehavior:
 
         except asyncio.CancelledError:
             await self._dog.stop()
-            self._running = False
             return None
+        except Exception:
+            logger.exception("Scan failed")
+            await self._dog.stop()
+            return None
+        finally:
+            self._running = False
 
     async def cancel(self) -> None:
-        """Cancel a running scan."""
+        """Cancel a running scan and wait for it to finish."""
         self._running = False
+        if self._task:
+            self._task.cancel()
+            try:
+                await self._task
+            except asyncio.CancelledError:
+                pass
+            self._task = None
         await self._dog.stop()
 
     async def _read_averaged(self) -> Optional[int]:

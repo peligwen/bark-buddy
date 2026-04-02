@@ -134,6 +134,14 @@ class Server:
             "progress": progress,
         })
 
+    def _scan_task_done(self, task: asyncio.Task):
+        """Handle scan task completion, including unexpected errors."""
+        exc = task.exception() if not task.cancelled() else None
+        if exc:
+            logger.error("Scan task failed: %s", exc)
+            self._mode = "remote"
+            asyncio.create_task(self._broadcast_status())
+
     async def _on_scan_complete(self, result):
         """Store scan result and broadcast the full map."""
         self._map.add_scan(result)
@@ -184,6 +192,8 @@ class Server:
         msg_type = msg.get("type")
 
         if msg_type == "cmd_move":
+            if self._mode == "scan":
+                return  # block movement during scan
             direction = msg.get("direction", "stop")
             if direction in DIRECTION_MAP:
                 await self._dog.move(direction)
@@ -191,6 +201,8 @@ class Server:
                 logger.warning("Unknown direction: %s", direction)
 
         elif msg_type == "cmd_stand":
+            if self._mode == "scan":
+                return
             await self._dog.stand()
 
         elif msg_type == "cmd_balance":
@@ -239,10 +251,11 @@ class Server:
                 pos = self._patrol.position
                 self._mode = "scan"
                 await self._broadcast_status()
-                asyncio.create_task(self._scan.execute(
+                self._scan._task = asyncio.create_task(self._scan.execute(
                     origin_x=pos["x"], origin_y=pos["y"],
                     origin_heading=pos["heading"],
                 ))
+                self._scan._task.add_done_callback(self._scan_task_done)
             elif action == "stop":
                 await self._scan.cancel()
                 self._mode = "remote"
@@ -273,6 +286,7 @@ class Server:
             "balance": self._balance.enabled,
             "fallen": self._balance.fallen,
             "connected": self._dog.connected,
+            "scanning": self._scan.running,
             "battery_mv": battery_mv,
         })
 
@@ -309,8 +323,8 @@ class Server:
                         "roll": imu["roll"],
                     })
 
-                # Ultrasonic polling (5 Hz)
-                if now - last_ultra >= ultra_interval:
+                # Ultrasonic polling (5 Hz) — skip during scan to avoid serial contention
+                if now - last_ultra >= ultra_interval and not self._scan.running:
                     dist = await self._dog.read_ultrasonic()
                     if dist is not None and self._ws_clients:
                         await self._broadcast({

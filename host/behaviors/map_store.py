@@ -15,7 +15,6 @@ logger = logging.getLogger(__name__)
 
 # Map bounds (meters) — auto-expand as needed
 DEFAULT_RANGE_M = 2.0
-MAX_RANGE_M = 10.0
 
 
 class MapStore:
