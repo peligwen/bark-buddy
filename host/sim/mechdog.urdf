@@ -2,13 +2,20 @@
 <!--
   Hiwonder MechDog URDF model for PyBullet simulation.
 
-  Dimensions from Hiwonder product specifications:
-  - Body: ~173mm x 73mm x 50mm (assembled ~155x150x155mm)
-  - Weight: ~500g total
-  - 8 coreless servos (2 per leg: hip pitch + knee pitch)
-  - Servo range: approximately ±90°
-  - HC-SR04 ultrasonic sensor mounted on front face
-  - Leg segments: upper ~55mm, lower ~60mm
+  Confirmed dimensions from Hiwonder/RobotShop product specs:
+  - Assembled standing: 214mm x 126mm x 138mm (L x W x H)
+  - Weight: ~560g total
+  - 8x HPS-0618SG coreless servos (2 per leg: hip pitch + knee pitch)
+  - Servo range: 0-180° (PWM 500-2500µs), torque 8 kg-cm, speed 0.06s/60°
+  - Battery: 7.4V 1500mAh LiPo
+  - Ultrasonic sensor mounted on front face
+
+  Estimated from standing height (body platform ~35mm thick, legs ~100mm):
+  - Body platform: ~150mm x 85mm x 35mm
+  - Hip spacing: ~130mm longitudinal, ~85mm lateral
+  - Upper leg (thigh): ~50mm
+  - Lower leg (shin): ~55mm
+  - Foot contact at ~138mm total height
 
   Coordinate frame: X = forward, Y = left, Z = up
 -->
@@ -17,13 +24,13 @@
   <!-- ============== BODY ============== -->
   <link name="body">
     <inertial>
-      <mass value="0.35"/>
+      <mass value="0.40"/>
       <origin xyz="0 0 0"/>
-      <inertia ixx="0.0003" ixy="0" ixz="0" iyy="0.0006" iyz="0" izz="0.0006"/>
+      <inertia ixx="0.0004" ixy="0" ixz="0" iyy="0.0008" iyz="0" izz="0.0009"/>
     </inertial>
     <visual>
       <geometry>
-        <box size="0.173 0.073 0.050"/>
+        <box size="0.150 0.085 0.035"/>
       </geometry>
       <material name="body_color">
         <color rgba="0.2 0.2 0.2 1"/>
@@ -31,7 +38,7 @@
     </visual>
     <collision>
       <geometry>
-        <box size="0.173 0.073 0.050"/>
+        <box size="0.150 0.085 0.035"/>
       </geometry>
     </collision>
   </link>
@@ -56,7 +63,7 @@
   <joint name="ultrasonic_mount" type="fixed">
     <parent link="body"/>
     <child link="ultrasonic"/>
-    <origin xyz="0.095 0 0.010" rpy="0 0 0"/>
+    <origin xyz="0.083 0 0.010" rpy="0 0 0"/>
   </joint>
 
   <!-- ============== MACRO-LIKE LEG DEFINITIONS ============== -->
@@ -81,7 +88,7 @@
   <joint name="fl_hip" type="revolute">
     <parent link="body"/>
     <child link="fl_upper"/>
-    <origin xyz="0.065 0.040 -0.025" rpy="0 0 0"/>
+    <origin xyz="0.065 0.0425 -0.0175" rpy="0 0 0"/>
     <axis xyz="0 1 0"/>
     <limit lower="-1.57" upper="1.57" effort="1.0" velocity="5.0"/>
     <dynamics damping="0.1" friction="0.05"/>
@@ -90,12 +97,12 @@
   <link name="fl_lower">
     <inertial>
       <mass value="0.02"/>
-      <origin xyz="0 0 -0.030"/>
+      <origin xyz="0 0 -0.0275"/>
       <inertia ixx="0.000005" ixy="0" ixz="0" iyy="0.000005" iyz="0" izz="0.000001"/>
     </inertial>
     <visual>
-      <origin xyz="0 0 -0.030"/>
-      <geometry><cylinder radius="0.006" length="0.060"/></geometry>
+      <origin xyz="0 0 -0.0275"/>
+      <geometry><cylinder radius="0.006" length="0.055"/></geometry>
       <material name="leg_color"><color rgba="0.3 0.3 0.3 1"/></material>
     </visual>
     <collision>
