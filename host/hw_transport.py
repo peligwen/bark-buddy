@@ -31,6 +31,8 @@ MOTION_CMDS = {
 INIT_COMMANDS = [
     "import Hiwonder, Hiwonder_IIC, HW_MechDog",
     "Hiwonder.disableLowPowerAlarm()",
+    "Hiwonder.__bt_open = 0",  # disable battery alarm thread flag
+    "try:\n _bz = Hiwonder.__bz()\n _bz.setVolume(0)\n _bz.playTone(0, 0, 0)\nexcept: pass",
     "_dog = HW_MechDog.__global_dog",
     "_imu = _dog.__imu",
     "_bus = Hiwonder_IIC.IIC(1)",

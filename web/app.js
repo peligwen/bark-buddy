@@ -727,10 +727,10 @@
             var mode = btn.dataset.transport;
             menu.classList.add("hidden");
 
-            if (mode === "wifi") {
+            if (mode === "wifi" || mode === "wifi-fw") {
                 var host = prompt("MechDog WiFi IP:", "192.168.1.163");
                 if (!host) return;
-                send({ type: "cmd_transport", mode: "wifi", wifi_host: host });
+                send({ type: "cmd_transport", mode: mode, wifi_host: host });
             } else if (mode === "wifi-setup") {
                 var ssid = prompt("WiFi SSID:");
                 if (!ssid) return;

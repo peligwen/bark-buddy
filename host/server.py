@@ -158,6 +158,19 @@ class Server:
                     return {"ok": False, "error": "No USB serial device found"}
                 transport = ReplTransport(port=port)
                 label = f"usb:{port.split('/')[-1]}"
+            elif mode == "usb-fw":
+                from firmware_transport import FirmwareTransport
+                port = find_serial_port()
+                if not port:
+                    return {"ok": False, "error": "No USB serial device found"}
+                transport = FirmwareTransport(port=port)
+                label = f"fw:{port.split('/')[-1]}"
+            elif mode == "wifi-fw":
+                if not self._wifi_host:
+                    return {"ok": False, "error": "No WiFi host configured"}
+                from firmware_transport import FirmwareTransport
+                transport = FirmwareTransport(host=self._wifi_host)
+                label = f"fw:{self._wifi_host}"
             elif mode == "wifi":
                 if not self._wifi_host:
                     return {"ok": False, "error": "No WiFi host configured. Start with --wifi"}

@@ -14,15 +14,14 @@
 #endif
 
 // --- I2C Bus ---
-// Confirmed from stock MicroPython: IIC(1) → scl=23, sda=22
-// NOTE: ESP32-S3 GPIO23/22 may differ from stock ESP32 numbering.
-// These need verification on the actual Hiwonder board.
+// VERIFIED from stock MicroPython: Hiwonder_IIC.IIC(1) → I2C(0, scl=23, sda=22)
+// I2C scan confirmed devices at 0x6A (QMI8658) and 0x77 (sonar)
 #define I2C_SDA_PIN     22
 #define I2C_SCL_PIN     23
 #define I2C_FREQ        400000  // 400kHz fast mode
 
-// --- I2C Device Addresses ---
-#define QMI8658_ADDR    0x6B    // QMI8658 IMU (alternate: 0x6A)
+// --- I2C Device Addresses (VERIFIED via I2C scan) ---
+#define QMI8658_ADDR    0x6A    // QMI8658 IMU (confirmed, not 0x6B)
 #define SONAR_ADDR      0x77    // Hiwonder I2C ultrasonic
 
 // --- Servo PWM Pins (PLACEHOLDER — must verify!) ---
