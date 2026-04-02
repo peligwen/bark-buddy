@@ -178,12 +178,12 @@ class ScanBehavior:
         return readings[len(readings) // 2]  # median
 
     async def _turn_step(self) -> None:
-        """Turn one scan step (SCAN_STEP_DEG degrees to the left)."""
+        """Turn one scan step (SCAN_STEP_DEG degrees to the right)."""
         await self._turn_amount(SCAN_STEP_DEG)
 
     async def _turn_amount(self, degrees: float) -> None:
-        """Turn left by the given degrees."""
-        await self._dog.turn_left()
+        """Turn right by the given degrees (positive heading direction)."""
+        await self._dog.turn_right()
         duration = degrees / TURN_SPEED_DPS
         await asyncio.sleep(duration)
         await self._dog.stop()

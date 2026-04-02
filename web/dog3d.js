@@ -50,18 +50,19 @@ var Dog3D = (function () {
     // Leg pivots — each leg has { hipPivot, kneePivot, upperMesh, lowerMesh, footMesh }
     var legs = {};
 
-    // Industrial yellow dog on white lab floor
+    // Industrial yellow dog on dark floor
     var COL = {
         body:    0xd4a017,  // safety yellow
         accent:  0x1a1a1a,  // black trim
         leg:     0x2c2c2c,  // dark charcoal legs
         head:    0xe2b52e,  // lighter yellow head
         eye:     0x33ff66,  // bright green status LED
-        ground:  0xe8e8e8,  // white lab floor
+        ground:  0x1a1d24,  // dark floor matching UI
         sensor:  0x888888,  // silver sensor housings
         beam:    0x33aaff,  // blue ultrasonic beam
         joint:   0x444444,  // dark joint spheres
-        grid:    0xcccccc,  // subtle floor grid
+        grid:    0x2a2f3a,  // subtle dark grid
+        sceneBg: 0x1e222b,  // scene background matching card bg
     };
 
     function init(containerId) {
@@ -75,8 +76,8 @@ var Dog3D = (function () {
         }
 
         scene = new THREE.Scene();
-        scene.background = new THREE.Color(0xf0f0f0);
-        scene.fog = new THREE.Fog(0xf0f0f0, 20, 40);
+        scene.background = new THREE.Color(COL.sceneBg);
+        scene.fog = new THREE.Fog(COL.sceneBg, 20, 40);
 
         camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 50);
         updateCameraPosition();
@@ -90,11 +91,11 @@ var Dog3D = (function () {
         renderer.toneMappingExposure = 1.0;
         container.appendChild(renderer.domElement);
 
-        // White ambient fill — lab-style even lighting
-        scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+        // Ambient fill — slightly dimmer for dark theme
+        scene.add(new THREE.AmbientLight(0xffffff, 0.5));
 
-        // Overhead key light (directly above, slightly forward) — like a ceiling panel
-        var overhead = new THREE.DirectionalLight(0xffffff, 0.8);
+        // Overhead key light
+        var overhead = new THREE.DirectionalLight(0xffffff, 0.9);
         overhead.position.set(0.5, 8, 0.5);
         overhead.castShadow = true;
         overhead.shadow.mapSize.set(1024, 1024);
@@ -111,18 +112,18 @@ var Dog3D = (function () {
         fill.position.set(-3, 4, 2);
         scene.add(fill);
 
-        // White lab floor
+        // Dark floor
         var ground = new THREE.Mesh(
             new THREE.PlaneGeometry(30, 30),
-            new THREE.MeshStandardMaterial({ color: COL.ground, roughness: 0.4, metalness: 0.0 })
+            new THREE.MeshStandardMaterial({ color: COL.ground, roughness: 0.8, metalness: 0.0 })
         );
         ground.rotation.x = -Math.PI / 2;
         ground.position.y = -0.01;
         ground.receiveShadow = true;
         scene.add(ground);
 
-        // Subtle floor grid
-        scene.add(new THREE.GridHelper(15, 30, COL.grid, 0xdddddd));
+        // Subtle dark grid
+        scene.add(new THREE.GridHelper(15, 30, COL.grid, 0x22262e));
 
         // Build articulated dog
         dogGroup = new THREE.Group();
@@ -419,21 +420,40 @@ var Dog3D = (function () {
     var ultraHit = null; // hit point marker (added to scene, not dogGroup)
 
     function initUltraHit() {
-        var geo = new THREE.SphereGeometry(0.03 * S, 10, 10);
-        var mat = new THREE.MeshBasicMaterial({ color: 0xff3333 });
-        ultraHit = new THREE.Mesh(geo, mat);
+        // Tall vertical beacon at hit point — sticks above walls
+        var BEACON_HEIGHT = WALL_HEIGHT + 1.5;
+        ultraHit = new THREE.Group();
         ultraHit.visible = false;
         scene.add(ultraHit);
 
-        // Ring around hit point for visibility
+        // Vertical line (thin cylinder from ground to above wall height)
+        var poleGeo = new THREE.CylinderGeometry(0.008 * S, 0.008 * S, BEACON_HEIGHT, 6);
+        var poleMat = new THREE.MeshBasicMaterial({ color: 0xff3333 });
+        var pole = new THREE.Mesh(poleGeo, poleMat);
+        pole.position.y = BEACON_HEIGHT / 2;
+        ultraHit.add(pole);
+
+        // Diamond marker at top
+        var diamondGeo = new THREE.OctahedronGeometry(0.04 * S, 0);
+        var diamondMat = new THREE.MeshBasicMaterial({ color: 0xff3333 });
+        var diamond = new THREE.Mesh(diamondGeo, diamondMat);
+        diamond.position.y = BEACON_HEIGHT;
+        ultraHit.add(diamond);
+
+        // Ground ring at base
         var ringGeo = new THREE.RingGeometry(0.04 * S, 0.06 * S, 16);
         var ringMat = new THREE.MeshBasicMaterial({
             color: 0xff3333, side: THREE.DoubleSide,
-            transparent: true, opacity: 0.4,
+            transparent: true, opacity: 0.5,
         });
         var ring = new THREE.Mesh(ringGeo, ringMat);
         ring.rotation.x = -Math.PI / 2;
+        ring.position.y = 0.02;
         ultraHit.add(ring);
+
+        // Store refs for color updates
+        ultraHit.userData.pole = pole;
+        ultraHit.userData.diamond = diamond;
     }
 
     function updateUltraBeam() {
@@ -476,21 +496,19 @@ var Dog3D = (function () {
 
         // Hit point: sensor position + distance along dog's forward direction (world space)
         if (ultraHit && dogGroup) {
-            // Sensor tip in local dog space
-            var localHit = new THREE.Vector3(sx + len, sy, 0);
+            // Sensor tip in local dog space — project to ground plane (y=0)
+            var localHit = new THREE.Vector3(sx + len, 0, 0);
             // Transform to world space via dogGroup
             dogGroup.localToWorld(localHit);
+            localHit.y = 0; // anchor beacon at ground level
             ultraHit.position.copy(localHit);
             ultraHit.visible = true;
 
-            // Color hit marker by distance
-            if (ultraDistance < 150) {
-                ultraHit.material.color.setHex(0xff2222);
-            } else if (ultraDistance < 400) {
-                ultraHit.material.color.setHex(0xff8800);
-            } else {
-                ultraHit.material.color.setHex(0x33aaff);
-            }
+            // Color beacon by distance
+            var hitColor = ultraDistance < 150 ? 0xff2222 :
+                           ultraDistance < 400 ? 0xff8800 : 0x33aaff;
+            ultraHit.userData.pole.material.color.setHex(hitColor);
+            ultraHit.userData.diamond.material.color.setHex(hitColor);
         }
     }
 
@@ -627,57 +645,163 @@ var Dog3D = (function () {
         renderer.setSize(container.clientWidth, container.clientHeight);
     }
 
-    // --- Walls ---
+    // --- Scan-point walls ---
     var wallMeshes = [];
+    var wallTexture = null;
+    var WALL_HEIGHT = 2.0; // scene units (~1.7x dog height)
+    var WALL_THICKNESS = 0.08 * S;
+    var CONNECT_DIST = 0.35 * S; // max gap between points to form a wall panel
+
+    function createWallTexture() {
+        // Procedural concrete panel texture — robotics test facility style
+        var size = 256;
+        var c = document.createElement("canvas");
+        c.width = size; c.height = size;
+        var ctx = c.getContext("2d");
+
+        // Base concrete gray with slight warm tint
+        ctx.fillStyle = "#8a8a86";
+        ctx.fillRect(0, 0, size, size);
+
+        // Noise grain
+        var imgData = ctx.getImageData(0, 0, size, size);
+        var d = imgData.data;
+        for (var i = 0; i < d.length; i += 4) {
+            var n = (Math.random() - 0.5) * 18;
+            d[i] += n; d[i + 1] += n; d[i + 2] += n;
+        }
+        ctx.putImageData(imgData, 0, 0);
+
+        // Horizontal panel seams (every 64px = ~0.3m panels)
+        ctx.strokeStyle = "rgba(50, 50, 48, 0.6)";
+        ctx.lineWidth = 2;
+        for (var y = 64; y < size; y += 64) {
+            ctx.beginPath();
+            ctx.moveTo(0, y);
+            ctx.lineTo(size, y);
+            ctx.stroke();
+            // Highlight line below seam
+            ctx.strokeStyle = "rgba(160, 160, 155, 0.3)";
+            ctx.beginPath();
+            ctx.moveTo(0, y + 2);
+            ctx.lineTo(size, y + 2);
+            ctx.stroke();
+            ctx.strokeStyle = "rgba(50, 50, 48, 0.6)";
+        }
+
+        // Vertical panel seams (every 128px = ~0.6m panels)
+        for (var x = 128; x < size; x += 128) {
+            ctx.beginPath();
+            ctx.moveTo(x, 0);
+            ctx.lineTo(x, size);
+            ctx.stroke();
+            ctx.strokeStyle = "rgba(160, 160, 155, 0.3)";
+            ctx.beginPath();
+            ctx.moveTo(x + 2, 0);
+            ctx.lineTo(x + 2, size);
+            ctx.stroke();
+            ctx.strokeStyle = "rgba(50, 50, 48, 0.6)";
+        }
+
+        // Subtle measurement markings — small ticks every 32px
+        ctx.strokeStyle = "rgba(200, 180, 60, 0.2)";
+        ctx.lineWidth = 1;
+        for (var ty = 32; ty < size; ty += 32) {
+            ctx.beginPath();
+            ctx.moveTo(0, ty);
+            ctx.lineTo(8, ty);
+            ctx.stroke();
+        }
+
+        // Bottom safety stripe
+        var stripeH = 12;
+        ctx.fillStyle = "rgba(200, 160, 20, 0.15)";
+        ctx.fillRect(0, size - stripeH, size, stripeH);
+
+        var tex = new THREE.CanvasTexture(c);
+        tex.wrapS = THREE.RepeatWrapping;
+        tex.wrapT = THREE.RepeatWrapping;
+        tex.repeat.set(1, 1);
+        return tex;
+    }
 
     function clearWalls() {
-        wallMeshes.forEach(function (m) { scene.remove(m); });
+        wallMeshes.forEach(function (m) {
+            if (m.geometry) m.geometry.dispose();
+            scene.remove(m);
+        });
         wallMeshes = [];
     }
 
-    function addWalls(walls) {
+    function buildWallsFromPoints(points) {
         clearWalls();
-        if (!walls || !walls.length) return;
+        if (!points || points.length < 1) return;
+        if (!wallTexture) wallTexture = createWallTexture();
 
-        // Wall material: semi-transparent light gray with edges
         var wallMat = new THREE.MeshStandardMaterial({
-            color: 0xb0b0b0,
-            roughness: 0.7,
+            map: wallTexture,
+            roughness: 0.85,
             metalness: 0.05,
+            side: THREE.DoubleSide,
+        });
+
+        // Edge wireframe for depth cues
+        var edgeMat = new THREE.LineBasicMaterial({
+            color: 0x555555,
             transparent: true,
-            opacity: 0.55,
+            opacity: 0.4,
         });
-        var edgeMat = new THREE.LineBasicMaterial({ color: 0x888888 });
 
-        walls.forEach(function (w) {
-            // Wall geometry: length x thickness x height, all in meters -> scene units
-            var geo = new THREE.BoxGeometry(w.length * S, w.height * S, w.thickness * S);
-            var mesh = new THREE.Mesh(geo, wallMat);
-
-            // Position: sim uses X=forward, Y=left, Z=up
-            // Scene uses X=forward, Z=lateral, Y=up
-            // Wall center: (cx, cy) in sim XY plane -> (cx, height/2, cy) in scene
-            mesh.position.set(w.cx * S, (w.height * S) / 2, w.cy * S);
-
-            // Rotation: sim angle is around Z axis (yaw in XY plane)
-            // In scene, yaw rotates around Y axis
-            mesh.rotation.y = w.angle;
-
-            mesh.castShadow = true;
-            mesh.receiveShadow = true;
-            scene.add(mesh);
-            wallMeshes.push(mesh);
-
-            // Wireframe edges for visual clarity
-            var edges = new THREE.LineSegments(
-                new THREE.EdgesGeometry(geo),
-                edgeMat
-            );
-            edges.position.copy(mesh.position);
-            edges.rotation.copy(mesh.rotation);
-            scene.add(edges);
-            wallMeshes.push(edges);
+        // Convert points to scene coords: sim (x,y) -> scene (x, z)
+        var scenePoints = points.map(function (p) {
+            return { x: p.x * S, z: p.y * S };
         });
+
+        // Build wall panels between consecutive close points
+        for (var i = 0; i < scenePoints.length; i++) {
+            var a = scenePoints[i];
+            var b = (i + 1 < scenePoints.length) ? scenePoints[i + 1] : null;
+
+            if (b) {
+                var dx = b.x - a.x;
+                var dz = b.z - a.z;
+                var dist = Math.sqrt(dx * dx + dz * dz);
+
+                if (dist < CONNECT_DIST && dist > 0.01) {
+                    // Connected wall panel between a and b
+                    var cx = (a.x + b.x) / 2;
+                    var cz = (a.z + b.z) / 2;
+                    var angle = Math.atan2(dz, dx);
+
+                    var geo = new THREE.BoxGeometry(dist, WALL_HEIGHT, WALL_THICKNESS);
+                    // Scale UV so texture tiles proportionally
+                    geo.computeBoundingBox();
+
+                    var mesh = new THREE.Mesh(geo, wallMat);
+                    mesh.position.set(cx, WALL_HEIGHT / 2, cz);
+                    mesh.rotation.y = -angle; // scene Y rotation
+                    mesh.castShadow = true;
+                    mesh.receiveShadow = true;
+                    scene.add(mesh);
+                    wallMeshes.push(mesh);
+
+                    var edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo), edgeMat);
+                    edges.position.copy(mesh.position);
+                    edges.rotation.copy(mesh.rotation);
+                    scene.add(edges);
+                    wallMeshes.push(edges);
+                    continue;
+                }
+            }
+
+            // Isolated point or gap — small pillar
+            var pillarGeo = new THREE.BoxGeometry(WALL_THICKNESS, WALL_HEIGHT, WALL_THICKNESS);
+            var pillar = new THREE.Mesh(pillarGeo, wallMat);
+            pillar.position.set(a.x, WALL_HEIGHT / 2, a.z);
+            pillar.castShadow = true;
+            scene.add(pillar);
+            wallMeshes.push(pillar);
+        }
     }
 
     // --- Public API ---
@@ -729,14 +853,19 @@ var Dog3D = (function () {
             currentAction = null;
             walkPhase = 0;
             simJoints = null;
+            clearWalls();
             if (dogGroup) {
                 dogGroup.position.set(0, standingHeight(), 0);
                 dogGroup.rotation.set(0, 0, 0);
             }
         },
 
-        setWalls: function (walls) {
-            addWalls(walls);
+        setScanPoints: function (points) {
+            buildWallsFromPoints(points);
+        },
+
+        clearScanWalls: function () {
+            clearWalls();
         },
 
         setFallen: function (fallen) {

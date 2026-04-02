@@ -396,12 +396,18 @@ class Server:
         elif msg_type == "cmd_scan":
             action = msg.get("action", "start")
             if action == "start" and not self._scan.running:
-                pos = self._patrol.position
+                # Use transport's dead-reckoned position (not patrol's)
+                ox, oy, heading = 0.0, 0.0, 0.0
+                if hasattr(self._transport, "get_position"):
+                    pos = self._transport.get_position()
+                    ox, oy = pos[0], pos[1]
+                if hasattr(self._transport, "get_heading"):
+                    heading = self._transport.get_heading()
                 self._mode = "scan"
                 await self._broadcast_status()
                 self._scan._task = asyncio.create_task(self._scan.execute(
-                    origin_x=pos["x"], origin_y=pos["y"],
-                    origin_heading=pos["heading"],
+                    origin_x=ox, origin_y=oy,
+                    origin_heading=heading,
                 ))
                 self._scan._task.add_done_callback(self._scan_task_done)
             elif action == "stop":

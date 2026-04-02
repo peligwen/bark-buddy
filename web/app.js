@@ -71,10 +71,10 @@
         var text = document.getElementById("conn-text");
         if (connected) {
             indicator.className = "indicator connected";
-            text.textContent = "Connected";
+            text.textContent = "Online";
         } else {
             indicator.className = "indicator disconnected";
-            text.textContent = "Disconnected";
+            text.textContent = "Offline";
         }
     }
 
@@ -86,6 +86,17 @@
             Dog3D.updateIMU(msg);
         } else if (msg.type === "telem_odometry") {
             Dog3D.updateOdometry(msg);
+            dogMapState.x = msg.x || 0;
+            dogMapState.y = msg.y || 0;
+            dogMapState.heading = msg.heading || 0;
+            dogMapState.motion = msg.motion || "stop";
+            updateMotionIndicator(msg.motion);
+            if (msg.heading != null) {
+                var h = Math.round(msg.heading) % 360;
+                if (h < 0) h += 360;
+                document.getElementById("heading-val").textContent = h + "\u00B0";
+            }
+            drawMap();
         } else if (msg.type === "telem_status") {
             updateStatus(msg);
         } else if (msg.type === "balance_state") {
@@ -388,7 +399,20 @@
             pos.heading.toFixed(0) + "\u00B0";
     }
 
+    // --- Motion indicator ---
+    function updateMotionIndicator(motion) {
+        var el = document.getElementById("motion-state");
+        if (!motion || motion === "stop") {
+            el.textContent = "";
+            el.className = "motion-indicator";
+        } else {
+            el.textContent = motion.toUpperCase();
+            el.className = "motion-indicator active";
+        }
+    }
+
     // --- Scan / Map ---
+    var dogMapState = { x: 0, y: 0, heading: 0, motion: "stop" };
     var mapPoints = [];
     var mapScans = [];
     var mapBounds = { min_x: -2, max_x: 2, min_y: -2, max_y: 2 };
@@ -435,16 +459,20 @@
         // Update progress
         document.getElementById("scan-progress-fill").style.width = msg.progress + "%";
         document.getElementById("scan-progress-text").textContent = msg.progress + "%";
-        document.getElementById("map-points").textContent = "Points: " + mapPoints.length;
+        document.getElementById("map-points").textContent = mapPoints.length + " pts";
+
+        // Rebuild 3D walls from scan data
+        Dog3D.setScanPoints(mapPoints);
     }
 
     function renderFullMap(data) {
         mapPoints = data.points || [];
         mapScans = data.scans || [];
         mapBounds = data.bounds || mapBounds;
-        document.getElementById("map-points").textContent = "Points: " + (data.point_count || 0);
-        document.getElementById("map-scans").textContent = "Scans: " + (data.scan_count || 0);
+        document.getElementById("map-points").textContent = (data.point_count || 0) + " pts";
+        document.getElementById("map-scans").textContent = (data.scan_count || 0) + " scans";
         drawMap();
+        Dog3D.setScanPoints(mapPoints);
     }
 
     function updateMapBoundsFromPoint(x, y) {
@@ -457,12 +485,24 @@
 
     function drawMap() {
         var canvas = document.getElementById("map-canvas");
+        // Auto-size canvas to container
+        var rect = canvas.parentElement.getBoundingClientRect();
+        var info = document.getElementById("map-info");
+        var progress = document.getElementById("scan-progress");
+        var usedH = info.offsetHeight + (progress.classList.contains("hidden") ? 0 : progress.offsetHeight);
+        var cw = Math.floor(rect.width);
+        var ch = Math.floor(rect.height - usedH);
+        if (cw > 0 && ch > 0 && (canvas.width !== cw || canvas.height !== ch)) {
+            canvas.width = cw;
+            canvas.height = ch;
+        }
+
         var ctx = canvas.getContext("2d");
         var w = canvas.width;
         var h = canvas.height;
 
-        // Clear
-        ctx.fillStyle = "#faf9f6";
+        // Clear — dark background
+        ctx.fillStyle = "#151820";
         ctx.fillRect(0, 0, w, h);
 
         var rangeX = mapBounds.max_x - mapBounds.min_x;
@@ -470,13 +510,13 @@
         var range = Math.max(rangeX, rangeY, 0.5);
         var centerX = (mapBounds.min_x + mapBounds.max_x) / 2;
         var centerY = (mapBounds.min_y + mapBounds.max_y) / 2;
-        var scale = (w - 40) / range;
+        var scale = (Math.min(w, h) - 40) / range;
 
         function toCanvasX(x) { return w / 2 + (x - centerX) * scale; }
-        function toCanvasY(y) { return h / 2 - (y - centerY) * scale; } // flip Y
+        function toCanvasY(y) { return h / 2 + (y - centerY) * scale; }
 
         // Grid lines
-        ctx.strokeStyle = "#e0ddd5";
+        ctx.strokeStyle = "#252a35";
         ctx.lineWidth = 1;
         var gridStep = gridStepForRange(range);
         var gx = Math.floor(mapBounds.min_x / gridStep) * gridStep;
@@ -493,20 +533,20 @@
         }
 
         // Origin cross
-        ctx.strokeStyle = "#bbb5a8";
+        ctx.strokeStyle = "#3a3f4a";
         ctx.lineWidth = 1;
         var ox = toCanvasX(0), oy = toCanvasY(0);
         ctx.beginPath(); ctx.moveTo(ox - 8, oy); ctx.lineTo(ox + 8, oy); ctx.stroke();
         ctx.beginPath(); ctx.moveTo(ox, oy - 8); ctx.lineTo(ox, oy + 8); ctx.stroke();
 
         // Scan origins
-        ctx.fillStyle = "#d4880e";
+        ctx.fillStyle = "rgba(212, 136, 14, 0.5)";
         for (var s = 0; s < mapScans.length; s++) {
             var sc = mapScans[s];
             var sx = toCanvasX(sc.x);
             var sy = toCanvasY(sc.y);
             ctx.beginPath();
-            ctx.arc(sx, sy, 4, 0, Math.PI * 2);
+            ctx.arc(sx, sy, 3, 0, Math.PI * 2);
             ctx.fill();
         }
 
@@ -515,24 +555,43 @@
             var p = mapPoints[i];
             var px = toCanvasX(p.x);
             var py = toCanvasY(p.y);
-            // Color by distance: close = red, medium = yellow, far = dim
             var d = p.distance_mm;
             if (d < 150) {
-                ctx.fillStyle = "#c93d3d";
+                ctx.fillStyle = "#ef4444";
             } else if (d < 400) {
-                ctx.fillStyle = "#d4880e";
+                ctx.fillStyle = "#f59e0b";
             } else {
-                ctx.fillStyle = "#3a9a5c";
+                ctx.fillStyle = "#22c55e";
             }
             ctx.beginPath();
             ctx.arc(px, py, 3, 0, Math.PI * 2);
             ctx.fill();
         }
 
+        // Dog position + heading triangle
+        var dx = toCanvasX(dogMapState.x);
+        var dy = toCanvasY(dogMapState.y);
+        var headingRad = dogMapState.heading * (Math.PI / 180); // canvas rotate is CW-positive, matching sim heading
+        var triSize = 8;
+        ctx.save();
+        ctx.translate(dx, dy);
+        ctx.rotate(headingRad);
+        ctx.beginPath();
+        ctx.moveTo(triSize, 0);                          // nose (forward = +X = right on canvas)
+        ctx.lineTo(-triSize * 0.6, -triSize * 0.5);      // rear left
+        ctx.lineTo(-triSize * 0.6,  triSize * 0.5);      // rear right
+        ctx.closePath();
+        ctx.fillStyle = "#d4880e";
+        ctx.fill();
+        ctx.strokeStyle = "#fff";
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        ctx.restore();
+
         // Scale label
-        ctx.fillStyle = "#9a9590";
+        ctx.fillStyle = "#4b5160";
         ctx.font = "10px monospace";
-        ctx.fillText(gridStep.toFixed(1) + "m grid", 4, h - 4);
+        ctx.fillText(gridStep.toFixed(1) + "m", 6, h - 6);
     }
 
     function gridStepForRange(range) {
