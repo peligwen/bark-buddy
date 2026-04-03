@@ -56,6 +56,9 @@ def fit_walls(points: list[dict], eps: float = None, min_samples: int = 2,
     for cluster in clusters:
         _extract_walls(cluster, walls, min_samples, wall_height)
 
+    # Merge collinear nearby wall segments
+    walls = _merge_collinear(walls)
+
     return walls
 
 
@@ -119,6 +122,80 @@ def _extract_walls(cluster: list[tuple], walls: list[WallSegment],
 
     _extract_walls(left, walls, min_samples, wall_height, depth + 1)
     _extract_walls(right, walls, min_samples, wall_height, depth + 1)
+
+
+def _merge_collinear(walls: list[WallSegment], angle_thresh: float = 0.3,
+                     gap_thresh: float = 0.20) -> list[WallSegment]:
+    """Merge wall segments that are nearly parallel and close together."""
+    if len(walls) < 2:
+        return walls
+
+    def wall_angle(w):
+        return math.atan2(w.y2 - w.y1, w.x2 - w.x1)
+
+    def wall_length(w):
+        return math.sqrt((w.x2 - w.x1)**2 + (w.y2 - w.y1)**2)
+
+    def endpoints_gap(a, b):
+        """Min distance between any endpoint pair of two segments."""
+        pts_a = [(a.x1, a.y1), (a.x2, a.y2)]
+        pts_b = [(b.x1, b.y1), (b.x2, b.y2)]
+        return min(math.sqrt((pa[0]-pb[0])**2 + (pa[1]-pb[1])**2)
+                   for pa in pts_a for pb in pts_b)
+
+    def merge_two(a, b):
+        """Merge two segments into one spanning all 4 endpoints along the average direction."""
+        all_pts = [(a.x1, a.y1), (a.x2, a.y2), (b.x1, b.y1), (b.x2, b.y2)]
+        # Average direction
+        ang = (wall_angle(a) + wall_angle(b)) / 2
+        dx, dy = math.cos(ang), math.sin(ang)
+        # Project all points onto this direction
+        projections = [(p[0]*dx + p[1]*dy, p) for p in all_pts]
+        projections.sort()
+        p_min = projections[0][1]
+        p_max = projections[-1][1]
+        avg_conf = (a.confidence * wall_length(a) + b.confidence * wall_length(b)) / max(
+            wall_length(a) + wall_length(b), 0.01)
+        return WallSegment(
+            x1=round(p_min[0], 3), y1=round(p_min[1], 3),
+            x2=round(p_max[0], 3), y2=round(p_max[1], 3),
+            height=a.height, confidence=round(avg_conf, 2))
+
+    # Greedy merging — keep merging until no more pairs match
+    changed = True
+    while changed:
+        changed = False
+        new_walls = []
+        used = set()
+        for i in range(len(walls)):
+            if i in used:
+                continue
+            merged = False
+            for j in range(i + 1, len(walls)):
+                if j in used:
+                    continue
+                # Check angle similarity (handle wrapping)
+                da = abs(wall_angle(walls[i]) - wall_angle(walls[j]))
+                if da > math.pi:
+                    da = 2 * math.pi - da
+                # Allow near-parallel (same direction) or anti-parallel
+                if da > angle_thresh and abs(da - math.pi) > angle_thresh:
+                    continue
+                # Check proximity
+                if endpoints_gap(walls[i], walls[j]) > gap_thresh:
+                    continue
+                # Merge
+                new_walls.append(merge_two(walls[i], walls[j]))
+                used.add(i)
+                used.add(j)
+                merged = True
+                changed = True
+                break
+            if not merged:
+                new_walls.append(walls[i])
+        walls = new_walls
+
+    return walls
 
 
 def _dbscan(points: list[tuple], eps: float, min_samples: int) -> list[list[tuple]]:
