@@ -4,33 +4,56 @@ Give our Hiwonder MechDog Open Source AI Robot Dog some real brains.
 
 ## What Is This?
 
-Firmware and host software for the [Hiwonder MechDog](https://www.hiwonder.com/) robot dog. Uses a hybrid C++/Python architecture: C++ runs on the MechDog controller for real-time servo and IMU control, while Python runs on a local dev machine for high-level behaviors and a web-based remote control interface.
+Host software and web UI for the [Hiwonder MechDog](https://www.hiwonder.com/) robot dog. Python runs on a local dev machine talking to the MechDog's stock MicroPython firmware over USB serial or WiFi WebREPL. A browser-based control UI provides remote control, telemetry, 3D visualization, and ultrasonic mapping.
 
-## Current Milestone: Thin MVP
+## Completed Milestones
 
-| Capability | Description |
+| Milestone | Capabilities |
 |---|---|
-| Remote Control | Web UI to walk, turn, and stop the dog |
-| Balance & Recovery | IMU-based tilt correction and fall recovery |
-| Patrol | Autonomous predefined movement sequences |
+| 1 — Remote, Balance, Patrol | Web UI D-pad control, IMU-based balance, waypoint patrol, telemetry dashboard |
+| 2 — Ultrasonic Mapping | 360° scanning, point cloud accumulation, wall detection (chain-based + DBSCAN/PCA), wall mesh generation with corner snapping |
+| 3 — Physics Simulation | PyBullet SimTransport with URDF model, simulated IMU/sonar, room creation for mapping tests |
+
+## Current Work
+
+- Hardware integration and testing
+- WiFi WebREPL transport
+- Wall mesh refinement (chain splitting at corners, gap filling)
+- Web UI polish (ES modules, 3D dog visualization)
 
 ## Architecture
 
 ```
-Browser (Web UI)  ←HTTP/WS→  Python Host (Dev PC)  ←Serial/WiFi→  C++ Firmware (MechDog)
+Browser (Web UI)  ←WebSocket/JSON→  Python Host (Dev PC)  ←Serial REPL / WiFi WebREPL→  Stock Firmware (MechDog)
 ```
 
 See [docs/architecture.md](docs/architecture.md) for details.
 
 ## Getting Started
 
-> **Prerequisites:** Stock Hiwonder MechDog, PlatformIO, Python 3.11+
+> **Prerequisites:** Stock Hiwonder MechDog, Python 3.11+
 
-*Setup instructions will be added as implementation progresses.*
+```bash
+pip install -r host/requirements.txt
+
+# Mock mode (no hardware)
+python host/server.py
+
+# USB serial
+python host/server.py --serial /dev/ttyUSB0
+
+# WiFi
+python host/server.py --wifi 192.168.1.163
+
+# PyBullet simulation
+python host/server.py --sim
+```
+
+Open `http://localhost:8080` in your browser.
 
 ## Documentation
 
 - [Architecture & Tech Stack](docs/architecture.md)
 - [Design Decisions](docs/decisions.md)
 - [Implementation Plan](docs/implementation-plan.md)
-- Communication Protocol (docs/protocol.md — TBD)
+- [Communication Protocol](docs/protocol.md)
