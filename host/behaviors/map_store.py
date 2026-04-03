@@ -97,8 +97,8 @@ class MapStore:
         return {
             "bounds": self.get_bounds(),
             "points": points,
-            "walls": self.get_walls(),
-            "chains": self.get_wall_chains(),
+            "walls": self.get_walls(),  # legacy fallback for tests + 2D map
+            "chains": self.get_wall_chains(),  # primary for 3D rendering
             "scans": self.get_scan_origins(),
             "scan_count": self.scan_count,
             "point_count": len(points),

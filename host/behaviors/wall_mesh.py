@@ -88,17 +88,66 @@ def build_wall_chains(points: list[dict], min_confidence: float = 0.2,
         if len(chain) < 2:
             continue
 
-        # Build vertex list and average confidence
+        # Build vertex list
         vertices = []
-        total_conf = 0
+        confs = []
         for idx in chain:
             vertices.append([round(pts[idx][0], 3), round(pts[idx][1], 3)])
-            total_conf += pts[idx][2]
+            confs.append(pts[idx][2])
 
-        chains.append({
-            "vertices": vertices,
-            "confidence": round(total_conf / len(chain), 2),
-            "height": wall_height,
-        })
+        # Split chain at sharp turns (>60° angle change = corner)
+        sub_chains = _split_at_corners(vertices, confs, max_angle_deg=60)
+
+        for verts, sub_confs in sub_chains:
+            if len(verts) < 2:
+                continue
+            chains.append({
+                "vertices": verts,
+                "confidence": round(sum(sub_confs) / len(sub_confs), 2),
+                "height": wall_height,
+            })
 
     return chains
+
+
+def _split_at_corners(vertices, confs, max_angle_deg=60):
+    """Split a vertex chain at points where the direction changes sharply."""
+    if len(vertices) < 3:
+        return [(vertices, confs)]
+
+    splits = []
+    current_verts = [vertices[0]]
+    current_confs = [confs[0]]
+
+    for i in range(1, len(vertices) - 1):
+        current_verts.append(vertices[i])
+        current_confs.append(confs[i])
+
+        # Compute angle between segments (i-1→i) and (i→i+1)
+        dx1 = vertices[i][0] - vertices[i-1][0]
+        dy1 = vertices[i][1] - vertices[i-1][1]
+        dx2 = vertices[i+1][0] - vertices[i][0]
+        dy2 = vertices[i+1][1] - vertices[i][1]
+
+        len1 = math.sqrt(dx1*dx1 + dy1*dy1)
+        len2 = math.sqrt(dx2*dx2 + dy2*dy2)
+        if len1 < 1e-6 or len2 < 1e-6:
+            continue
+
+        # Dot product for angle
+        dot = (dx1*dx2 + dy1*dy2) / (len1 * len2)
+        dot = max(-1, min(1, dot))
+        angle_deg = math.degrees(math.acos(dot))
+
+        if angle_deg > max_angle_deg:
+            # Sharp turn — split here (vertex i belongs to both chains)
+            splits.append((current_verts[:], current_confs[:]))
+            current_verts = [vertices[i]]
+            current_confs = [confs[i]]
+
+    # Last segment
+    current_verts.append(vertices[-1])
+    current_confs.append(confs[-1])
+    splits.append((current_verts, current_confs))
+
+    return splits
