@@ -20,13 +20,13 @@ class WallSegment:
     confidence: float
 
 
-def fit_walls(points: list[dict], eps: float = 0.25, min_samples: int = 2,
+def fit_walls(points: list[dict], eps: float = None, min_samples: int = 2,
               min_confidence: float = 0.2, wall_height: float = 0.2) -> list[WallSegment]:
     """
     Cluster 2D points and fit wall segments.
 
     points: list of {"x", "y", "confidence"} dicts
-    eps: DBSCAN neighborhood radius (meters)
+    eps: DBSCAN neighborhood radius (meters). If None, auto-scales with density.
     min_samples: minimum points to form a cluster
     min_confidence: filter points below this
     wall_height: height of wall segments (meters)
@@ -37,6 +37,15 @@ def fit_walls(points: list[dict], eps: float = 0.25, min_samples: int = 2,
 
     if len(pts) < min_samples:
         return []
+
+    # Auto-scale eps: tighter with more points, looser with fewer
+    if eps is None:
+        if len(pts) > 80:
+            eps = 0.10
+        elif len(pts) > 30:
+            eps = 0.15
+        else:
+            eps = 0.25
 
     # DBSCAN via spatial hash grid
     clusters = _dbscan(pts, eps, min_samples)
