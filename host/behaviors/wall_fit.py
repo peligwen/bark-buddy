@@ -68,6 +68,9 @@ def fit_walls(points: list[dict], eps: float = None, min_samples: int = 2,
     # Filter degenerate walls (zero length after snapping)
     walls = [w for w in walls if math.sqrt((w.x2-w.x1)**2 + (w.y2-w.y1)**2) > 0.03]
 
+    # Fill gaps: connect isolated endpoints to nearby walls or other isolated endpoints
+    walls = _fill_gaps(walls)
+
     return walls
 
 
@@ -316,6 +319,60 @@ def _snap_corners(walls: list[WallSegment], snap_dist: float = 0.25) -> list[Wal
 
     return [WallSegment(x1=w[0], y1=w[1], x2=w[2], y2=w[3],
                          height=w[4], confidence=w[5]) for w in mwalls]
+
+
+def _fill_gaps(walls: list[WallSegment], max_gap: float = 0.60) -> list[WallSegment]:
+    """Connect isolated endpoints by adding short bridging wall segments."""
+    if len(walls) < 2:
+        return walls
+
+    # Find isolated endpoints (appear only once)
+    from collections import Counter
+    all_eps = []
+    for i, w in enumerate(walls):
+        all_eps.append(((round(w.x1, 3), round(w.y1, 3)), i, 0))
+        all_eps.append(((round(w.x2, 3), round(w.y2, 3)), i, 1))
+
+    ep_count = Counter(e[0] for e in all_eps)
+    isolated = [(e[0], e[1], e[2]) for e in all_eps if ep_count[e[0]] == 1]
+
+    if len(isolated) < 2:
+        return walls
+
+    # Try to pair isolated endpoints that are close enough
+    bridges = []
+    used = set()
+    for i in range(len(isolated)):
+        if i in used:
+            continue
+        best_j = -1
+        best_dist = max_gap
+        for j in range(i + 1, len(isolated)):
+            if j in used:
+                continue
+            # Don't bridge two endpoints of the same wall
+            if isolated[i][1] == isolated[j][1]:
+                continue
+            dx = isolated[i][0][0] - isolated[j][0][0]
+            dy = isolated[i][0][1] - isolated[j][0][1]
+            d = math.sqrt(dx*dx + dy*dy)
+            if d < best_dist:
+                best_dist = d
+                best_j = j
+
+        if best_j >= 0:
+            p1 = isolated[i][0]
+            p2 = isolated[best_j][0]
+            # Use average confidence of the two walls being connected
+            c1 = walls[isolated[i][1]].confidence
+            c2 = walls[isolated[best_j][1]].confidence
+            bridges.append(WallSegment(
+                x1=p1[0], y1=p1[1], x2=p2[0], y2=p2[1],
+                height=walls[0].height, confidence=round((c1 + c2) / 2, 2)))
+            used.add(i)
+            used.add(best_j)
+
+    return walls + bridges
 
 
 def _line_intersection(x1, y1, x2, y2, x3, y3, x4, y4):
