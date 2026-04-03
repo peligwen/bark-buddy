@@ -241,59 +241,55 @@ def _refit_walls(walls: list[WallSegment], pts: list[tuple],
 
 
 def _snap_corners(walls: list[WallSegment], snap_dist: float = 0.25) -> list[WallSegment]:
-    """Extend nearby wall endpoints to meet at their line intersection, forming corners."""
+    """Extend nearby wall endpoints to meet at their line intersection, forming corners.
+    Each endpoint can connect to one other wall, but a wall's two endpoints
+    can independently connect to different walls."""
     if len(walls) < 2:
         return walls
 
-    # For each wall, store as mutable list [x1,y1,x2,y2,h,c]
     mwalls = [[w.x1, w.y1, w.x2, w.y2, w.height, w.confidence] for w in walls]
-    used_pairs = set()
+    # Track which endpoints have been snapped: (wall_index, end_index)
+    snapped = set()
 
-    # Find pairs of endpoints from different walls that are close
+    # Build all candidate pairs sorted by distance (greedily snap closest first)
+    candidates = []
     for i in range(len(mwalls)):
         for j in range(i + 1, len(mwalls)):
-            if (i, j) in used_pairs:
-                continue
-
-            # Check all 4 endpoint pairs between wall i and wall j
-            best_dist = snap_dist
-            best_ei = -1  # 0=start, 1=end of wall i
-            best_ej = -1
-
             for ei in (0, 1):
-                px = mwalls[i][ei * 2]
-                py = mwalls[i][ei * 2 + 1]
                 for ej in (0, 1):
-                    qx = mwalls[j][ej * 2]
-                    qy = mwalls[j][ej * 2 + 1]
-                    d = math.sqrt((px - qx)**2 + (py - qy)**2)
-                    if d < best_dist:
-                        best_dist = d
-                        best_ei = ei
-                        best_ej = ej
+                    px, py = mwalls[i][ei*2], mwalls[i][ei*2+1]
+                    qx, qy = mwalls[j][ej*2], mwalls[j][ej*2+1]
+                    d = math.sqrt((px-qx)**2 + (py-qy)**2)
+                    if d < snap_dist:
+                        candidates.append((d, i, ei, j, ej))
 
-            if best_ei < 0:
-                continue
+    candidates.sort()  # closest first
 
-            # Compute intersection of the two wall lines
-            ix, iy = _line_intersection(
-                mwalls[i][0], mwalls[i][1], mwalls[i][2], mwalls[i][3],
-                mwalls[j][0], mwalls[j][1], mwalls[j][2], mwalls[j][3])
+    for _, i, ei, j, ej in candidates:
+        # Skip if either endpoint already snapped
+        if (i, ei) in snapped or (j, ej) in snapped:
+            continue
 
-            if ix is not None:
-                # Check the intersection isn't too far from the endpoints
-                ep_i = (mwalls[i][best_ei * 2], mwalls[i][best_ei * 2 + 1])
-                ep_j = (mwalls[j][best_ej * 2], mwalls[j][best_ej * 2 + 1])
-                di = math.sqrt((ix - ep_i[0])**2 + (iy - ep_i[1])**2)
-                dj = math.sqrt((ix - ep_j[0])**2 + (iy - ep_j[1])**2)
+        ix, iy = _line_intersection(
+            mwalls[i][0], mwalls[i][1], mwalls[i][2], mwalls[i][3],
+            mwalls[j][0], mwalls[j][1], mwalls[j][2], mwalls[j][3])
 
-                if di < snap_dist * 2 and dj < snap_dist * 2:
-                    # Extend both wall endpoints to the intersection
-                    mwalls[i][best_ei * 2] = round(ix, 3)
-                    mwalls[i][best_ei * 2 + 1] = round(iy, 3)
-                    mwalls[j][best_ej * 2] = round(ix, 3)
-                    mwalls[j][best_ej * 2 + 1] = round(iy, 3)
-                    used_pairs.add((i, j))
+        if ix is None:
+            continue
+
+        # Check intersection isn't too far from either endpoint
+        ep_i = (mwalls[i][ei*2], mwalls[i][ei*2+1])
+        ep_j = (mwalls[j][ej*2], mwalls[j][ej*2+1])
+        di = math.sqrt((ix-ep_i[0])**2 + (iy-ep_i[1])**2)
+        dj = math.sqrt((ix-ep_j[0])**2 + (iy-ep_j[1])**2)
+
+        if di < snap_dist * 2 and dj < snap_dist * 2:
+            mwalls[i][ei*2] = round(ix, 3)
+            mwalls[i][ei*2+1] = round(iy, 3)
+            mwalls[j][ej*2] = round(ix, 3)
+            mwalls[j][ej*2+1] = round(iy, 3)
+            snapped.add((i, ei))
+            snapped.add((j, ej))
 
     return [WallSegment(x1=w[0], y1=w[1], x2=w[2], y2=w[3],
                          height=w[4], confidence=w[5]) for w in mwalls]
