@@ -46,11 +46,19 @@ GaitState gait_current_state() {
     return state;
 }
 
+// Per-servo polarity: +1 if standing pose > center, -1 if below.
+// Front legs are mounted opposite to rear legs — a positive angle offset
+// must push front servos AWAY from center and rear servos TOWARD center
+// (or vice versa) for the same physical motion direction.
+static const float SERVO_POLARITY[8] = {
+    +1, +1, +1, +1,   // FL_hip, FL_knee, FR_hip, FR_knee (above center)
+    -1, -1, -1, -1,   // RL_hip, RL_knee, RR_hip, RR_knee (below center)
+};
+
 // Convert angle offset (degrees) from neutral to servo pulse
 static uint16_t angle_to_us(uint8_t servo_index, float offset_deg) {
     float center = (float)STANDING_POSE[servo_index];
-    // Assume ~10us per degree around center (approximate for standard servos)
-    float us = center + offset_deg * 10.0f;
+    float us = center + offset_deg * 10.0f * SERVO_POLARITY[servo_index];
     if (us < SERVO_MIN_US) us = SERVO_MIN_US;
     if (us > SERVO_MAX_US) us = SERVO_MAX_US;
     return (uint16_t)us;

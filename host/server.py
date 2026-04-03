@@ -68,8 +68,15 @@ class Server:
         self._lock_timeout: float = 30.0  # seconds of inactivity before auto-release
         self._client_names: dict[web.WebSocketResponse, str] = {}
 
+    @web.middleware
+    async def _no_cache_middleware(self, request, handler):
+        response = await handler(request)
+        if request.path != "/ws":
+            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        return response
+
     async def start(self, host: str = "0.0.0.0", port: int = 8080):
-        app = web.Application()
+        app = web.Application(middlewares=[self._no_cache_middleware])
         app.router.add_get("/ws", self._ws_handler)
         app.router.add_static("/", self._web_dir, show_index=True)
         app.on_startup.append(self._on_startup)
@@ -86,8 +93,9 @@ class Server:
         await self._dog.connect()
         # Don't auto-enable homeostasis — it breaks stock firmware gait.
 
-        # If on USB, check if dog has WiFi available
+        # Check if dog has WiFi available
         if hasattr(self._transport, 'check_wifi_status') and 'usb' in self._transport_label:
+            # Stock firmware: query WiFi status via REPL
             try:
                 wifi = await self._transport.check_wifi_status()
                 self._detected_wifi = wifi
@@ -96,6 +104,14 @@ class Server:
                     logger.info("Dog WiFi detected: %s (%s)", wifi.get("ip"), wifi.get("ssid"))
             except Exception:
                 self._detected_wifi = {"connected": False}
+        elif hasattr(self._transport, '_firmware_info') and 'fw' in self._transport_label:
+            # Custom firmware: WiFi info comes from boot/status messages
+            await asyncio.sleep(1)  # wait for boot message
+            fw = self._transport._firmware_info
+            if fw.get("wifi") and fw.get("wifi_ip"):
+                self._wifi_host = fw["wifi_ip"]
+                self._detected_wifi = {"connected": True, "ip": fw["wifi_ip"]}
+                logger.info("Firmware WiFi detected: %s (TCP port %s)", fw["wifi_ip"], fw.get("tcp_port", 9000))
 
         # Register balance event callbacks
         self._balance.on_fall(self._on_fall)
@@ -773,17 +789,18 @@ class Server:
                     self._map._cloud.consolidate()
                     self._map.decay_tick()
 
-                # Servo idle timeout — detach servos to save power
+                # Servo idle timeout — lie down to rest (PWM stays alive for wake-up)
                 if (self._last_motion_time > 0
                         and not self._servos_idle
                         and self._motion == "stop"
                         and now - self._last_motion_time > self._servo_idle_timeout
                         and hasattr(self._transport, '_exec')):
                     try:
-                        await self._transport._exec(
-                            "HW_MechDog.__servos.pwm_servo_deinit()")
+                        for _ in range(5):
+                            await self._transport._exec(
+                                "_dog.transform([0, 0, -1], [0, 0, 0], 80)")
                         self._servos_idle = True
-                        logger.info("Servo idle timeout — detached")
+                        logger.info("Servo idle timeout — resting")
                     except Exception:
                         pass
 
@@ -894,8 +911,22 @@ async def main(args):
         transport_label = f"wifi:{host}"
         logger.info("Using WebREPL transport: %s:%d", host, port)
     elif args.serial:
-        # Auto-detect: custom firmware (JSON) or stock MicroPython (REPL)
-        transport, transport_label = await _detect_serial_transport(args.serial)
+        port = args.serial if args.serial != "auto" else find_serial_port()
+        if port is None:
+            logger.error("No USB serial port found")
+            raise SystemExit(1)
+        transport, transport_label = await _detect_serial_transport(port)
+    elif not args.sim:
+        # No transport flag — auto-detect USB serial, fall back to sim+
+        port = find_serial_port()
+        if port:
+            logger.info("Auto-detected serial port: %s", port)
+            transport, transport_label = await _detect_serial_transport(port)
+        else:
+            from mock_firmware import MockFirmwareTransport
+            transport = MockFirmwareTransport()
+            transport_label = "sim+"
+            logger.info("No serial port found, using sim+ mock transport")
     elif args.sim == "classic":
         transport = MockTransport()
         transport_label = "sim"
@@ -929,9 +960,9 @@ if __name__ == "__main__":
                         help="MechDog WiFi address (e.g. 192.168.1.163 or 192.168.1.163:8266)")
     parser.add_argument("--wifi-password", default="bark",
                         help="WebREPL password (default: bark)")
-    parser.add_argument("--sim", nargs="?", const="plus", default="plus",
+    parser.add_argument("--sim", nargs="?", const="plus", default=None,
                         choices=["plus", "classic"],
-                        help="Sim mode: 'plus' (default, firmware-rate) or 'classic' (CMD protocol)")
+                        help="Sim mode: 'plus' (default) or 'classic' (CMD protocol)")
     parser.add_argument("--restart", action="store_true",
                         help="Restart a running server via WebSocket command")
     args = parser.parse_args()

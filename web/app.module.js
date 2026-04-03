@@ -4,7 +4,7 @@ import { connect, send, setMessageHandler } from './modules/ws.js';
 import { setupDpad, setupKeyboard, setupActions, setCanControl } from './modules/controls.js';
 import { dogMapState, addScanPoint, renderFullMap, drawMap, setupScan } from './modules/map.js';
 import { setupBatteryGraph, recordBattery, setupNoisePanel, syncNoiseSliders,
-         setupTransport, updateTransportUI, showWifiBanner } from './modules/panels.js';
+         setupTransport, updateTransportUI, showWifiBanner, handleWifiSetupResult } from './modules/panels.js';
 
 // --- State ---
 var hasLock = false;
@@ -149,6 +149,7 @@ function handleMessage(msg) {
     } else if (msg.type === "transport_result") {
         updateTransportUI(msg);
     } else if (msg.type === "wifi_setup_result") {
+        handleWifiSetupResult(msg);
         var badge = document.getElementById("transport-badge");
         if (msg.ok) {
             badge.className = "transport-badge live";

@@ -23,6 +23,7 @@ class WebReplTransport(HardwareTransport):
         self._port = port
         self._password = password
         self._ws = None
+        self._ws_lock = asyncio.Lock()
 
     async def open(self) -> None:
         import websockets
@@ -56,25 +57,27 @@ class WebReplTransport(HardwareTransport):
         logger.info("WebReplTransport closed")
 
     async def _exec(self, cmd: str) -> None:
-        if not self._ws:
-            return
-        await self._ws.send(cmd + "\r\n")
-        await self._ws_recv_until(">>>", timeout=2)
+        async with self._ws_lock:
+            if not self._ws:
+                return
+            await self._ws.send(cmd + "\r\n")
+            await self._ws_recv_until(">>>", timeout=2)
 
     async def _exec_read(self, cmd: str) -> str:
-        if not self._ws:
-            return ""
-        await self._ws.send(cmd + "\r\n")
-        raw = await self._ws_recv_until(">>>", timeout=3)
+        async with self._ws_lock:
+            if not self._ws:
+                return ""
+            await self._ws.send(cmd + "\r\n")
+            raw = await self._ws_recv_until(">>>", timeout=3)
 
-        # Extract output: skip echo and prompt lines
-        lines = raw.split("\r\n")
-        output = []
-        for line in lines:
-            line = line.strip()
-            if line and not line.startswith(">>>") and line != cmd:
-                output.append(line)
-        return "\n".join(output)
+            # Extract output: skip echo and prompt lines
+            lines = raw.split("\r\n")
+            output = []
+            for line in lines:
+                line = line.strip()
+                if line and not line.startswith(">>>") and line != cmd:
+                    output.append(line)
+            return "\n".join(output)
 
     async def _ws_recv_until(self, marker: str, timeout: float = 3) -> str:
         """Read WebSocket messages until marker appears or timeout."""

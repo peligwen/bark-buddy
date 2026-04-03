@@ -49,6 +49,21 @@
     </div>
     <div id="fall-alert" class="hidden">FALL DETECTED</div>
 
+    <div id="wifi-modal" class="modal hidden">
+        <div class="modal-content">
+            <h3>WiFi Setup</h3>
+            <label for="wifi-ssid">Network Name</label>
+            <input type="text" id="wifi-ssid" placeholder="SSID" autocomplete="off">
+            <label for="wifi-pass">Password</label>
+            <input type="password" id="wifi-pass" placeholder="Password">
+            <div class="modal-buttons">
+                <button id="wifi-modal-cancel" class="action-btn">Cancel</button>
+                <button id="wifi-modal-connect" class="action-btn primary">Connect</button>
+            </div>
+            <div id="wifi-modal-status" class="hidden"></div>
+        </div>
+    </div>
+
     <div id="main">
         <div id="panel-left">
             <div id="dog-view-section" class="view-box">

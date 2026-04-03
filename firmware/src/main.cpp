@@ -7,19 +7,34 @@
 #include "sonar.h"
 #include "servos.h"
 #include "gait.h"
+#include "calibrate.h"
+
+// WiFi enabled via build flag -DWIFI_ENABLED=1
+#ifndef WIFI_ENABLED
+#define WIFI_ENABLED 0
+#endif
+
+#if WIFI_ENABLED
+#include <WiFi.h>
+#endif
 
 // --- Forward declarations ---
 void handle_message(const JsonDocument& doc);
 void send_ack(const char* ref_type, bool ok, const char* error = nullptr);
 void send_json(const JsonDocument& doc);
+void process_rx(char* buf, size_t& pos, char c, unsigned long now);
 
 // --- State ---
-static char rx_buffer[MAX_MESSAGE_SIZE];
-static size_t rx_pos = 0;
+static char serial_rx[MAX_MESSAGE_SIZE];
+static size_t serial_rx_pos = 0;
+static char tcp_rx[MAX_MESSAGE_SIZE];
+static size_t tcp_rx_pos = 0;
+
 static unsigned long last_msg_received = 0;
 static bool connected = false;
 static bool balance_enabled = false;
 static bool low_battery = false;
+static bool manual_servo_mode = false;
 
 // Telemetry timers
 static unsigned long last_imu = 0;
@@ -28,8 +43,15 @@ static unsigned long last_battery = 0;
 static unsigned long last_status = 0;
 static unsigned long last_gait = 0;
 
-// I2C mutex for shared bus
-static SemaphoreHandle_t i2c_mutex;
+// I2C mutex for shared bus (also used by calibrate.cpp)
+SemaphoreHandle_t i2c_mutex;
+
+// WiFi TCP
+#if WIFI_ENABLED
+static WiFiServer tcp_server(WIFI_TCP_PORT);
+static WiFiClient tcp_client;
+static bool wifi_connected = false;
+#endif
 
 // --- Direction helpers ---
 Direction direction_from_string(const char* str) {
@@ -54,7 +76,7 @@ const char* direction_to_string(Direction dir) {
 // --- Setup ---
 void setup() {
     Serial.begin(SERIAL_BAUD);
-    while (!Serial) { delay(10); }
+    delay(500);  // brief wait for serial — don't block on ESP32
 
     // I2C mutex
     i2c_mutex = xSemaphoreCreateMutex();
@@ -70,7 +92,7 @@ void setup() {
         xSemaphoreGive(i2c_mutex);
     }
 
-    // Initialize servos (will fail gracefully if PINS_VERIFIED=0)
+    // Initialize servos
     bool servos_ok = servos_init();
 
     // Initialize gait engine
@@ -88,6 +110,27 @@ void setup() {
         xSemaphoreGive(i2c_mutex);
     }
 
+    // WiFi setup
+#if WIFI_ENABLED
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(WIFI_SSID, WIFI_PASS);
+    unsigned long wifi_start = millis();
+    while (WiFi.status() != WL_CONNECTED && millis() - wifi_start < 10000) {
+        delay(250);
+    }
+    wifi_connected = (WiFi.status() == WL_CONNECTED);
+    if (wifi_connected) {
+        tcp_server.begin();
+        tcp_server.setNoDelay(true);
+        // Amber LED = WiFi ready, waiting for TCP client
+        if (xSemaphoreTake(i2c_mutex, pdMS_TO_TICKS(50))) {
+            sonar_set_rgb(1, LED_BRIGHTNESS, LED_BRIGHTNESS / 2, 0);
+            sonar_set_rgb(2, LED_BRIGHTNESS, LED_BRIGHTNESS / 2, 0);
+            xSemaphoreGive(i2c_mutex);
+        }
+    }
+#endif
+
     last_msg_received = millis();
 
     // Boot status
@@ -97,7 +140,39 @@ void setup() {
     doc["sonar"] = sonar_ok;
     doc["servos"] = servos_ok;
     doc["pins_verified"] = (bool)PINS_VERIFIED;
+#if WIFI_ENABLED
+    doc["wifi"] = wifi_connected;
+    if (wifi_connected) {
+        doc["wifi_ip"] = WiFi.localIP().toString();
+        doc["tcp_port"] = WIFI_TCP_PORT;
+    }
+#endif
     send_json(doc);
+}
+
+// --- Process a received character into a buffer, dispatch on newline ---
+void process_rx(char* buf, size_t& pos, char c, unsigned long now) {
+    if (c == '\n') {
+        buf[pos] = '\0';
+        if (pos > 0) {
+            JsonDocument doc;
+            if (!deserializeJson(doc, buf)) {
+                last_msg_received = now;
+                if (!connected) {
+                    connected = true;
+                    if (xSemaphoreTake(i2c_mutex, pdMS_TO_TICKS(50))) {
+                        sonar_set_rgb(1, 0, LED_BRIGHTNESS, 0);  // green = connected
+                        sonar_set_rgb(2, 0, LED_BRIGHTNESS, 0);
+                        xSemaphoreGive(i2c_mutex);
+                    }
+                }
+                handle_message(doc);
+            }
+        }
+        pos = 0;
+    } else if (pos < MAX_MESSAGE_SIZE - 1) {
+        buf[pos++] = c;
+    }
 }
 
 // --- Main loop ---
@@ -106,29 +181,29 @@ void loop() {
 
     // Read incoming serial data (NDJSON)
     while (Serial.available()) {
-        char c = Serial.read();
-        if (c == '\n') {
-            rx_buffer[rx_pos] = '\0';
-            if (rx_pos > 0) {
-                JsonDocument doc;
-                if (!deserializeJson(doc, rx_buffer)) {
-                    last_msg_received = now;
-                    if (!connected) {
-                        connected = true;
-                        if (xSemaphoreTake(i2c_mutex, pdMS_TO_TICKS(50))) {
-                            sonar_set_rgb(1, 0, LED_BRIGHTNESS, 0);  // green = connected
-                            sonar_set_rgb(2, 0, LED_BRIGHTNESS, 0);
-                            xSemaphoreGive(i2c_mutex);
-                        }
-                    }
-                    handle_message(doc);
-                }
+        process_rx(serial_rx, serial_rx_pos, Serial.read(), now);
+    }
+
+    // Read incoming TCP data
+#if WIFI_ENABLED
+    if (wifi_connected) {
+        // Accept new client
+        if (!tcp_client || !tcp_client.connected()) {
+            WiFiClient new_client = tcp_server.available();
+            if (new_client) {
+                tcp_client = new_client;
+                tcp_client.setNoDelay(true);
+                tcp_rx_pos = 0;
             }
-            rx_pos = 0;
-        } else if (rx_pos < MAX_MESSAGE_SIZE - 1) {
-            rx_buffer[rx_pos++] = c;
+        }
+        // Read from connected client
+        if (tcp_client && tcp_client.connected()) {
+            while (tcp_client.available()) {
+                process_rx(tcp_rx, tcp_rx_pos, tcp_client.read(), now);
+            }
         }
     }
+#endif
 
     // Heartbeat timeout
     if (connected && (now - last_msg_received > HEARTBEAT_TIMEOUT_MS)) {
@@ -146,7 +221,7 @@ void loop() {
         int raw = analogRead(BATTERY_ADC_PIN);
         float voltage = (raw / 4095.0f) * 3.3f * BATTERY_DIVIDER;
         int mv = (int)(voltage * 1000);
-        if (mv < BATTERY_LOW_MV && mv > 1000) {  // > 1000 to ignore unconnected ADC
+        if (mv < BATTERY_LOW_MV && mv > 1000) {
             if (!low_battery) {
                 low_battery = true;
                 servos_detach_all();
@@ -209,12 +284,23 @@ void loop() {
         doc["balance"] = balance_enabled;
         doc["servos"] = servos_active();
         doc["low_battery"] = low_battery;
+#if WIFI_ENABLED
+        doc["wifi"] = wifi_connected;
+        if (wifi_connected) {
+            doc["wifi_ip"] = WiFi.localIP().toString();
+            doc["tcp_port"] = WIFI_TCP_PORT;
+        }
+#endif
         send_json(doc);
         last_status = now;
     }
 
-    // Gait engine
-    if (now - last_gait >= 1000 / GAIT_UPDATE_HZ) {
+    // Calibration mode (mutually exclusive with gait)
+    if (calibrate_active()) {
+        calibrate_update(now);
+    }
+    // Gait engine (skip during calibration or manual servo mode)
+    else if (!manual_servo_mode && now - last_gait >= 1000 / GAIT_UPDATE_HZ) {
         if (!low_battery) {
             gait_update(now);
         }
@@ -233,6 +319,7 @@ void handle_message(const JsonDocument& doc) {
         send_json(resp);
     }
     else if (strcmp(type, MSG_CMD_MOVE) == 0) {
+        manual_servo_mode = false;
         const char* dir_str = doc["direction"] | "stop";
         float spd = doc["speed"] | 1.0f;
         Direction dir = direction_from_string(dir_str);
@@ -246,6 +333,7 @@ void handle_message(const JsonDocument& doc) {
         send_ack(MSG_CMD_MOVE, true);
     }
     else if (strcmp(type, MSG_CMD_STAND) == 0) {
+        manual_servo_mode = false;
         gait_set_state(GaitState::STAND);
         send_ack(MSG_CMD_STAND, true);
     }
@@ -266,6 +354,7 @@ void handle_message(const JsonDocument& doc) {
     }
     else if (strcmp(type, MSG_CMD_SERVO) == 0) {
 #if PINS_VERIFIED
+        manual_servo_mode = true;  // disable gait engine
         uint8_t idx = doc["index"] | 0;
         uint16_t us = doc["pulse_us"] | 1500;
         servo_write_us(idx, us);
@@ -273,6 +362,28 @@ void handle_message(const JsonDocument& doc) {
 #else
         send_ack(MSG_CMD_SERVO, false, "pins_not_verified");
 #endif
+    }
+    else if (strcmp(type, MSG_CMD_CALIBRATE) == 0) {
+        const char* action = doc["action"] | "sweep";
+        if (strcmp(action, "stop") == 0) {
+            calibrate_stop();
+            send_ack(MSG_CMD_CALIBRATE, true);
+        } else {
+            // Ensure servos are awake
+            if (!servos_active()) {
+                servos_init();
+            }
+            gait_set_state(GaitState::STOP);
+            CalibrateSweep sw;
+            sw.servo = doc["servo"] | 0;
+            sw.from_us = doc["from_us"] | (STANDING_POSE[sw.servo] - 100);
+            sw.to_us = doc["to_us"] | (STANDING_POSE[sw.servo] + 100);
+            sw.step_us = doc["step_us"] | 10;
+            sw.dwell_ms = doc["dwell_ms"] | 300;
+            sw.tilt_limit = doc["tilt_limit"] | 8.0f;
+            calibrate_start(sw);
+            send_ack(MSG_CMD_CALIBRATE, true);
+        }
     }
     else {
         send_ack(type, false, "unknown_type");
@@ -290,6 +401,15 @@ void send_ack(const char* ref_type, bool ok, const char* error) {
 }
 
 void send_json(const JsonDocument& doc) {
+    // Always send to serial (for USB and debug)
     serializeJson(doc, Serial);
     Serial.println();
+
+    // Also send to TCP client if connected
+#if WIFI_ENABLED
+    if (tcp_client && tcp_client.connected()) {
+        serializeJson(doc, tcp_client);
+        tcp_client.println();
+    }
+#endif
 }

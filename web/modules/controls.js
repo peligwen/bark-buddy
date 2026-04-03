@@ -46,6 +46,9 @@ export function setupKeyboard() {
     var pressed = {};
 
     document.addEventListener("keydown", function (e) {
+        var el = document.activeElement;
+        var tag = el ? el.tagName : "";
+        if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
         if (!canControl()) return;
         var dir = keyMap[e.key];
         if (dir && !pressed[e.key]) {
@@ -54,11 +57,13 @@ export function setupKeyboard() {
             var btn = document.querySelector('[data-dir="' + dir + '"]');
             if (btn) btn.classList.add("pressed");
         }
-        if (e.key === " ") { e.preventDefault(); send({ type: "cmd_move", direction: "stop" }); }
         if (e.key === "b") { send({ type: "cmd_balance", enabled: !window._balanceEnabled }); }
     });
 
     document.addEventListener("keyup", function (e) {
+        var el = document.activeElement;
+        var tag = el ? el.tagName : "";
+        if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
         var dir = keyMap[e.key];
         if (dir && pressed[e.key]) {
             delete pressed[e.key];

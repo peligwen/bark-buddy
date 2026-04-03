@@ -10,7 +10,7 @@
 // ============================================================
 
 #ifndef PINS_VERIFIED
-#define PINS_VERIFIED 0
+#define PINS_VERIFIED 1
 #endif
 
 // --- I2C Bus ---
@@ -24,11 +24,13 @@
 #define QMI8658_ADDR    0x6A    // QMI8658 IMU (confirmed, not 0x6B)
 #define SONAR_ADDR      0x77    // Hiwonder I2C ultrasonic
 
-// --- Servo PWM Pins (PLACEHOLDER — must verify!) ---
-// 8 servos: 2 per leg (hip + knee)
+// --- Servo PWM Pins (ALL 8 VERIFIED via MCPWM register diff + IMU) ---
+// MCPWM0: GPIOs 25,26,27,14,16,17 (confirmed via register scan)
+// MCPWM1: GPIOs 4,2 (confirmed via MCPWM1 register diff + IMU)
+// Custom firmware uses software PWM (works on all pins)
 // Order: FL_hip, FL_knee, FR_hip, FR_knee, RL_hip, RL_knee, RR_hip, RR_knee
 static const uint8_t SERVO_PINS[8] = {
-    4, 5, 6, 7, 15, 16, 17, 18  // PLACEHOLDER — DO NOT USE UNTIL VERIFIED
+    25, 26, 27, 14, 16, 17, 4, 2
 };
 
 // --- Servo Parameters ---
@@ -36,21 +38,22 @@ static const uint8_t SERVO_PINS[8] = {
 #define SERVO_MIN_US        500
 #define SERVO_MAX_US        2500
 #define SERVO_CENTER_US     1500
-#define SERVO_RESOLUTION    16      // LEDC resolution bits
 
 // --- Servo Soft-Start ---
 #define SOFTSTART_DURATION_MS   2000    // ramp from center to standing over 2s
 #define SOFTSTART_STEPS         50      // interpolation steps
 
 // --- Standing Pose (servo pulse widths in μs) ---
-// PLACEHOLDER — capture from stock firmware
+// Captured from stock firmware set_default_pose() + offsets
+// Order: FL_hip, FL_knee, FR_hip, FR_knee, RL_hip, RL_knee, RR_hip, RR_knee
 static const uint16_t STANDING_POSE[8] = {
-    1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500
+    2096, 1621, 2170, 1611, 904, 1379, 1389, 830
+    // FL_hip FL_knee FR_hip FR_knee RL_hip RL_knee RR_hip RR_knee
 };
 
-// --- Battery ADC ---
-#define BATTERY_ADC_PIN     14      // PLACEHOLDER
-#define BATTERY_DIVIDER     2.0f    // voltage divider ratio
+// --- Battery ADC (VERIFIED: Hiwonder.__adcp = ADC(Pin(34), atten=3)) ---
+#define BATTERY_ADC_PIN     34
+#define BATTERY_DIVIDER     3.9f    // voltage divider ratio (~1:4 resistor divider)
 #define BATTERY_LOW_MV      6400    // 2S LiPo cutoff (~3.2V/cell)
 #define BATTERY_NOMINAL_MV  7400
 
@@ -72,9 +75,9 @@ static const uint16_t STANDING_POSE[8] = {
 #define HEARTBEAT_TIMEOUT_MS 5000
 
 // --- Gait Parameters ---
-#define GAIT_HIP_AMPLITUDE   15.0f   // degrees
-#define GAIT_KNEE_AMPLITUDE  10.0f   // degrees
-#define GAIT_FREQUENCY       2.0f    // Hz (steps per second)
+#define GAIT_HIP_AMPLITUDE   8.0f    // degrees (conservative — tune up after testing)
+#define GAIT_KNEE_AMPLITUDE  5.0f    // degrees
+#define GAIT_FREQUENCY       1.5f    // Hz (steps per second)
 #define GAIT_PHASE_OFFSET    3.14159f // PI — diagonal pairs antiphase
 
 // --- Servo Idle ---

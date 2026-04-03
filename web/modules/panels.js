@@ -125,12 +125,7 @@ export function setupTransport() {
             if (!host) return;
             send({ type: "cmd_transport", mode: mode, wifi_host: host });
         } else if (mode === "wifi-setup") {
-            var ssid = prompt("WiFi SSID:");
-            if (!ssid) return;
-            var pw = prompt("WiFi Password:");
-            if (pw === null) return;
-            send({ type: "cmd_wifi_setup", ssid: ssid, password: pw });
-            badge.textContent = "SETUP..."; badge.className = "transport-badge switching";
+            showWifiModal();
             return;
         } else {
             send({ type: "cmd_transport", mode: mode });
@@ -160,4 +155,52 @@ export function showWifiBanner(ip, ssid) {
         badge.textContent = "..."; badge.className = "transport-badge switching";
     };
     document.getElementById("wifi-banner-dismiss").onclick = function () { banner.classList.add("hidden"); };
+}
+
+function showWifiModal() {
+    var modal = document.getElementById("wifi-modal");
+    var ssidInput = document.getElementById("wifi-ssid");
+    var passInput = document.getElementById("wifi-pass");
+    var status = document.getElementById("wifi-modal-status");
+    ssidInput.value = "";
+    passInput.value = "";
+    status.className = "hidden";
+    status.textContent = "";
+    modal.classList.remove("hidden");
+    ssidInput.focus();
+
+    document.getElementById("wifi-modal-cancel").onclick = function () {
+        modal.classList.add("hidden");
+    };
+
+    document.getElementById("wifi-modal-connect").onclick = function () {
+        var ssid = ssidInput.value.trim();
+        if (!ssid) { ssidInput.focus(); return; }
+        status.textContent = "Connecting...";
+        status.className = "pending";
+        send({ type: "cmd_wifi_setup", ssid: ssid, password: passInput.value });
+        var badge = document.getElementById("transport-badge");
+        badge.textContent = "SETUP..."; badge.className = "transport-badge switching";
+    };
+
+    passInput.addEventListener("keydown", function (e) {
+        if (e.key === "Enter") document.getElementById("wifi-modal-connect").click();
+    });
+
+    modal.onclick = function (e) {
+        if (e.target === modal) modal.classList.add("hidden");
+    };
+}
+
+export function handleWifiSetupResult(msg) {
+    var modal = document.getElementById("wifi-modal");
+    var status = document.getElementById("wifi-modal-status");
+    if (msg.ok) {
+        status.textContent = "Connected: " + msg.ip;
+        status.className = "success";
+        setTimeout(function () { modal.classList.add("hidden"); }, 1500);
+    } else {
+        status.textContent = msg.error || "Connection failed";
+        status.className = "error";
+    }
 }

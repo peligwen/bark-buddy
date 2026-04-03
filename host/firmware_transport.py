@@ -221,6 +221,11 @@ class FirmwareTransport(Transport):
             self._sonar_mm = msg.get("distance_mm", 0)
         elif msg_type == "telem_battery":
             self._battery_mv = msg.get("voltage_mv", 7400)
+        elif msg_type == "telem_status":
+            # Cache WiFi info from status messages
+            if msg.get("wifi") and msg.get("wifi_ip"):
+                self._firmware_info["wifi_ip"] = msg["wifi_ip"]
+                self._firmware_info["tcp_port"] = msg.get("tcp_port", 9000)
         elif msg_type == "boot":
             self._firmware_info = msg
             logger.info("Firmware boot: %s", msg)

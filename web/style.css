@@ -208,6 +208,23 @@ header h1 {
 #wifi-banner button:hover { background: var(--green-dark); color: #fff; }
 #wifi-banner .dismiss { border: none; color: var(--text-dim); margin-left: auto; cursor: pointer; background: none; }
 
+/* WiFi setup modal */
+.modal { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+.modal.hidden { display: none; }
+.modal-content { background: var(--panel-bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; min-width: 280px; max-width: 340px; }
+.modal-content h3 { margin: 0 0 12px; font-size: 0.85rem; color: var(--text); }
+.modal-content label { display: block; font-size: 0.7rem; color: var(--text-muted); margin: 8px 0 4px; }
+.modal-content input { width: 100%; padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); color: var(--text); font-size: 0.8rem; box-sizing: border-box; }
+.modal-content input:focus { outline: none; border-color: var(--blue); }
+.modal-buttons { display: flex; gap: 8px; margin-top: 16px; justify-content: flex-end; }
+.modal-buttons .primary { background: var(--green-dark); color: #fff; border-color: var(--green); }
+.modal-buttons .primary:hover { background: var(--green); }
+#wifi-modal-status { margin-top: 10px; font-size: 0.72rem; padding: 6px 8px; border-radius: var(--radius-sm); }
+#wifi-modal-status.hidden { display: none; }
+#wifi-modal-status.error { background: rgba(255,80,80,0.15); color: var(--red); }
+#wifi-modal-status.success { background: var(--green-muted); color: var(--green); }
+#wifi-modal-status.pending { background: rgba(255,255,255,0.05); color: var(--text-muted); }
+
 .indicator { width: 8px; height: 8px; border-radius: 50%; }
 .indicator.connected { background: var(--green); box-shadow: 0 0 6px var(--green); }
 .indicator.disconnected { background: var(--red); box-shadow: 0 0 6px var(--red); }

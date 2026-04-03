@@ -1,7 +1,7 @@
 #pragma once
 #include <stdint.h>
 
-// Initialize 8-servo LEDC PWM. Returns false if PINS_VERIFIED is 0.
+// Initialize 8-servo RMT PWM. Returns false if PINS_VERIFIED is 0.
 // Performs soft-start: attaches at center, ramps to standing pose over 2s.
 bool servos_init();
 

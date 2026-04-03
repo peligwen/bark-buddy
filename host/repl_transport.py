@@ -23,6 +23,7 @@ class ReplTransport(HardwareTransport):
         self._baudrate = baudrate
         self._reader: Optional[asyncio.StreamReader] = None
         self._writer: Optional[asyncio.StreamWriter] = None
+        self._serial_lock = asyncio.Lock()
 
     async def open(self) -> None:
         import serial_asyncio
@@ -54,34 +55,46 @@ class ReplTransport(HardwareTransport):
         logger.info("ReplTransport closed")
 
     async def _exec(self, cmd: str) -> None:
-        if not self._writer:
-            return
-        self._writer.write((cmd + "\r\n").encode())
-        await self._writer.drain()
-        await asyncio.sleep(0.15)
-        await self._drain_input()
+        async with self._serial_lock:
+            if not self._writer:
+                return
+            if "\n" in cmd:
+                # Multi-line: send each line separately, then blank line to end block
+                for line in cmd.split("\n"):
+                    self._writer.write((line + "\r\n").encode())
+                    await self._writer.drain()
+                    await asyncio.sleep(0.05)
+                self._writer.write(b"\r\n")
+                await self._writer.drain()
+                await asyncio.sleep(0.3)
+            else:
+                self._writer.write((cmd + "\r\n").encode())
+                await self._writer.drain()
+                await asyncio.sleep(0.15)
+            await self._drain_input()
 
     async def _exec_read(self, cmd: str) -> str:
-        if not self._writer or not self._reader:
-            return ""
-        await self._drain_input()
-        self._writer.write((cmd + "\r\n").encode())
-        await self._writer.drain()
-        await asyncio.sleep(0.5)
+        async with self._serial_lock:
+            if not self._writer or not self._reader:
+                return ""
+            await self._drain_input()
+            self._writer.write((cmd + "\r\n").encode())
+            await self._writer.drain()
+            await asyncio.sleep(0.5)
 
-        data = b""
-        try:
-            while self._reader and not self._reader.at_eof():
-                chunk = await asyncio.wait_for(
-                    self._reader.read(1024), timeout=0.3
-                )
-                data += chunk
-                if b">>>" in data:
-                    break
-        except asyncio.TimeoutError:
-            pass
+            data = b""
+            try:
+                while self._reader and not self._reader.at_eof():
+                    chunk = await asyncio.wait_for(
+                        self._reader.read(1024), timeout=0.3
+                    )
+                    data += chunk
+                    if b">>>" in data:
+                        break
+            except asyncio.TimeoutError:
+                pass
 
-        return self._parse_repl_output(data.decode(errors="replace"), cmd)
+            return self._parse_repl_output(data.decode(errors="replace"), cmd)
 
     async def _drain_input(self) -> None:
         if not self._reader:

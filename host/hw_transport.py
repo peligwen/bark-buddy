@@ -21,10 +21,10 @@ logger = logging.getLogger(__name__)
 MOTION_CMDS = {
     1: "_dog.move(0, 0)",         # stop
     2: "_dog.set_default_pose()", # stand
-    3: "_dog.move(80, 0)",        # forward
-    4: "_dog.move(-40, 0)",       # backward
-    5: "_dog.move(30, 50)",       # turn left
-    6: "_dog.move(30, -50)",      # turn right
+    3: "_dog.move(35, 0)",        # forward
+    4: "_dog.move(-25, 0)",       # backward
+    5: "_dog.move(20, -50)",      # turn left
+    6: "_dog.move(20, 50)",       # turn right
 }
 
 # REPL init commands — run once after connecting
@@ -32,12 +32,19 @@ INIT_COMMANDS = [
     "import Hiwonder, Hiwonder_IIC, HW_MechDog",
     "Hiwonder.disableLowPowerAlarm()",
     "Hiwonder.__bt_open = 0",  # disable battery alarm thread flag
-    "try:\n _bz = Hiwonder.__bz()\n _bz.setVolume(0)\n _bz.playTone(0, 0, 0)\nexcept: pass",
+    # Mute buzzer — single-line to avoid REPL multi-line block issues
+    "exec('try:\\n _bz=Hiwonder.__bz();_bz.setVolume(0);_bz.playTone(0,0,0)\\nexcept:\\n pass')",
     "_dog = HW_MechDog.__global_dog",
+    "_dog.set_default_pose()",  # clear stop_flag so move() works
     "_imu = _dog.__imu",
     "_bus = Hiwonder_IIC.IIC(1)",
     "_sonar = Hiwonder_IIC.I2CSonar(_bus)",
     "_sonar.setRGBMode(0)",  # manual RGB control
+]
+
+# Extra init for USB REPL only — start WebREPL for WiFi switching
+USB_INIT_COMMANDS = [
+    "exec('try:\\n import webrepl;webrepl.start()\\nexcept:\\n pass')",
 ]
 
 # Sonar LED brightness (0-255). Keep low for subtle indicator.
@@ -181,15 +188,15 @@ class HardwareTransport(Transport):
                 return "CMD|4|0|$"
 
         elif func == "5":
-            # IMU — read_angle() returns [pitch, roll]
+            # IMU — read_angle() returns [roll, pitch]
             result = await self._exec_read("print(_imu.read_angle())")
             try:
                 result = result.strip()
                 if result.startswith("[") and result.endswith("]"):
                     vals = result[1:-1].split(",")
                     if len(vals) >= 2:
-                        pitch = float(vals[0].strip())
-                        roll = float(vals[1].strip())
+                        roll = float(vals[0].strip())
+                        pitch = float(vals[1].strip())
                         return f"CMD|5|{pitch}|{roll}|$"
             except (ValueError, IndexError, AttributeError):
                 pass
@@ -255,9 +262,7 @@ class HardwareTransport(Transport):
             # Wait for connection
             await self._exec("import time")
             await self._exec(
-                "for _ in range(20):\n"
-                " if _sta.isconnected(): break\n"
-                " time.sleep(0.5)"
+                "exec('for _ in range(20):\\n if _sta.isconnected(): break\\n time.sleep(0.5)')"
             )
             result = await self._exec_read("print(_sta.isconnected(), _sta.ifconfig()[0])")
             parts = result.strip().split()

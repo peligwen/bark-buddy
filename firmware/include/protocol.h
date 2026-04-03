@@ -8,6 +8,7 @@ constexpr const char* MSG_CMD_PATROL   = "cmd_patrol";
 constexpr const char* MSG_CMD_BALANCE  = "cmd_balance";
 constexpr const char* MSG_CMD_LED      = "cmd_led";
 constexpr const char* MSG_CMD_SERVO    = "cmd_servo";
+constexpr const char* MSG_CMD_CALIBRATE = "cmd_calibrate";
 constexpr const char* MSG_PING         = "ping";
 
 // Firmware -> Host telemetry & events
