@@ -3,6 +3,7 @@ export var dogMapState = { x: 0, y: 0, heading: 0, motion: "stop" };
 export var mapPoints = [];
 export var mapScans = [];
 export var mapWalls = [];
+export var mapChains = [];
 export var mapBounds = { min_x: -2, max_x: 2, min_y: -2, max_y: 2 };
 
 export function addScanPoint(msg) {
@@ -19,6 +20,7 @@ export function renderFullMap(data, Dog3D) {
     mapPoints = data.points || [];
     mapScans = data.scans || [];
     mapWalls = data.walls || [];
+    mapChains = data.chains || [];
     mapBounds = data.bounds || mapBounds;
     document.getElementById("map-points").textContent = (data.point_count || 0) + " pts";
     document.getElementById("map-scans").textContent = (data.scan_count || 0) + " scans";
@@ -83,8 +85,24 @@ export function drawMap() {
         ctx.beginPath(); ctx.arc(sx, sy, 3, 0, Math.PI * 2); ctx.fill();
     }
 
-    // Wall segments
-    if (mapWalls && mapWalls.length > 0) {
+    // Wall chains (polylines through vertex chains)
+    if (mapChains && mapChains.length > 0) {
+        ctx.strokeStyle = "#6366f1"; ctx.lineWidth = 2; ctx.lineCap = "round"; ctx.lineJoin = "round";
+        for (var ci = 0; ci < mapChains.length; ci++) {
+            var chain = mapChains[ci];
+            var verts = chain.vertices;
+            if (!verts || verts.length < 2) continue;
+            ctx.globalAlpha = 0.3 + 0.7 * (chain.confidence || 0.5);
+            ctx.beginPath();
+            ctx.moveTo(toCanvasX(verts[0][0]), toCanvasY(verts[0][1]));
+            for (var vi = 1; vi < verts.length; vi++) {
+                ctx.lineTo(toCanvasX(verts[vi][0]), toCanvasY(verts[vi][1]));
+            }
+            ctx.stroke();
+        }
+        ctx.globalAlpha = 1.0;
+    } else if (mapWalls && mapWalls.length > 0) {
+        // Legacy fallback: wall segments
         ctx.strokeStyle = "#6366f1"; ctx.lineWidth = 3; ctx.lineCap = "round";
         for (var wi = 0; wi < mapWalls.length; wi++) {
             var wall = mapWalls[wi];
