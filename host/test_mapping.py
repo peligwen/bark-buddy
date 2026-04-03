@@ -567,6 +567,40 @@ def test_accuracy_corridor():
     return r
 
 
+def test_accuracy_dense_triangle():
+    """Dense points from many positions inside triangle — all walls detected."""
+    r = TestResult("accuracy_dense_triangle")
+    store = MapStore()
+
+    # Scan from many positions inside the triangle
+    positions = [(0, 0)] + [(0.1*i, 0) for i in range(-3, 6)] + [(0, 0.1*i) for i in range(-3, 4)]
+    for px, py in positions:
+        scan = make_scan_at(px, py, 0, TRIANGLE_WALLS, noise_mm=5)
+        store.add_scan(scan)
+
+    data = store.to_dict()
+    walls = data["walls"]
+    r.metric("points", data["point_count"])
+    r.metric("walls", len(walls))
+
+    # Total wall length should be close to room perimeter (~6.5m)
+    total_len = sum(math.sqrt((w["x2"]-w["x1"])**2 + (w["y2"]-w["y1"])**2) for w in walls)
+    r.metric("total_wall_length_m", round(total_len, 1))
+    r.assert_ge(total_len, 4.0, "total wall length >= 4m (room is ~6.5m)")
+
+    # Should detect significant walls (>0.3m)
+    big_walls = [w for w in walls if math.sqrt((w["x2"]-w["x1"])**2 + (w["y2"]-w["y1"])**2) > 0.3]
+    r.metric("big_walls", len(big_walls))
+    r.assert_ge(len(big_walls), 3, "at least 3 significant walls (3 triangle + 1 partition)")
+
+    # Accuracy: walls should be close to ground truth
+    avg_err = wall_match_error(walls, TRIANGLE_WALLS)
+    r.metric("avg_error_m", round(avg_err, 3))
+    r.assert_le(avg_err, 0.15, "average wall error < 15cm")
+
+    return r
+
+
 ALL_TESTS = [
     test_point_cloud_basic,
     test_point_cloud_decay,
@@ -585,6 +619,7 @@ ALL_TESTS = [
     test_accuracy_multi_scan_convergence,
     test_accuracy_rectangular_room,
     test_accuracy_corridor,
+    test_accuracy_dense_triangle,
 ]
 
 if __name__ == "__main__":

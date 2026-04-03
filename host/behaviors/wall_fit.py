@@ -38,9 +38,11 @@ def fit_walls(points: list[dict], eps: float = None, min_samples: int = 2,
     if len(pts) < min_samples:
         return []
 
-    # Auto-scale eps: tighter with more points, looser with fewer
+    # Auto-scale eps: tighter with more points to separate walls at corners
     if eps is None:
-        if len(pts) > 80:
+        if len(pts) > 150:
+            eps = 0.07
+        elif len(pts) > 80:
             eps = 0.10
         elif len(pts) > 30:
             eps = 0.15
@@ -52,33 +54,71 @@ def fit_walls(points: list[dict], eps: float = None, min_samples: int = 2,
 
     walls = []
     for cluster in clusters:
-        if len(cluster) < min_samples:
-            continue
-
-        # PCA on 2D points
-        xs = [p[0] for p in cluster]
-        ys = [p[1] for p in cluster]
-        confs = [p[2] for p in cluster]
-
-        result = _fit_line(xs, ys)
-        if result is None:
-            continue
-
-        x1, y1, x2, y2, linearity = result
-
-        # Only produce walls from sufficiently linear clusters
-        if linearity < 2.5:
-            continue
-
-        avg_conf = sum(confs) / len(confs)
-        walls.append(WallSegment(
-            x1=round(x1, 3), y1=round(y1, 3),
-            x2=round(x2, 3), y2=round(y2, 3),
-            height=wall_height,
-            confidence=round(avg_conf, 2),
-        ))
+        _extract_walls(cluster, walls, min_samples, wall_height)
 
     return walls
+
+
+def _extract_walls(cluster: list[tuple], walls: list[WallSegment],
+                   min_samples: int, wall_height: float, depth: int = 0):
+    """Recursively extract wall segments from a cluster.
+    Splits non-linear clusters at the point of max deviation from the PCA line."""
+    if len(cluster) < min_samples or depth > 6:
+        return
+
+    xs = [p[0] for p in cluster]
+    ys = [p[1] for p in cluster]
+    confs = [p[2] for p in cluster]
+
+    result = _fit_line(xs, ys)
+    if result is None:
+        return
+
+    x1, y1, x2, y2, linearity = result
+
+    if linearity >= 2.5:
+        # Linear enough — emit as a wall
+        length = math.sqrt((x2 - x1)**2 + (y2 - y1)**2)
+        if length > 0.05:
+            avg_conf = sum(confs) / len(confs)
+            walls.append(WallSegment(
+                x1=round(x1, 3), y1=round(y1, 3),
+                x2=round(x2, 3), y2=round(y2, 3),
+                height=wall_height,
+                confidence=round(avg_conf, 2),
+            ))
+        return
+
+    # Non-linear: split at the point with maximum deviation from the PCA line
+    # Line direction
+    lx, ly = x2 - x1, y2 - y1
+    line_len = math.sqrt(lx * lx + ly * ly)
+    if line_len < 1e-6:
+        return
+    nx, ny = -ly / line_len, lx / line_len  # normal to line
+
+    # Project each point and find max deviation
+    mx = sum(xs) / len(xs)
+    my = sum(ys) / len(ys)
+    projections = [((xs[i] - mx) * (lx / line_len) + (ys[i] - my) * (ly / line_len))
+                   for i in range(len(xs))]
+    deviations = [abs((xs[i] - mx) * nx + (ys[i] - my) * ny)
+                  for i in range(len(xs))]
+
+    # Sort by projection along the line and split at the point of max deviation
+    indexed = sorted(range(len(cluster)), key=lambda i: projections[i])
+    max_dev_idx = max(range(len(indexed)), key=lambda i: deviations[indexed[i]])
+
+    # Split into two halves at the deviation point
+    if max_dev_idx < 2 or max_dev_idx > len(indexed) - 3:
+        # Can't split meaningfully near the edges
+        return
+
+    left = [cluster[indexed[i]] for i in range(max_dev_idx)]
+    right = [cluster[indexed[i]] for i in range(max_dev_idx, len(indexed))]
+
+    _extract_walls(left, walls, min_samples, wall_height, depth + 1)
+    _extract_walls(right, walls, min_samples, wall_height, depth + 1)
 
 
 def _dbscan(points: list[tuple], eps: float, min_samples: int) -> list[list[tuple]]:
