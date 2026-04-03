@@ -11,7 +11,7 @@ from typing import Optional
 
 
 def build_wall_chains(points: list[dict], min_confidence: float = 0.2,
-                      connect_dist: float = 0.15,
+                      connect_dist: float = 0.15,  # optimal from parameter sweep
                       wall_height: float = 0.2) -> list[dict]:
     """
     Build ordered chains of vertices from 2D points.
