@@ -406,38 +406,83 @@ var Dog3D = (function () {
     };
 
     var currentPoseName = "stand";
-    var targetPose = null;  // when set, smoothly interpolate to this pose
+    var activePose = null;   // angles currently held (persists after interpolation)
+    var targetPose = null;   // angles being interpolated toward
 
     function setPose(name) {
         var angles = POSES[name];
         if (!angles) return;
         currentPoseName = name;
         targetPose = angles.slice();
+        activePose = angles.slice();
         currentAction = null;
         currentMotion = "stop";
     }
 
+    function clearPose() {
+        activePose = null;
+        targetPose = null;
+        currentPoseName = "stand";
+    }
+
+    // Compute body height for a given pose by finding the lowest foot
+    function poseBodyHeight(angles) {
+        // Forward kinematics: foot Y relative to hip
+        // foot_y = -upper*cos(hip) - lower*cos(hip+|knee|)
+        var minFootY = 0;
+        for (var i = 0; i < 4; i++) {
+            var hip = angles[i * 2];
+            var knee = angles[i * 2 + 1];
+            var footY = -(UPPER_LEN * Math.cos(hip) + LOWER_LEN * Math.cos(hip + Math.abs(knee)));
+            footY += HIP_OFFSET_Y;
+            if (footY < minFootY) minFootY = footY;
+        }
+        return -minFootY + FOOT_R;
+    }
+
     function animateAction() {
-        // Smooth interpolation to target pose
-        if (targetPose) {
+        // Hold active pose or interpolate to target
+        var holdAngles = targetPose || activePose;
+        if (holdAngles) {
             var legNames = ["fl", "fr", "rl", "rr"];
-            var done = true;
             for (var i = 0; i < 4; i++) {
                 var leg = legs[legNames[i]];
                 if (!leg) continue;
-                var th = targetPose[i * 2];
-                var tk = targetPose[i * 2 + 1];
-                var ch = leg.hipPivot.rotation.z;
-                var ck = leg.kneePivot.rotation.z;
-                var dh = th - ch, dk = tk - ck;
-                if (Math.abs(dh) > 0.005 || Math.abs(dk) > 0.005) {
-                    done = false;
-                    setLeg(legNames[i], ch + dh * 0.1, ck + dk * 0.1);
+                var th = holdAngles[i * 2];
+                var tk = holdAngles[i * 2 + 1];
+                if (targetPose) {
+                    // Interpolate
+                    var ch = leg.hipPivot.rotation.z;
+                    var ck = leg.kneePivot.rotation.z;
+                    var dh = th - ch, dk = tk - ck;
+                    if (Math.abs(dh) > 0.005 || Math.abs(dk) > 0.005) {
+                        setLeg(legNames[i], ch + dh * 0.1, ck + dk * 0.1);
+                    } else {
+                        setLeg(legNames[i], th, tk);
+                    }
                 } else {
+                    // Hold
                     setLeg(legNames[i], th, tk);
                 }
             }
-            if (done) targetPose = null;
+
+            // Check if interpolation is done
+            if (targetPose) {
+                var done = true;
+                for (var j = 0; j < 4; j++) {
+                    var l = legs[legNames[j]];
+                    if (!l) continue;
+                    if (Math.abs(l.hipPivot.rotation.z - targetPose[j*2]) > 0.005 ||
+                        Math.abs(l.kneePivot.rotation.z - targetPose[j*2+1]) > 0.005) {
+                        done = false;
+                        break;
+                    }
+                }
+                if (done) targetPose = null; // keep activePose for holding
+            }
+
+            // Adjust body height for the pose
+            bodyBounce = poseBodyHeight(holdAngles) - standingHeight();
             return;
         }
 
@@ -1013,7 +1058,11 @@ var Dog3D = (function () {
         },
 
         updateOdometry: function (msg) {
-            if (msg.motion != null) currentMotion = msg.motion;
+            if (msg.motion != null) {
+                currentMotion = msg.motion;
+                // Movement clears any held pose
+                if (msg.motion !== "stop") clearPose();
+            }
             if (msg.x != null && msg.y != null) {
                 targetX = msg.x * S;
                 targetZ = msg.y * S;
