@@ -715,6 +715,11 @@
         document.getElementById("btn-reset").addEventListener("click", function () {
             send({ type: "cmd_reset" });
         });
+        document.getElementById("btn-restart").addEventListener("click", function () {
+            if (confirm("Restart the server?")) {
+                send({ type: "cmd_restart_server" });
+            }
+        });
     }
 
     // --- Transport switching ---

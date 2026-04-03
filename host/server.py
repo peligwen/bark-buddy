@@ -665,6 +665,13 @@ class Server:
             await self._broadcast({"type": "reset"})
             await self._broadcast({"type": "version", "hash": self._web_hash})
 
+        elif msg_type == "cmd_restart_server":
+            logger.info("Server restart requested")
+            await self._broadcast({"type": "server_restarting"})
+            # Give clients a moment to see the message, then restart
+            await asyncio.sleep(0.5)
+            _restart_server()
+
         else:
             logger.warning("Unknown WS message type: %s", msg_type)
 
@@ -824,6 +831,13 @@ class Server:
                 break
 
 
+def _restart_server():
+    """Restart the server by re-executing the same process."""
+    import os, sys
+    logger.info("Restarting server process...")
+    os.execv(sys.executable, [sys.executable] + sys.argv)
+
+
 async def _detect_serial_transport(port: str):
     """Auto-detect firmware type on a serial port."""
     import serial
@@ -918,5 +932,21 @@ if __name__ == "__main__":
     parser.add_argument("--sim", nargs="?", const="plus", default="plus",
                         choices=["plus", "classic"],
                         help="Sim mode: 'plus' (default, firmware-rate) or 'classic' (CMD protocol)")
+    parser.add_argument("--restart", action="store_true",
+                        help="Restart a running server via WebSocket command")
     args = parser.parse_args()
-    asyncio.run(main(args))
+
+    if args.restart:
+        # Send restart command to running server
+        import aiohttp
+        async def do_restart():
+            async with aiohttp.ClientSession() as s:
+                try:
+                    async with s.ws_connect(f'http://localhost:{args.port}/ws') as ws:
+                        await ws.send_str('{"type":"cmd_restart_server"}')
+                        print(f"Restart command sent to localhost:{args.port}")
+                except Exception as e:
+                    print(f"Could not connect to server: {e}")
+        asyncio.run(do_restart())
+    else:
+        asyncio.run(main(args))
