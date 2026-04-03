@@ -19,13 +19,13 @@ import serial
 import sys
 import time
 
-# URDF dimensions from kinematics.h
+# Dimensions from official MechDog spec (214x126x138mm standing)
 UPPER_LEN = 0.055   # m
 LOWER_LEN = 0.060   # m
-HIP_OFFSET_X = 0.065  # m (front/back from center)
-HIP_OFFSET_Z = 0.040  # m (left/right from center)
-STAND_HIP_RAD = 0.3
-STAND_KNEE_RAD = -0.6
+HIP_OFFSET_X = 0.085  # m (front/back from center)
+HIP_OFFSET_Z = 0.030  # m (left/right from center)
+STAND_HIP_RAD = 0.524   # ~30 degrees
+STAND_KNEE_RAD = -0.611  # ~-35 degrees
 
 STANDING = [2096, 1621, 2170, 1611, 904, 1379, 1389, 830]
 PINS = [25, 26, 27, 14, 16, 17, 4, 2]

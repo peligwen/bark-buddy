@@ -3,15 +3,16 @@
 
 // --- URDF dimensions (meters, scaled 10x for visibility) ---
 export const S = 10;
-export const BODY_L = 0.150 * S, BODY_W = 0.085 * S, BODY_H = 0.035 * S;
+// Dimensions from official MechDog spec (214x126x138mm standing)
+export const BODY_L = 0.170 * S, BODY_W = 0.060 * S, BODY_H = 0.035 * S;
 export const UPPER_LEN = 0.055 * S, UPPER_R = 0.008 * S;
 export const LOWER_LEN = 0.060 * S, LOWER_R = 0.006 * S;
 export const FOOT_R = 0.008 * S;
-export const HIP_OFFSET_X = 0.065 * S;
-export const HIP_OFFSET_Z = 0.040 * S;
+export const HIP_OFFSET_X = 0.085 * S;
+export const HIP_OFFSET_Z = 0.030 * S;
 export const HIP_OFFSET_Y = -0.025 * S;
-export const STAND_HIP = 0.3;
-export const STAND_KNEE = -0.6;
+export const STAND_HIP = 0.524;   // ~30 degrees
+export const STAND_KNEE = -0.611; // ~-35 degrees
 
 export const COL = {
     body: 0xd4a017, accent: 0x1a1a1a, leg: 0x2c2c2c, head: 0xe2b52e,

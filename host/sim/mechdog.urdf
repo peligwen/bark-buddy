@@ -10,12 +10,12 @@
   - Battery: 7.4V 1500mAh LiPo
   - Ultrasonic sensor mounted on front face
 
-  Estimated from standing height (body platform ~35mm thick, legs ~100mm):
-  - Body platform: ~150mm x 85mm x 35mm
-  - Hip spacing: ~130mm longitudinal, ~85mm lateral
-  - Upper leg (thigh): ~50mm
-  - Lower leg (shin): ~55mm
-  - Foot contact at ~138mm total height
+  From official spec dimensions (powered on: 214x126x138mm):
+  - Body platform: ~170mm x 60mm x 35mm
+  - Hip spacing: ~170mm longitudinal, ~60mm lateral
+  - Upper leg (thigh): 55mm
+  - Lower leg (shin): 60mm
+  - Standing hip angle: ~30°, knee angle: ~-35°
 
   Coordinate frame: X = forward, Y = left, Z = up
 -->
@@ -30,7 +30,7 @@
     </inertial>
     <visual>
       <geometry>
-        <box size="0.150 0.085 0.035"/>
+        <box size="0.170 0.060 0.035"/>
       </geometry>
       <material name="body_color">
         <color rgba="0.2 0.2 0.2 1"/>
@@ -38,7 +38,7 @@
     </visual>
     <collision>
       <geometry>
-        <box size="0.150 0.085 0.035"/>
+        <box size="0.170 0.060 0.035"/>
       </geometry>
     </collision>
   </link>
@@ -88,7 +88,7 @@
   <joint name="fl_hip" type="revolute">
     <parent link="body"/>
     <child link="fl_upper"/>
-    <origin xyz="0.065 0.040 -0.025" rpy="0 0 0"/>
+    <origin xyz="0.085 0.030 -0.025" rpy="0 0 0"/>
     <axis xyz="0 1 0"/>
     <limit lower="-1.57" upper="1.57" effort="1.0" velocity="5.0"/>
     <dynamics damping="0.1" friction="0.05"/>
@@ -166,7 +166,7 @@
   <joint name="fr_hip" type="revolute">
     <parent link="body"/>
     <child link="fr_upper"/>
-    <origin xyz="0.065 -0.040 -0.025" rpy="0 0 0"/>
+    <origin xyz="0.085 -0.030 -0.025" rpy="0 0 0"/>
     <axis xyz="0 1 0"/>
     <limit lower="-1.57" upper="1.57" effort="1.0" velocity="5.0"/>
     <dynamics damping="0.1" friction="0.05"/>
@@ -240,7 +240,7 @@
   <joint name="rl_hip" type="revolute">
     <parent link="body"/>
     <child link="rl_upper"/>
-    <origin xyz="-0.065 0.040 -0.025" rpy="0 0 0"/>
+    <origin xyz="-0.085 0.030 -0.025" rpy="0 0 0"/>
     <axis xyz="0 1 0"/>
     <limit lower="-1.57" upper="1.57" effort="1.0" velocity="5.0"/>
     <dynamics damping="0.1" friction="0.05"/>
@@ -314,7 +314,7 @@
   <joint name="rr_hip" type="revolute">
     <parent link="body"/>
     <child link="rr_upper"/>
-    <origin xyz="-0.065 -0.040 -0.025" rpy="0 0 0"/>
+    <origin xyz="-0.085 -0.030 -0.025" rpy="0 0 0"/>
     <axis xyz="0 1 0"/>
     <limit lower="-1.57" upper="1.57" effort="1.0" velocity="5.0"/>
     <dynamics damping="0.1" friction="0.05"/>

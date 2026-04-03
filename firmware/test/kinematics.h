@@ -2,18 +2,20 @@
 #include <cmath>
 #include <cstdint>
 
-// URDF dimensions (meters, matching dog3d.js)
+// Dimensions from official MechDog spec (214x126x138mm standing)
 constexpr float UPPER_LEN_M = 0.055f;
 constexpr float LOWER_LEN_M = 0.060f;
-constexpr float HIP_OFFSET_X_M = 0.065f;
-constexpr float HIP_OFFSET_Z_M = 0.040f;
+constexpr float HIP_OFFSET_X_M = 0.085f;   // 170mm body / 2
+constexpr float HIP_OFFSET_Z_M = 0.030f;   // 126mm width → ~60mm hip-to-hip lateral
 constexpr float HIP_OFFSET_Y_M = -0.025f;  // below body center
 constexpr float FOOT_R_M = 0.008f;
+constexpr float BODY_L_M = 0.170f;          // body platform length
+constexpr float BODY_W_M = 0.060f;          // body platform width (between hip mounts)
 constexpr float BODY_H_M = 0.035f;
 
-// Standing pose (radians)
-constexpr float FK_STAND_HIP = 0.3f;
-constexpr float FK_STAND_KNEE = -0.6f;
+// Standing pose (radians) — derived from 214mm length, 124mm shoulder height
+constexpr float FK_STAND_HIP = 0.524f;      // ~30 degrees
+constexpr float FK_STAND_KNEE = -0.611f;     // ~-35 degrees
 
 struct Vec3 {
     float x, y, z;
