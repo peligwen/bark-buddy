@@ -59,6 +59,12 @@ def fit_walls(points: list[dict], eps: float = None, min_samples: int = 2,
     # Merge collinear nearby wall segments
     walls = _merge_collinear(walls)
 
+    # Refit long walls against the underlying point cloud
+    walls = _refit_walls(walls, pts)
+
+    # Snap nearby endpoints to form clean corners
+    walls = _snap_corners(walls)
+
     return walls
 
 
@@ -196,6 +202,103 @@ def _merge_collinear(walls: list[WallSegment], angle_thresh: float = 0.3,
         walls = new_walls
 
     return walls
+
+
+def _refit_walls(walls: list[WallSegment], pts: list[tuple],
+                  proximity: float = 0.10) -> list[WallSegment]:
+    """Refit each wall against nearby source points for better accuracy."""
+    if not walls or not pts:
+        return walls
+
+    result = []
+    for w in walls:
+        # Find points within proximity of this wall segment
+        nearby = []
+        for p in pts:
+            d = _point_to_segment_dist(p[0], p[1], w.x1, w.y1, w.x2, w.y2)
+            if d < proximity:
+                nearby.append(p)
+
+        if len(nearby) < 2:
+            result.append(w)
+            continue
+
+        # Refit line through the nearby points
+        xs = [p[0] for p in nearby]
+        ys = [p[1] for p in nearby]
+        fit = _fit_line(xs, ys)
+        if fit and fit[4] >= 2.0:  # still linear after refit
+            result.append(WallSegment(
+                x1=round(fit[0], 3), y1=round(fit[1], 3),
+                x2=round(fit[2], 3), y2=round(fit[3], 3),
+                height=w.height,
+                confidence=w.confidence,
+            ))
+        else:
+            result.append(w)
+
+    return result
+
+
+def _snap_corners(walls: list[WallSegment], snap_dist: float = 0.15) -> list[WallSegment]:
+    """Snap nearby wall endpoints together to form clean corner junctions."""
+    if len(walls) < 2:
+        return walls
+
+    # Collect all endpoints
+    endpoints = []  # (wall_index, end_index, x, y)  end_index: 0=start, 1=end
+    for i, w in enumerate(walls):
+        endpoints.append((i, 0, w.x1, w.y1))
+        endpoints.append((i, 1, w.x2, w.y2))
+
+    # Find pairs of endpoints from different walls that are close
+    snapped = {}  # (wall_idx, end_idx) -> (new_x, new_y)
+    used = set()
+
+    for i in range(len(endpoints)):
+        if (endpoints[i][0], endpoints[i][1]) in used:
+            continue
+        group = [endpoints[i]]
+        for j in range(i + 1, len(endpoints)):
+            if endpoints[j][0] == endpoints[i][0]:
+                continue  # same wall
+            if (endpoints[j][0], endpoints[j][1]) in used:
+                continue
+            dx = endpoints[i][2] - endpoints[j][2]
+            dy = endpoints[i][3] - endpoints[j][3]
+            dist = math.sqrt(dx * dx + dy * dy)
+            if dist < snap_dist:
+                group.append(endpoints[j])
+
+        if len(group) >= 2:
+            # Snap to centroid
+            cx = sum(e[2] for e in group) / len(group)
+            cy = sum(e[3] for e in group) / len(group)
+            for e in group:
+                snapped[(e[0], e[1])] = (round(cx, 3), round(cy, 3))
+                used.add((e[0], e[1]))
+
+    # Apply snaps
+    result = []
+    for i, w in enumerate(walls):
+        x1, y1 = snapped.get((i, 0), (w.x1, w.y1))
+        x2, y2 = snapped.get((i, 1), (w.x2, w.y2))
+        result.append(WallSegment(x1=x1, y1=y1, x2=x2, y2=y2,
+                                   height=w.height, confidence=w.confidence))
+
+    return result
+
+
+def _point_to_segment_dist(px, py, x1, y1, x2, y2):
+    """Distance from point to line segment."""
+    dx, dy = x2 - x1, y2 - y1
+    len_sq = dx * dx + dy * dy
+    if len_sq < 1e-10:
+        return math.sqrt((px - x1)**2 + (py - y1)**2)
+    t = max(0, min(1, ((px - x1) * dx + (py - y1) * dy) / len_sq))
+    proj_x = x1 + t * dx
+    proj_y = y1 + t * dy
+    return math.sqrt((px - proj_x)**2 + (py - proj_y)**2)
 
 
 def _dbscan(points: list[tuple], eps: float, min_samples: int) -> list[list[tuple]]:
