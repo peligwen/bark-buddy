@@ -172,9 +172,10 @@ def test_point_cloud_decay():
     r = TestResult("point_cloud_decay")
     cloud = PointCloud()
     cloud._decay_interval = 0.01  # fast decay for testing
+    cloud._decay_rate = 0.5       # aggressive for test speed
+    cloud._prune_threshold = 0.05
 
     cloud.add_point(1.0, 0.0, 0.09, 500)
-    initial_count = cloud.point_count
     initial_conf = cloud.get_points()[0].confidence
 
     import time
@@ -187,7 +188,7 @@ def test_point_cloud_decay():
     r.metric("after", round(after_conf, 3))
 
     # Decay until pruned
-    for _ in range(50):
+    for _ in range(20):
         time.sleep(0.02)
         cloud.decay_tick()
     r.assert_true(cloud.point_count == 0, f"pruned to 0 (got {cloud.point_count})")

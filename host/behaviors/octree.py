@@ -144,9 +144,9 @@ class PointCloud:
     def __init__(self, bounds: float = 4.0) -> None:
         self._root = OctreeNode(0.0, 0.0, 0.0, bounds)
         self._merge_radius = 0.03
-        self._decay_rate = 0.95
-        self._decay_interval = 10.0
-        self._prune_threshold = 0.1
+        self._decay_rate = 0.98
+        self._decay_interval = 30.0
+        self._prune_threshold = 0.05
         self._last_decay = time.monotonic()
 
     def add_point(
@@ -157,7 +157,7 @@ class PointCloud:
         neighbors = self._root.query_radius(x, y, z, self._merge_radius)
         if neighbors:
             nearest = neighbors[0]
-            nearest.confidence = min(1.0, nearest.confidence + 0.15)
+            nearest.confidence = min(1.0, nearest.confidence + 0.25)
             total_w = nearest.confidence + confidence
             nearest.x = (nearest.x * nearest.confidence + x * confidence) / total_w
             nearest.y = (nearest.y * nearest.confidence + y * confidence) / total_w

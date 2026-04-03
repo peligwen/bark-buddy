@@ -703,7 +703,7 @@ class Server:
         imu_interval = 1.0 / (20 if is_fast else IMU_POLL_HZ)
         ultra_interval = 1.0 / (20 if is_fast else ULTRASONIC_POLL_HZ)
         battery_interval = 1.0 / BATTERY_POLL_HZ
-        wall_regen_interval = 5.0
+        wall_regen_interval = 3.0
         last_ultra = 0.0
         last_battery = 0.0
         last_wall_regen = 0.0
