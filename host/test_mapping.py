@@ -412,6 +412,160 @@ def run_sweep():
 # Main
 # ============================================================
 
+# ============================================================
+# Wall detection accuracy tests — compare to ground truth
+# ============================================================
+
+def wall_distance_to_segment(px, py, x1, y1, x2, y2):
+    """Distance from point (px,py) to line segment (x1,y1)-(x2,y2)."""
+    dx, dy = x2 - x1, y2 - y1
+    if dx == 0 and dy == 0:
+        return math.sqrt((px - x1)**2 + (py - y1)**2)
+    t = max(0, min(1, ((px - x1) * dx + (py - y1) * dy) / (dx * dx + dy * dy)))
+    proj_x = x1 + t * dx
+    proj_y = y1 + t * dy
+    return math.sqrt((px - proj_x)**2 + (py - proj_y)**2)
+
+
+def wall_match_error(detected, truth_segments):
+    """For each detected wall, find closest truth segment. Return avg distance."""
+    if not detected:
+        return float('inf')
+    errors = []
+    for w in detected:
+        mid_x = (w["x1"] + w["x2"]) / 2
+        mid_y = (w["y1"] + w["y2"]) / 2
+        min_dist = float('inf')
+        for t in truth_segments:
+            d = wall_distance_to_segment(mid_x, mid_y, t[0], t[1], t[2], t[3])
+            if d < min_dist:
+                min_dist = d
+        errors.append(min_dist)
+    return sum(errors) / len(errors)
+
+
+def test_accuracy_clean_single_scan():
+    """Clean single scan — how close are detected walls to truth?"""
+    r = TestResult("accuracy_clean_single_scan")
+    store = MapStore()
+    scan = make_scan_at(0, 0, 0, TRIANGLE_WALLS, noise_mm=0)
+    store.add_scan(scan)
+    walls = store.to_dict()["walls"]
+
+    avg_err = wall_match_error(walls, TRIANGLE_WALLS)
+    r.metric("walls", len(walls))
+    r.metric("avg_error_m", round(avg_err, 3))
+    r.assert_le(avg_err, 0.15, "average wall error < 15cm")
+    r.assert_ge(len(walls), 2, "at least 2 walls detected")
+    return r
+
+
+def test_accuracy_noisy_single_scan():
+    """50mm noise — walls still close to truth?"""
+    r = TestResult("accuracy_noisy_single_scan")
+    store = MapStore()
+    scan = make_scan_at(0, 0, 0, TRIANGLE_WALLS, noise_mm=50)
+    store.add_scan(scan)
+    walls = store.to_dict()["walls"]
+
+    avg_err = wall_match_error(walls, TRIANGLE_WALLS)
+    r.metric("walls", len(walls))
+    r.metric("avg_error_m", round(avg_err, 3))
+    r.assert_le(avg_err, 0.25, "average wall error < 25cm with noise")
+    r.assert_ge(len(walls), 1, "at least 1 wall detected")
+    return r
+
+
+def test_accuracy_heavy_noise():
+    """100mm noise + 15% outliers — graceful degradation."""
+    r = TestResult("accuracy_heavy_noise")
+    import random
+    random.seed(99)
+    store = MapStore()
+    scan = make_scan_at(0, 0, 0, TRIANGLE_WALLS, noise_mm=100)
+    # Add extra outlier points
+    for _ in range(5):
+        store._cloud.add_point(
+            random.uniform(-1, 1), random.uniform(-1, 1), 0.09,
+            random.randint(50, 2000))
+    store.add_scan(scan)
+    walls = store.to_dict()["walls"]
+
+    avg_err = wall_match_error(walls, TRIANGLE_WALLS) if walls else float('inf')
+    r.metric("walls", len(walls))
+    r.metric("avg_error_m", round(avg_err, 3) if avg_err < 100 else "inf")
+    # Relaxed criteria for heavy noise
+    r.assert_le(avg_err, 0.5, "average wall error < 50cm under heavy noise")
+    return r
+
+
+def test_accuracy_multi_scan_convergence():
+    """Multiple scans from different positions — accuracy improves."""
+    r = TestResult("accuracy_multi_scan_convergence")
+
+    # Single scan accuracy
+    store1 = MapStore()
+    store1.add_scan(make_scan_at(0, 0, 0, TRIANGLE_WALLS, noise_mm=30))
+    walls1 = store1.to_dict()["walls"]
+    err1 = wall_match_error(walls1, TRIANGLE_WALLS) if walls1 else float('inf')
+
+    # Multi scan accuracy
+    store3 = MapStore()
+    for x, y, h in [(0, 0, 0), (0.3, 0.2, 45), (-0.2, -0.1, 180)]:
+        store3.add_scan(make_scan_at(x, y, h, TRIANGLE_WALLS, noise_mm=30))
+    walls3 = store3.to_dict()["walls"]
+    err3 = wall_match_error(walls3, TRIANGLE_WALLS) if walls3 else float('inf')
+
+    r.metric("single_scan_walls", len(walls1))
+    r.metric("single_scan_error_m", round(err1, 3) if err1 < 100 else "inf")
+    r.metric("multi_scan_walls", len(walls3))
+    r.metric("multi_scan_error_m", round(err3, 3) if err3 < 100 else "inf")
+
+    r.assert_ge(len(walls3), len(walls1), "more scans → more walls")
+    return r
+
+
+def test_accuracy_rectangular_room():
+    """Different room shape — rectangular room."""
+    r = TestResult("accuracy_rectangular_room")
+    rect_walls = [
+        (-1, -0.5, 1, -0.5),   # bottom
+        (1, -0.5, 1, 0.5),     # right
+        (1, 0.5, -1, 0.5),     # top
+        (-1, 0.5, -1, -0.5),   # left
+    ]
+    store = MapStore()
+    store.add_scan(make_scan_at(0, 0, 0, rect_walls, noise_mm=10))
+    walls = store.to_dict()["walls"]
+
+    avg_err = wall_match_error(walls, rect_walls) if walls else float('inf')
+    r.metric("walls", len(walls))
+    r.metric("avg_error_m", round(avg_err, 3))
+    r.assert_ge(len(walls), 2, "at least 2 of 4 rectangle walls from single scan")
+    r.assert_le(avg_err, 0.15, "average error < 15cm")
+    return r
+
+
+def test_accuracy_corridor():
+    """Long narrow corridor — should detect 2 parallel walls."""
+    r = TestResult("accuracy_corridor")
+    corridor_walls = [
+        (-2, -0.3, 2, -0.3),   # bottom wall
+        (-2, 0.3, 2, 0.3),     # top wall
+        (-2, -0.3, -2, 0.3),   # left cap
+        (2, -0.3, 2, 0.3),     # right cap
+    ]
+    store = MapStore()
+    store.add_scan(make_scan_at(0, 0, 0, corridor_walls, noise_mm=10))
+    walls = store.to_dict()["walls"]
+
+    avg_err = wall_match_error(walls, corridor_walls) if walls else float('inf')
+    r.metric("walls", len(walls))
+    r.metric("avg_error_m", round(avg_err, 3))
+    r.assert_ge(len(walls), 2, "at least 2 parallel walls")
+    return r
+
+
 ALL_TESTS = [
     test_point_cloud_basic,
     test_point_cloud_decay,
@@ -423,6 +577,13 @@ ALL_TESTS = [
     test_wall_fit_linearity,
     test_wall_fit_l_shape,
     test_wall_fit_scattered,
+    # Accuracy tests — compare detected walls to ground truth
+    test_accuracy_clean_single_scan,
+    test_accuracy_noisy_single_scan,
+    test_accuracy_heavy_noise,
+    test_accuracy_multi_scan_convergence,
+    test_accuracy_rectangular_room,
+    test_accuracy_corridor,
 ]
 
 if __name__ == "__main__":

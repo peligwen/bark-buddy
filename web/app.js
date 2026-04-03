@@ -325,24 +325,35 @@
     }
 
     // --- Action buttons ---
+    var defaultPose = "rest";
+
     function setupActions() {
         document.querySelectorAll(".action-btn").forEach(function (btn) {
             btn.addEventListener("click", function () {
                 if (!canControl()) return;
                 var action = btn.dataset.action;
-                if (action === "stand") {
-                    send({ type: "cmd_stand" });
-                } else if (action === "balance-toggle") {
+                if (action === "balance-toggle") {
                     send({ type: "cmd_balance", enabled: !balanceEnabled });
                 } else if (action === "wave") {
                     send({ type: "cmd_action", action: 1 });
-                } else if (action === "sit") {
-                    send({ type: "cmd_action", action: 4 });
-                } else if (action === "lie") {
-                    send({ type: "cmd_action", action: 5 });
                 }
             });
         });
+
+        document.getElementById("btn-pose-go").addEventListener("click", function () {
+            var pose = document.getElementById("pose-select").value;
+            Dog3D.setPose(pose);
+            send({ type: "cmd_pose", pose: pose });
+        });
+
+        document.getElementById("btn-pose-default").addEventListener("click", function () {
+            defaultPose = document.getElementById("pose-select").value;
+            document.getElementById("btn-pose-default").textContent = "Default: " + defaultPose;
+            send({ type: "cmd_set_default_pose", pose: defaultPose });
+        });
+
+        // Set initial default label
+        document.getElementById("btn-pose-default").textContent = "Set Default";
     }
 
     // --- Keyboard controls ---

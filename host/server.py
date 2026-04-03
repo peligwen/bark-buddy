@@ -562,6 +562,21 @@ class Server:
                 self._mode = "remote"
                 await self._broadcast_status()
 
+        elif msg_type == "cmd_pose":
+            pose_name = msg.get("pose", "stand")
+            # On real hardware, translate to stand/sit/lie commands
+            pose_actions = {"sit": 4, "lie_down": 5, "stand": None}
+            action_code = pose_actions.get(pose_name)
+            if action_code:
+                await self._dog.action(action_code)
+            else:
+                await self._dog.stand()
+            self._motion = "stop"
+
+        elif msg_type == "cmd_set_default_pose":
+            self._default_pose = msg.get("pose", "rest")
+            logger.info("Default rest pose set to: %s", self._default_pose)
+
         elif msg_type == "cmd_action":
             code = msg.get("action", 1)
             await self._dog.action(code)

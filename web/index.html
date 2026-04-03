@@ -95,11 +95,20 @@
             <div class="ctrl-section">
                 <h2>Actions</h2>
                 <div class="action-bar">
-                    <button class="action-btn" data-action="stand">Stand</button>
+                    <select id="pose-select" class="pose-select">
+                        <option value="stand">Stand</option>
+                        <option value="tall">Tall</option>
+                        <option value="crouch">Crouch</option>
+                        <option value="rest" selected>Rest</option>
+                        <option value="alert">Alert</option>
+                        <option value="sit">Sit</option>
+                        <option value="lie_down">Lie Down</option>
+                        <option value="play_bow">Play Bow</option>
+                    </select>
+                    <button class="action-btn" id="btn-pose-go">Pose</button>
+                    <button class="action-btn" id="btn-pose-default">Set Default</button>
                     <button class="action-btn" id="btn-balance" data-action="balance-toggle">Balance: OFF</button>
                     <button class="action-btn" data-action="wave">Wave</button>
-                    <button class="action-btn" data-action="sit">Sit</button>
-                    <button class="action-btn" data-action="lie">Lie Down</button>
                 </div>
             </div>
 

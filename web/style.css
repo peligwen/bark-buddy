@@ -418,6 +418,17 @@ header h1 {
 .action-btn.active { background: var(--accent-dark); color: #fff; border-color: var(--accent); }
 .action-btn:disabled { opacity: 0.25; cursor: default; }
 
+.pose-select {
+    padding: 7px 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg);
+    color: var(--text);
+    font-size: 0.72rem;
+    cursor: pointer;
+}
+.pose-select:focus { outline: 1px solid var(--accent); }
+
 #patrol-status { font-size: 0.65rem; font-family: monospace; color: var(--accent); margin-top: 6px; }
 #patrol-status.hidden { display: none; }
 

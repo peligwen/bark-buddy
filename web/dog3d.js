@@ -388,27 +388,60 @@ var Dog3D = (function () {
         bodyBounce = 0.015 * S * Math.abs(Math.sin(walkPhase * 2));
     }
 
+    // Named poses (validated by firmware/test/pose_generator)
+    var POSES = {
+        stand:    [0.3000, -0.6000, 0.3000, -0.6000, 0.3000, -0.6000, 0.3000, -0.6000],
+        tall:     [0.1500, -0.5406, 0.1500, -0.5406, 0.1500, -0.5406, 0.1500, -0.5406],
+        crouch:   [0.5000, -0.8000, 0.5000, -0.8000, 0.5000, -0.8000, 0.5000, -0.8000],
+        rest:     [0.4000, -0.5629, 0.4000, -0.5629, 0.4000, -0.5629, 0.4000, -0.5629],
+        alert:    [0.2000, -0.5691, 0.2000, -0.5691, 0.4000, -0.5629, 0.4000, -0.5629],
+        sit:      [0.0500, -0.4639, 0.0500, -0.4639, 1.0000, -1.4000, 1.0000, -1.4000],
+        lie_down: [0.8000, -1.2000, 0.8000, -1.2000, 0.8000, -1.2000, 0.8000, -1.2000],
+        play_bow: [0.7000, -1.0000, 0.7000, -1.0000, 0.1500, -0.5406, 0.1500, -0.5406],
+    };
+
+    var currentPoseName = "stand";
+    var targetPose = null;  // when set, smoothly interpolate to this pose
+
+    function setPose(name) {
+        var angles = POSES[name];
+        if (!angles) return;
+        currentPoseName = name;
+        targetPose = angles.slice();
+        currentAction = null;
+        currentMotion = "stop";
+    }
+
     function animateAction() {
-        // Simplified action poses
+        // Smooth interpolation to target pose
+        if (targetPose) {
+            var legNames = ["fl", "fr", "rl", "rr"];
+            var done = true;
+            for (var i = 0; i < 4; i++) {
+                var leg = legs[legNames[i]];
+                if (!leg) continue;
+                var th = targetPose[i * 2];
+                var tk = targetPose[i * 2 + 1];
+                var ch = leg.hipPivot.rotation.z;
+                var ck = leg.kneePivot.rotation.z;
+                var dh = th - ch, dk = tk - ck;
+                if (Math.abs(dh) > 0.005 || Math.abs(dk) > 0.005) {
+                    done = false;
+                    setLeg(legNames[i], ch + dh * 0.1, ck + dk * 0.1);
+                } else {
+                    setLeg(legNames[i], th, tk);
+                }
+            }
+            if (done) targetPose = null;
+            return;
+        }
+
         var a = currentAction;
         if (a === 1) {
-            // Wave: front-left leg raised
             setLeg("fl", -0.8, -1.2);
             setLeg("fr", STAND_HIP, STAND_KNEE);
             setLeg("rl", STAND_HIP * 1.3, STAND_KNEE * 0.8);
             setLeg("rr", STAND_HIP * 1.3, STAND_KNEE * 0.8);
-        } else if (a === 4) {
-            // Sit: front legs straight, back legs folded
-            setLeg("fl", 0.05, -0.1);
-            setLeg("fr", 0.05, -0.1);
-            setLeg("rl", 1.0, -1.4);
-            setLeg("rr", 1.0, -1.4);
-        } else if (a === 5) {
-            // Lie down: all legs folded flat
-            setLeg("fl", 0.8, -1.2);
-            setLeg("fr", 0.8, -1.2);
-            setLeg("rl", 0.8, -1.2);
-            setLeg("rr", 0.8, -1.2);
         } else {
             setAllLegs(STAND_HIP, STAND_KNEE);
         }
@@ -1020,6 +1053,14 @@ var Dog3D = (function () {
 
         toggleOverlay: function (show) {
             toggleOverlay(show);
+        },
+
+        setPose: function (name) {
+            setPose(name);
+        },
+
+        getPoseNames: function () {
+            return Object.keys(POSES);
         },
 
         setFallen: function (fallen) {
