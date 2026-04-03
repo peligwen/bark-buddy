@@ -65,6 +65,9 @@ def fit_walls(points: list[dict], eps: float = None, min_samples: int = 2,
     # Snap nearby endpoints to form clean corners
     walls = _snap_corners(walls)
 
+    # Filter degenerate walls (zero length after snapping)
+    walls = [w for w in walls if math.sqrt((w.x2-w.x1)**2 + (w.y2-w.y1)**2) > 0.03]
+
     return walls
 
 
@@ -131,8 +134,10 @@ def _extract_walls(cluster: list[tuple], walls: list[WallSegment],
 
 
 def _merge_collinear(walls: list[WallSegment], angle_thresh: float = 0.3,
-                     gap_thresh: float = 0.20) -> list[WallSegment]:
-    """Merge wall segments that are nearly parallel and close together."""
+                     gap_thresh: float = 0.20,
+                     max_length: float = 0.70) -> list[WallSegment]:
+    """Merge wall segments that are nearly parallel and close together,
+    up to max_length. This creates chains of segments sharing vertices."""
     if len(walls) < 2:
         return walls
 
@@ -143,23 +148,23 @@ def _merge_collinear(walls: list[WallSegment], angle_thresh: float = 0.3,
         return math.sqrt((w.x2 - w.x1)**2 + (w.y2 - w.y1)**2)
 
     def endpoints_gap(a, b):
-        """Min distance between any endpoint pair of two segments."""
         pts_a = [(a.x1, a.y1), (a.x2, a.y2)]
         pts_b = [(b.x1, b.y1), (b.x2, b.y2)]
         return min(math.sqrt((pa[0]-pb[0])**2 + (pa[1]-pb[1])**2)
                    for pa in pts_a for pb in pts_b)
 
     def merge_two(a, b):
-        """Merge two segments into one spanning all 4 endpoints along the average direction."""
         all_pts = [(a.x1, a.y1), (a.x2, a.y2), (b.x1, b.y1), (b.x2, b.y2)]
-        # Average direction
         ang = (wall_angle(a) + wall_angle(b)) / 2
         dx, dy = math.cos(ang), math.sin(ang)
-        # Project all points onto this direction
         projections = [(p[0]*dx + p[1]*dy, p) for p in all_pts]
         projections.sort()
         p_min = projections[0][1]
         p_max = projections[-1][1]
+        # Check merged length against max
+        merged_len = math.sqrt((p_max[0]-p_min[0])**2 + (p_max[1]-p_min[1])**2)
+        if merged_len > max_length:
+            return None  # too long, don't merge
         avg_conf = (a.confidence * wall_length(a) + b.confidence * wall_length(b)) / max(
             wall_length(a) + wall_length(b), 0.01)
         return WallSegment(
@@ -180,18 +185,18 @@ def _merge_collinear(walls: list[WallSegment], angle_thresh: float = 0.3,
             for j in range(i + 1, len(walls)):
                 if j in used:
                     continue
-                # Check angle similarity (handle wrapping)
                 da = abs(wall_angle(walls[i]) - wall_angle(walls[j]))
                 if da > math.pi:
                     da = 2 * math.pi - da
-                # Allow near-parallel (same direction) or anti-parallel
                 if da > angle_thresh and abs(da - math.pi) > angle_thresh:
                     continue
-                # Check proximity
                 if endpoints_gap(walls[i], walls[j]) > gap_thresh:
                     continue
-                # Merge
-                new_walls.append(merge_two(walls[i], walls[j]))
+                # Merge (respects max_length)
+                result = merge_two(walls[i], walls[j])
+                if result is None:
+                    continue  # too long, try next pair
+                new_walls.append(result)
                 used.add(i)
                 used.add(j)
                 merged = True
@@ -251,7 +256,11 @@ def _snap_corners(walls: list[WallSegment], snap_dist: float = 0.25) -> list[Wal
     # Track which endpoints have been snapped: (wall_index, end_index)
     snapped = set()
 
-    # Build all candidate pairs sorted by distance (greedily snap closest first)
+    # Group nearby endpoints into vertex clusters, then snap each cluster
+    # to the intersection of the first two walls (or centroid for 3+)
+    # This allows 3+ walls to share a single vertex.
+
+    # Build candidate pairs sorted by distance
     candidates = []
     for i in range(len(mwalls)):
         for j in range(i + 1, len(mwalls)):
@@ -263,13 +272,28 @@ def _snap_corners(walls: list[WallSegment], snap_dist: float = 0.25) -> list[Wal
                     if d < snap_dist:
                         candidates.append((d, i, ei, j, ej))
 
-    candidates.sort()  # closest first
+    candidates.sort()
 
     for _, i, ei, j, ej in candidates:
-        # Skip if either endpoint already snapped
         if (i, ei) in snapped or (j, ej) in snapped:
+            # If one is already snapped to a vertex, snap the other to that same point
+            if (i, ei) in snapped and (j, ej) not in snapped:
+                vx, vy = mwalls[i][ei*2], mwalls[i][ei*2+1]
+                ep_j = (mwalls[j][ej*2], mwalls[j][ej*2+1])
+                if math.sqrt((vx-ep_j[0])**2 + (vy-ep_j[1])**2) < snap_dist * 2:
+                    mwalls[j][ej*2] = vx
+                    mwalls[j][ej*2+1] = vy
+                    snapped.add((j, ej))
+            elif (j, ej) in snapped and (i, ei) not in snapped:
+                vx, vy = mwalls[j][ej*2], mwalls[j][ej*2+1]
+                ep_i = (mwalls[i][ei*2], mwalls[i][ei*2+1])
+                if math.sqrt((vx-ep_i[0])**2 + (vy-ep_i[1])**2) < snap_dist * 2:
+                    mwalls[i][ei*2] = vx
+                    mwalls[i][ei*2+1] = vy
+                    snapped.add((i, ei))
             continue
 
+        # Neither snapped yet — compute intersection
         ix, iy = _line_intersection(
             mwalls[i][0], mwalls[i][1], mwalls[i][2], mwalls[i][3],
             mwalls[j][0], mwalls[j][1], mwalls[j][2], mwalls[j][3])
@@ -277,7 +301,6 @@ def _snap_corners(walls: list[WallSegment], snap_dist: float = 0.25) -> list[Wal
         if ix is None:
             continue
 
-        # Check intersection isn't too far from either endpoint
         ep_i = (mwalls[i][ei*2], mwalls[i][ei*2+1])
         ep_j = (mwalls[j][ej*2], mwalls[j][ej*2+1])
         di = math.sqrt((ix-ep_i[0])**2 + (iy-ep_i[1])**2)
