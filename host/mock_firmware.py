@@ -7,7 +7,6 @@ mock room geometry and raycast logic as mock_serial.py.
 """
 
 import asyncio
-import json
 import logging
 import math
 import random

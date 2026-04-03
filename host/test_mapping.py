@@ -608,10 +608,10 @@ def test_consolidation():
     cloud._consolidate_interval = 0  # allow immediate consolidation
 
     # Add points spread wider than merge radius but within consolidation radius
-    # merge_radius=0.05, consolidate_radius=0.08
+    # merge_radius=0.02, consolidate_radius=0.04
     for i in range(30):
-        x = 1.0 + (i % 6) * 0.06  # 60mm apart — wider than merge, within consolidate
-        y = 0.5 + (i // 6) * 0.06
+        x = 1.0 + (i % 6) * 0.03  # 30mm apart — wider than merge, within consolidate
+        y = 0.5 + (i // 6) * 0.03
         cloud.add_point(x, y, 0.09, 500)
 
     before = cloud.point_count

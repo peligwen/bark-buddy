@@ -143,8 +143,8 @@ class PointCloud:
 
     def __init__(self, bounds: float = 4.0) -> None:
         self._root = OctreeNode(0.0, 0.0, 0.0, bounds)
-        self._merge_radius = 0.05
-        self._consolidate_radius = 0.08
+        self._merge_radius = 0.02
+        self._consolidate_radius = 0.04
         self._consolidate_interval = 15.0
         self._decay_rate = 0.995
         self._decay_interval = 60.0
