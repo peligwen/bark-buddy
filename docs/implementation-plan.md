@@ -1,8 +1,8 @@
-# Implementation Plan — Milestone 1 (Thin MVP)
+# Implementation Plan
 
 ## Scope
 
-Minimal working versions of remote control, balance & recovery, and patrol using the MechDog's stock firmware and CMD protocol. No custom firmware needed.
+Remote control, balance, patrol, ultrasonic mapping with wall detection, and physics simulation — all using the MechDog's stock firmware and REPL protocol. No custom firmware needed.
 
 ## Phases
 
@@ -69,18 +69,6 @@ Minimal working versions of remote control, balance & recovery, and patrol using
 4. ~~Web UI~~ → canvas-based 2D map with color-coded distance points, scan progress bar
 5. ~~Tests~~ → 10 checks: scan execute/cancel/coords/serialization, map add/bounds/clear/dict, WS scan/map
 
-### Phase 2: Multi-Scan & Patrol Integration (Planned)
-
-- Scan at each patrol waypoint to build composite map
-- Merge overlapping scans with position correction
-- Map persistence (save/load)
-
-### Phase 3: Obstacle-Aware Planning (Planned)
-
-- Use map data to identify obstacles
-- Generate obstacle-aware waypoint paths
-- Real-time obstacle avoidance during patrol
-
 ## Milestone 3: Physics Simulation Engine ✅
 
 ### Phase 1: SimTransport + URDF ✅
@@ -96,11 +84,64 @@ Minimal working versions of remote control, balance & recovery, and patrol using
    - Fast-forward via `speed_factor` parameter (headless DIRECT mode)
 3. ~~Tests~~ → 12 checks: connect, standing, fwd/back/left/right, IMU, ultrasonic open/wall, battery, room walls, heading-aware forward
 
+## Milestone 4: Wall Mesh & Visualization ✅
+
+### Phase 1: Wall Detection Pipeline ✅
+
+1. ~~Wall fitting~~ → `behaviors/wall_fit.py` — DBSCAN clustering + PCA line fitting as fallback
+2. ~~Wall mesh~~ → `behaviors/wall_mesh.py` — chain-based mesh from point cloud vertices
+3. ~~Octree~~ → `behaviors/octree.py` — spatial indexing for point cloud queries
+4. ~~Point cloud management~~ → consolidation (merge dense clusters, cap count), decay + reinforcement
+5. ~~Tests~~ → `test_mapping.py`, `test_wall_mesh.py` — CLI test suite for mapping pipeline
+
+### Phase 2: Mesh Refinement ✅
+
+1. ~~Corner detection~~ → extend walls to meet via line intersection, snap endpoints
+2. ~~Chain splitting~~ → split chains at corners, preserve long chains
+3. ~~Gap filling~~ → bridge isolated wall endpoints with short segments
+4. ~~Collinear merge~~ → merge collinear wall segments for connected rendering
+5. ~~Parameter tuning~~ → sweep across 3 room geometries for optimal merge constants
+
+### Phase 3: 3D Visualization ✅
+
+1. ~~Three.js dog model~~ → `web/dog3d/model.js` — 3D MechDog with joint markers (hip=cyan, knee=orange, foot=magenta)
+2. ~~Gait animation~~ → `web/dog3d/gait.js` — leg animation synced to movement
+3. ~~Camera control~~ → `web/dog3d/camera.js` — orbiting/zoom camera
+4. ~~Sonar visualization~~ → `web/dog3d/sonar.js` — ultrasonic beam display
+5. ~~Wall rendering~~ → `web/dog3d/walls.js` — 3D wall mesh from scan data
+6. ~~Overlay~~ → `web/dog3d/overlay.js` — kinematics overlay with K shortcut
+7. ~~Pose system~~ → action poses (wave, sit, lie down) with interpolation
+
+### Phase 4: Web UI Modernization ✅
+
+1. ~~ES modules~~ → refactored JS monoliths into `web/modules/` (ws, controls, map, panels) + `web/dog3d/`
+2. ~~Server management~~ → restart from UI button and CLI (SIGTERM + subprocess)
+
+## Current Work
+
+- **Hardware integration** — verify all behaviors on physical MechDog
+- **WiFi transport** — `webrepl_transport.py` testing with real WebREPL
+- **UI refinement** — polish 3D visualization, improve wall rendering fidelity
+
+## Future (Planned)
+
+### Milestone 2 Phase 2: Multi-Scan & Patrol Integration
+
+- Scan at each patrol waypoint to build composite map
+- Merge overlapping scans with position correction
+- Map persistence (save/load)
+
+### Milestone 2 Phase 3: Obstacle-Aware Planning
+
+- Use map data to identify obstacles
+- Generate obstacle-aware waypoint paths
+- Real-time obstacle avoidance during patrol
+
 ### Other Goals
-- 3D orientation model in web UI (Three.js)
+
 - Custom firmware for advanced gaits and fine-grained servo control
-- WiFi transport
+- Profile-based gait optimization
 
-## Out of Scope (Milestone 1)
+## Out of Scope
 
-Camera/vision, object carrying, runtime AI, mobile app, Pi integration, advanced gaits (trot/gallop), obstacle avoidance, SLAM.
+Camera/vision, object carrying, runtime AI, mobile app, Pi integration, advanced gaits (trot/gallop), SLAM.
