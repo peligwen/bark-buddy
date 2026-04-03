@@ -11,6 +11,7 @@ from typing import Optional
 from behaviors.octree import PointCloud
 from behaviors.scan import ScanResult
 from behaviors.wall_fit import fit_walls
+from behaviors.wall_mesh import build_wall_chains
 
 logger = logging.getLogger(__name__)
 
@@ -87,12 +88,17 @@ class MapStore:
             for w in walls
         ]
 
+    def get_wall_chains(self) -> list[dict]:
+        points = self._cloud.get_points_2d(min_confidence=0.2)
+        return build_wall_chains(points, wall_height=0.2)
+
     def to_dict(self) -> dict:
         points = self._cloud.get_points_2d()
         return {
             "bounds": self.get_bounds(),
             "points": points,
             "walls": self.get_walls(),
+            "chains": self.get_wall_chains(),
             "scans": self.get_scan_origins(),
             "scan_count": self.scan_count,
             "point_count": len(points),

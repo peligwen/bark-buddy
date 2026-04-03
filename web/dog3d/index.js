@@ -3,7 +3,7 @@ import { state, S, COL, BODY_L, BODY_H, standingHeight } from './state.js';
 import { buildDog } from './model.js';
 import { animateGait, setPose, clearPose, getPoseNames, applySimJoints } from './gait.js';
 import { initUltraHit, updateUltraBeam } from './sonar.js';
-import { clearWalls, buildWallsFromSegments } from './walls.js';
+import { clearWalls, buildWallsFromSegments, buildWallsFromChains } from './walls.js';
 import { toggleOverlay, updateOverlay } from './overlay.js';
 import { updateCameraPosition, setupControls } from './camera.js';
 
@@ -193,7 +193,9 @@ var Dog3D = {
     },
 
     setMapData: function (data) {
-        if (data && data.walls) {
+        if (data && data.chains && data.chains.length > 0) {
+            buildWallsFromChains(data.chains);
+        } else if (data && data.walls) {
             buildWallsFromSegments(data.walls);
         }
     },
