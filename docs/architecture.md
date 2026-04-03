@@ -3,44 +3,65 @@
 ## System Overview
 
 ```
-┌─────────────────┐      USB Serial (UART)   ┌──────────────────┐
-│  Local Dev PC   │◄────────────────────►    │  MechDog (Stock) │
-│                 │                          │                  │
-│  Python Host    │   CMD protocol           │  Stock Firmware  │
-│  - Web Server   │   (text-based)           │  - ESP32-S3      │
-│  - Behavior     │                          │  - Servo Control │
-│    Engine       │                          │  - MPU6050 IMU   │
-│  - CMD comms    │                          │  - Self-Balance  │
-│  - (Future: AI) │                          │  - 8x PWM Servos │
-└─────────────────┘                          └──────────────────┘
+                                    WiFi TCP (JSON/NDJSON)
+┌─────────────────┐      ◄──────────────────────────►    ┌──────────────────────┐
+│  Local Dev PC   │           port 9000 (primary)        │  MechDog             │
+│                 │                                      │                      │
+│  Python Host    │      USB Serial (debug/fallback)     │  Custom Firmware     │
+│  - Web Server   │      ◄──────────────────────────►    │  - ESP32-S3 (C++)    │
+│  - Behavior     │           115200 baud                │  - Gait Engine       │
+│    Engine       │                                      │  - Servo Control     │
+│  - Transport    │                                      │  - QMI8658 IMU       │
+│    Layer        │                                      │  - I2C Sonar         │
+│                 │                                      │  - Telemetry Stream  │
+└─────────────────┘                                      └──────────────────────┘
        ▲
        │ HTTP/WebSocket (JSON)
        ▼
 ┌─────────────────┐
 │  Browser (UI)   │
-│  D-pad + Gauges │
+│  D-pad + 3D Dog │
+│  + Scan Map     │
 └─────────────────┘
+```
+
+### Stock Firmware Fallback
+
+When the custom firmware isn't flashed, the Python host can talk to the stock MicroPython firmware via REPL commands over USB serial or WiFi WebREPL. This path is for bootstrapping (e.g., pin discovery, initial hardware validation) and as a fallback.
+
+```
+Python Host  ←Serial REPL / WiFi WebREPL→  Stock MicroPython Firmware
 ```
 
 ## Hardware
 
-- **Stock Hiwonder MechDog** — ESP32-S3, 8 coreless PWM servos (2/leg), MPU6050 IMU
-- **Stock firmware** — built-in CMD protocol for motion, balance, IMU, battery
-- No Raspberry Pi or extra sensors for Milestone 1
+- **Hiwonder MechDog** — ESP32-S3, 8 coreless PWM servos (2/leg), QMI8658 IMU, I2C ultrasonic
+- **No Raspberry Pi or extra sensors** — stock hardware only
+
+## Firmware Paths
+
+| Path | Firmware | Protocol | Transport | Use Case |
+|---|---|---|---|---|
+| **Primary** | Custom C++ (PlatformIO) | JSON/NDJSON | WiFi TCP :9000 | Production — full servo/gait/sensor control |
+| **Fallback** | Stock MicroPython | REPL commands | USB serial / WiFi WebREPL | Bootstrapping, pin discovery, fallback |
+| **Debug** | Either | Same as above | USB serial | Development, debugging, log inspection |
 
 ## Tech Stack
 
 | Layer | Language | Tools | Responsibility |
 |---|---|---|---|
-| MechDog | Stock firmware | ESP32-S3 + MPU6050 | Servo control, built-in balance, IMU, CMD protocol |
-| Host | Python 3.11+ | asyncio, pyserial-asyncio, aiohttp | Behavior layers, CMD translation, web server, telemetry polling |
-| Web UI | HTML/CSS/JS | Vanilla (no framework) | D-pad remote control, 2D gauges, status dashboard |
+| Custom Firmware | C++ | PlatformIO, ArduinoJson, ESP32-S3 | Gait engine, servo PWM, IMU/sonar streaming, balance, heartbeat, LED control |
+| Stock Firmware | MicroPython | ESP32-S3 (stock) | Fallback motion via `_dog.move()`, REPL-accessible sensors |
+| Host | Python 3.11+ | asyncio, pyserial-asyncio, aiohttp, websockets | Behavior layers, transport abstraction, web server, telemetry relay |
+| Web UI | HTML/CSS/JS | Vanilla ES modules, Three.js r128 | D-pad control, 3D dog visualization, 2D scan map, telemetry gauges |
+| Simulation | Python | PyBullet | Physics sim with URDF model, simulated sensors |
 
 ## Communication
 
-- **Host → MechDog:** CMD text protocol over USB serial (`CMD|<func>|<data>|$`)
-- **Host ↔ Browser:** WebSocket with JSON messages
-- **Telemetry:** Host polls IMU + battery at regular intervals, pushes to browser
+- **Host → Custom Firmware:** JSON/NDJSON over WiFi TCP (port 9000) — commands and heartbeat
+- **Custom Firmware → Host:** JSON/NDJSON telemetry stream (IMU, sonar, battery, status, acks)
+- **Host → Stock Firmware (fallback):** REPL commands over USB serial or WiFi WebREPL
+- **Host ↔ Browser:** WebSocket with JSON messages (same regardless of firmware path)
 - Protocol spec: see `docs/protocol.md`
 
 ## Behavior Model
@@ -49,50 +70,50 @@ Composable layers, not exclusive modes:
 
 ```
 ┌──────────────────────────────┐
-│  Active Behavior (top layer) │  ← Remote control OR Patrol
+│  Active Behavior (top layer) │  ← Remote control OR Patrol OR Scan
 ├──────────────────────────────┤
-│  Balance Layer               │  ← Toggles stock self-balance (CMD|1|3|1|$)
+│  Balance Layer               │  ← Custom FW: host-side PID; Stock FW: toggle homeostasis
 ├──────────────────────────────┤
-│  CMD Protocol Layer          │  ← Translates behavior commands to CMD strings
+│  Mapping Layer               │  ← Point cloud, wall detection, mesh generation
 ├──────────────────────────────┤
-│  Serial Transport            │  ← pyserial-asyncio
+│  Transport Layer             │  ← WiFi TCP (primary) / Serial REPL (fallback) / Sim / Mock
 └──────────────────────────────┘
 ```
-
-Balance is toggled on the stock firmware. Higher-level behaviors (patrol, remote)
-issue movement commands that the CMD layer translates to serial commands.
-
-## AI Integration (Future)
-
-- **Development time:** Claude generates behavior code
-- **Runtime (post-MVP):** Local network server running Ollama/Llama/Phi for decision-making
 
 ## Project Structure
 
 ```
 bark-buddy/
-├── CLAUDE.md              # Claude Code project context (auto-loaded)
-├── README.md              # Human-facing project overview
-├── firmware/              # C/C++ — future custom firmware (not used for MVP)
-│   ├── src/main.cpp       # Reference: custom firmware scaffold
-│   ├── include/protocol.h # Reference: JSON protocol types
-│   └── platformio.ini     # ESP32-S3 PlatformIO config
-├── host/                  # Python — local dev machine
-│   ├── server.py          # Web server + WebSocket handler
-│   ├── comms.py           # CMD protocol layer + serial transport
-│   ├── mock_serial.py     # Mock transport for dev without hardware
-│   ├── behaviors/
-│   │   ├── remote.py      # Manual remote control layer
-│   │   ├── balance.py     # Balance toggle + monitoring
-│   │   └── patrol.py      # Patrol behavior (waypoint navigation)
+├── CLAUDE.md                # Claude Code project context
+├── README.md                # Project overview
+├── firmware/                # Custom C++ firmware (primary)
+│   ├── src/                 # main.cpp, gait.cpp, imu.cpp, servos.cpp, sonar.cpp
+│   ├── include/             # config.h, protocol.h, gait.h, imu.h, servos.h, sonar.h, poses.h
+│   ├── test/                # kinematics, balance PID, gait, pose tests
+│   └── platformio.ini       # ESP32-S3 PlatformIO config
+├── host/                    # Python host
+│   ├── server.py            # Web server + WebSocket handler
+│   ├── comms.py             # Protocol layer + transport ABC
+│   ├── firmware_transport.py # Custom firmware transport (JSON/NDJSON over WiFi/serial)
+│   ├── hw_transport.py      # Stock firmware base (CMD→REPL translation)
+│   ├── repl_transport.py    # Stock firmware: USB serial REPL (debug/fallback)
+│   ├── webrepl_transport.py # Stock firmware: WiFi WebREPL (fallback)
+│   ├── mock_serial.py       # Mock transport for dev
+│   ├── mock_firmware.py     # Mock custom firmware for dev
+│   ├── setup_wifi.py        # WiFi + WebREPL setup
+│   ├── capture_profile.py   # Profile capture + parameter optimizer
+│   ├── behaviors/           # balance, patrol, scan, map_store, wall_fit, wall_mesh, octree
+│   ├── sim/                 # PyBullet sim (sim_transport.py, mechdog.urdf)
 │   └── requirements.txt
-├── web/                   # Static web UI
+├── web/                     # Static web UI (ES modules)
 │   ├── index.html
 │   ├── style.css
-│   └── app.js
+│   ├── app.module.js        # Main entry point
+│   ├── modules/             # ws.js, controls.js, map.js, panels.js
+│   └── dog3d/               # Three.js 3D (model, gait, camera, sonar, walls, overlay, state)
 └── docs/
-    ├── architecture.md    # This file
-    ├── decisions.md       # Design decisions log
+    ├── architecture.md      # This file
+    ├── decisions.md         # Design decisions log
     ├── implementation-plan.md
-    └── protocol.md        # CMD + WebSocket protocol spec
+    └── protocol.md          # Custom firmware + stock CMD protocol spec
 ```

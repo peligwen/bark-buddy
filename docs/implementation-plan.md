@@ -2,9 +2,11 @@
 
 ## Scope
 
-Remote control, balance, patrol, ultrasonic mapping with wall detection, and physics simulation — all using the MechDog's stock firmware and REPL protocol. No custom firmware needed.
+Custom C++ firmware running on the MechDog's ESP32-S3, communicating over WiFi with a Python host that provides behaviors, a web UI, and 3D visualization. The stock MicroPython firmware was used for bootstrapping and remains available as a fallback. Serial is the debug transport.
 
-## Phases
+## Bootstrapping (Stock Firmware) ✅
+
+These phases used the stock MicroPython firmware and REPL protocol to bring up the host, web UI, and behavior layers without needing custom firmware.
 
 ### Phase 1: Communication Foundation ✅
 
@@ -36,7 +38,6 @@ Remote control, balance, patrol, ultrasonic mapping with wall detection, and phy
 2. ~~Dead reckoning~~ → IMU heading + timed movement for position estimation
 3. ~~Patrol behavior~~ → `behaviors/patrol.py` navigates waypoint sequence
 4. ~~Web UI~~ → demo patrol button, stop button, position/waypoint display
-5. Verify on hardware: dog navigates waypoint path
 
 ### Phase 5: Integration & Polish ✅
 
@@ -47,21 +48,9 @@ Remote control, balance, patrol, ultrasonic mapping with wall detection, and phy
 5. ~~Action groups~~ → stand, wave, sit, lie down in web UI
 6. ~~Status dashboard~~ → pitch/roll gauges, ultrasonic distance, battery %, mode, balance, connection
 
-## Verification Matrix
+## Ultrasonic Mapping ✅
 
-| Capability | Test |
-|---|---|
-| Remote Control | Open web UI, D-pad controls move the dog via CMD protocol |
-| Balance | Enable balance → push dog → stock firmware corrects |
-| Telemetry | IMU gauges + battery + ultrasonic update in real-time in web UI |
-| Patrol | Start patrol → dog navigates waypoints via dead reckoning |
-| Connection Loss | Unplug serial → UI shows disconnected → replug → resumes |
-| Composability | Patrol + balance active simultaneously |
-| Ultrasonic | Distance display updates, color warnings for close objects |
-
-## Milestone 2: Ultrasonic Mapping
-
-### Phase 1: Scan Behavior & Map Store ✅
+### Scan Behavior & Map Store ✅
 
 1. ~~ScanBehavior~~ → `behaviors/scan.py` — 360° sweep in 15° steps, median-filtered readings
 2. ~~MapStore~~ → `behaviors/map_store.py` — accumulates scan results into point cloud
@@ -69,9 +58,9 @@ Remote control, balance, patrol, ultrasonic mapping with wall detection, and phy
 4. ~~Web UI~~ → canvas-based 2D map with color-coded distance points, scan progress bar
 5. ~~Tests~~ → 10 checks: scan execute/cancel/coords/serialization, map add/bounds/clear/dict, WS scan/map
 
-## Milestone 3: Physics Simulation Engine ✅
+## Physics Simulation ✅
 
-### Phase 1: SimTransport + URDF ✅
+### SimTransport + URDF ✅
 
 1. ~~URDF model~~ → `sim/mechdog.urdf` — 8-DOF MechDog from Hiwonder specs (173x73x50mm body, 55mm upper + 60mm lower legs, 4 feet with friction)
 2. ~~SimTransport~~ → `sim/sim_transport.py` — PyBullet transport implementing CMD protocol
@@ -84,9 +73,9 @@ Remote control, balance, patrol, ultrasonic mapping with wall detection, and phy
    - Fast-forward via `speed_factor` parameter (headless DIRECT mode)
 3. ~~Tests~~ → 12 checks: connect, standing, fwd/back/left/right, IMU, ultrasonic open/wall, battery, room walls, heading-aware forward
 
-## Milestone 4: Wall Mesh & Visualization ✅
+## Wall Mesh & Visualization ✅
 
-### Phase 1: Wall Detection Pipeline ✅
+### Wall Detection Pipeline ✅
 
 1. ~~Wall fitting~~ → `behaviors/wall_fit.py` — DBSCAN clustering + PCA line fitting as fallback
 2. ~~Wall mesh~~ → `behaviors/wall_mesh.py` — chain-based mesh from point cloud vertices
@@ -94,7 +83,7 @@ Remote control, balance, patrol, ultrasonic mapping with wall detection, and phy
 4. ~~Point cloud management~~ → consolidation (merge dense clusters, cap count), decay + reinforcement
 5. ~~Tests~~ → `test_mapping.py`, `test_wall_mesh.py` — CLI test suite for mapping pipeline
 
-### Phase 2: Mesh Refinement ✅
+### Mesh Refinement ✅
 
 1. ~~Corner detection~~ → extend walls to meet via line intersection, snap endpoints
 2. ~~Chain splitting~~ → split chains at corners, preserve long chains
@@ -102,7 +91,7 @@ Remote control, balance, patrol, ultrasonic mapping with wall detection, and phy
 4. ~~Collinear merge~~ → merge collinear wall segments for connected rendering
 5. ~~Parameter tuning~~ → sweep across 3 room geometries for optimal merge constants
 
-### Phase 3: 3D Visualization ✅
+### 3D Visualization ✅
 
 1. ~~Three.js dog model~~ → `web/dog3d/model.js` — 3D MechDog with joint markers (hip=cyan, knee=orange, foot=magenta)
 2. ~~Gait animation~~ → `web/dog3d/gait.js` — leg animation synced to movement
@@ -112,36 +101,72 @@ Remote control, balance, patrol, ultrasonic mapping with wall detection, and phy
 6. ~~Overlay~~ → `web/dog3d/overlay.js` — kinematics overlay with K shortcut
 7. ~~Pose system~~ → action poses (wave, sit, lie down) with interpolation
 
-### Phase 4: Web UI Modernization ✅
+### Web UI Modernization ✅
 
 1. ~~ES modules~~ → refactored JS monoliths into `web/modules/` (ws, controls, map, panels) + `web/dog3d/`
 2. ~~Server management~~ → restart from UI button and CLI (SIGTERM + subprocess)
 
-## Current Work
+## Custom Firmware (Primary) ✅ built, deploying
 
-- **Hardware integration** — verify all behaviors on physical MechDog
-- **WiFi transport** — `webrepl_transport.py` testing with real WebREPL
-- **UI refinement** — polish 3D visualization, improve wall rendering fidelity
+The custom C++ firmware is implemented and tested but awaiting final hardware deployment (servo pin verification).
+
+### Firmware Implementation ✅
+
+1. ~~JSON/NDJSON protocol~~ → `protocol.h` — structured message types for commands, telemetry, acks, events
+2. ~~Main loop~~ → `main.cpp` — serial/WiFi RX, heartbeat timeout, telemetry streaming, gait tick
+3. ~~Gait engine~~ → `gait.cpp` — parametric walk (hip/knee amplitude, frequency, phase), PID-ready balance
+4. ~~IMU driver~~ → `imu.cpp` — QMI8658 via I2C, pitch/roll/yaw + accel + gyro
+5. ~~Sonar driver~~ → `sonar.cpp` — I2C ultrasonic + RGB LED control
+6. ~~Servo control~~ → `servos.cpp` — 8-channel PWM, soft-start ramp, idle timeout + detach
+7. ~~Hardware config~~ → `config.h` — pin assignments (I2C verified, servos gated by `PINS_VERIFIED`), timing, gait params
+8. ~~Firmware tests~~ → kinematics, balance PID, gait parameter sweep, pose validation
+
+### WiFi Transport (In Progress)
+
+1. Custom firmware WiFi listener on TCP port 9000
+2. `firmware_transport.py` — Python host transport for JSON/NDJSON over WiFi TCP
+3. Integration test: host connects over WiFi, sends commands, receives telemetry
+
+### Hardware Deployment (In Progress)
+
+1. Verify servo GPIO pins via stock firmware REPL introspection
+2. Set `PINS_VERIFIED=1` and flash custom firmware
+3. End-to-end test: WiFi connection → gait → telemetry → web UI
+4. Validate all behaviors (remote, balance, patrol, scan) on custom firmware
 
 ## Future (Planned)
 
-### Milestone 2 Phase 2: Multi-Scan & Patrol Integration
+### Multi-Scan & Patrol Integration
 
 - Scan at each patrol waypoint to build composite map
 - Merge overlapping scans with position correction
 - Map persistence (save/load)
 
-### Milestone 2 Phase 3: Obstacle-Aware Planning
+### Obstacle-Aware Planning
 
 - Use map data to identify obstacles
 - Generate obstacle-aware waypoint paths
 - Real-time obstacle avoidance during patrol
 
-### Other Goals
+### Advanced Gait
 
-- Custom firmware for advanced gaits and fine-grained servo control
 - Profile-based gait optimization
+- Custom gaits (trot, gallop) via parametric gait engine
+
+## Verification Matrix
+
+| Capability | Test |
+|---|---|
+| Remote Control | Open web UI, D-pad controls move the dog |
+| Balance | Enable balance → push dog → firmware corrects |
+| Telemetry | IMU gauges + battery + ultrasonic update in real-time in web UI |
+| Patrol | Start patrol → dog navigates waypoints via dead reckoning |
+| Connection Loss | Disconnect WiFi → UI shows disconnected → reconnect → resumes |
+| Composability | Patrol + balance active simultaneously |
+| Ultrasonic | Distance display updates, color warnings for close objects |
+| Wall Mapping | Scan → point cloud → wall detection → 3D wall mesh in UI |
+| Custom Firmware | Flash → WiFi connect → gait walks → telemetry streams |
 
 ## Out of Scope
 
-Camera/vision, object carrying, runtime AI, mobile app, Pi integration, advanced gaits (trot/gallop), SLAM.
+Camera/vision, object carrying, runtime AI, mobile app, Pi integration, SLAM.
