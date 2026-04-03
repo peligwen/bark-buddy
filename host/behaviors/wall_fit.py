@@ -240,53 +240,76 @@ def _refit_walls(walls: list[WallSegment], pts: list[tuple],
     return result
 
 
-def _snap_corners(walls: list[WallSegment], snap_dist: float = 0.15) -> list[WallSegment]:
-    """Snap nearby wall endpoints together to form clean corner junctions."""
+def _snap_corners(walls: list[WallSegment], snap_dist: float = 0.25) -> list[WallSegment]:
+    """Extend nearby wall endpoints to meet at their line intersection, forming corners."""
     if len(walls) < 2:
         return walls
 
-    # Collect all endpoints
-    endpoints = []  # (wall_index, end_index, x, y)  end_index: 0=start, 1=end
-    for i, w in enumerate(walls):
-        endpoints.append((i, 0, w.x1, w.y1))
-        endpoints.append((i, 1, w.x2, w.y2))
+    # For each wall, store as mutable list [x1,y1,x2,y2,h,c]
+    mwalls = [[w.x1, w.y1, w.x2, w.y2, w.height, w.confidence] for w in walls]
+    used_pairs = set()
 
     # Find pairs of endpoints from different walls that are close
-    snapped = {}  # (wall_idx, end_idx) -> (new_x, new_y)
-    used = set()
-
-    for i in range(len(endpoints)):
-        if (endpoints[i][0], endpoints[i][1]) in used:
-            continue
-        group = [endpoints[i]]
-        for j in range(i + 1, len(endpoints)):
-            if endpoints[j][0] == endpoints[i][0]:
-                continue  # same wall
-            if (endpoints[j][0], endpoints[j][1]) in used:
+    for i in range(len(mwalls)):
+        for j in range(i + 1, len(mwalls)):
+            if (i, j) in used_pairs:
                 continue
-            dx = endpoints[i][2] - endpoints[j][2]
-            dy = endpoints[i][3] - endpoints[j][3]
-            dist = math.sqrt(dx * dx + dy * dy)
-            if dist < snap_dist:
-                group.append(endpoints[j])
 
-        if len(group) >= 2:
-            # Snap to centroid
-            cx = sum(e[2] for e in group) / len(group)
-            cy = sum(e[3] for e in group) / len(group)
-            for e in group:
-                snapped[(e[0], e[1])] = (round(cx, 3), round(cy, 3))
-                used.add((e[0], e[1]))
+            # Check all 4 endpoint pairs between wall i and wall j
+            best_dist = snap_dist
+            best_ei = -1  # 0=start, 1=end of wall i
+            best_ej = -1
 
-    # Apply snaps
-    result = []
-    for i, w in enumerate(walls):
-        x1, y1 = snapped.get((i, 0), (w.x1, w.y1))
-        x2, y2 = snapped.get((i, 1), (w.x2, w.y2))
-        result.append(WallSegment(x1=x1, y1=y1, x2=x2, y2=y2,
-                                   height=w.height, confidence=w.confidence))
+            for ei in (0, 1):
+                px = mwalls[i][ei * 2]
+                py = mwalls[i][ei * 2 + 1]
+                for ej in (0, 1):
+                    qx = mwalls[j][ej * 2]
+                    qy = mwalls[j][ej * 2 + 1]
+                    d = math.sqrt((px - qx)**2 + (py - qy)**2)
+                    if d < best_dist:
+                        best_dist = d
+                        best_ei = ei
+                        best_ej = ej
 
-    return result
+            if best_ei < 0:
+                continue
+
+            # Compute intersection of the two wall lines
+            ix, iy = _line_intersection(
+                mwalls[i][0], mwalls[i][1], mwalls[i][2], mwalls[i][3],
+                mwalls[j][0], mwalls[j][1], mwalls[j][2], mwalls[j][3])
+
+            if ix is not None:
+                # Check the intersection isn't too far from the endpoints
+                ep_i = (mwalls[i][best_ei * 2], mwalls[i][best_ei * 2 + 1])
+                ep_j = (mwalls[j][best_ej * 2], mwalls[j][best_ej * 2 + 1])
+                di = math.sqrt((ix - ep_i[0])**2 + (iy - ep_i[1])**2)
+                dj = math.sqrt((ix - ep_j[0])**2 + (iy - ep_j[1])**2)
+
+                if di < snap_dist * 2 and dj < snap_dist * 2:
+                    # Extend both wall endpoints to the intersection
+                    mwalls[i][best_ei * 2] = round(ix, 3)
+                    mwalls[i][best_ei * 2 + 1] = round(iy, 3)
+                    mwalls[j][best_ej * 2] = round(ix, 3)
+                    mwalls[j][best_ej * 2 + 1] = round(iy, 3)
+                    used_pairs.add((i, j))
+
+    return [WallSegment(x1=w[0], y1=w[1], x2=w[2], y2=w[3],
+                         height=w[4], confidence=w[5]) for w in mwalls]
+
+
+def _line_intersection(x1, y1, x2, y2, x3, y3, x4, y4):
+    """Find intersection point of two infinite lines. Returns (x,y) or (None,None)."""
+    dx1, dy1 = x2 - x1, y2 - y1
+    dx2, dy2 = x4 - x3, y4 - y3
+    denom = dx1 * dy2 - dy1 * dx2
+    if abs(denom) < 1e-9:
+        return None, None  # parallel
+    t = ((x3 - x1) * dy2 - (y3 - y1) * dx2) / denom
+    ix = x1 + t * dx1
+    iy = y1 + t * dy1
+    return ix, iy
 
 
 def _point_to_segment_dist(px, py, x1, y1, x2, y2):
