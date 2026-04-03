@@ -351,14 +351,19 @@ var Dog3D = (function () {
         else if (currentMotion === "backward") speed = -4;
         else if (currentMotion === "left" || currentMotion === "right") speed = 3;
 
-        if (speed === 0 && currentAction == null) {
+        if (speed === 0) {
             walkPhase = 0;
             bodyBounce = 0;
+            // Pose interpolation or action takes priority over standing reset
+            if (targetPose || currentAction != null) {
+                animateAction();
+                return;
+            }
             setAllLegs(STAND_HIP, STAND_KNEE);
             return;
         }
 
-        if (currentAction != null) {
+        if (currentAction != null || targetPose) {
             animateAction();
             bodyBounce = 0;
             return;

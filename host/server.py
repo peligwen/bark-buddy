@@ -666,10 +666,11 @@ class Server:
             await self._broadcast({"type": "version", "hash": self._web_hash})
 
         elif msg_type == "cmd_restart_server":
-            logger.info("Server restart requested")
-            await self._broadcast({"type": "server_restarting"})
-            # Give clients a moment to see the message, then restart
-            await asyncio.sleep(0.5)
+            logger.warning("=== SERVER RESTART REQUESTED ===")
+            try:
+                await self._broadcast({"type": "server_restarting"})
+            except Exception:
+                pass
             _restart_server()
 
         else:
@@ -828,10 +829,12 @@ class Server:
 
 
 def _restart_server():
-    """Restart the server by re-executing the same process."""
-    import os, sys
+    """Restart the server by spawning a replacement and killing self."""
+    import os, sys, subprocess, signal
     logger.info("Restarting server process...")
-    os.execv(sys.executable, [sys.executable] + sys.argv)
+    subprocess.Popen([sys.executable] + sys.argv,
+                     start_new_session=True)
+    os.kill(os.getpid(), signal.SIGTERM)
 
 
 async def _detect_serial_transport(port: str):
