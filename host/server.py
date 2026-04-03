@@ -768,8 +768,9 @@ class Server:
                         await self._broadcast_status(battery_mv=battery)
                     last_battery = now
 
-                # Point cloud decay (skip during scan)
+                # Point cloud maintenance (skip during scan)
                 if not self._scan.running:
+                    self._map._cloud.consolidate()
                     self._map.decay_tick()
 
                 # Servo idle timeout — detach servos to save power

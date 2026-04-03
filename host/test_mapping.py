@@ -601,6 +601,40 @@ def test_accuracy_dense_triangle():
     return r
 
 
+def test_consolidation():
+    """Consolidation merges nearby points and caps total count."""
+    r = TestResult("consolidation")
+    cloud = PointCloud()
+    cloud._consolidate_interval = 0  # allow immediate consolidation
+
+    # Add points spread wider than merge radius but within consolidation radius
+    # merge_radius=0.05, consolidate_radius=0.08
+    for i in range(30):
+        x = 1.0 + (i % 6) * 0.06  # 60mm apart — wider than merge, within consolidate
+        y = 0.5 + (i // 6) * 0.06
+        cloud.add_point(x, y, 0.09, 500)
+
+    before = cloud.point_count
+    r.metric("before_consolidation", before)
+
+    merged = cloud.consolidate()
+    after = cloud.point_count
+    r.metric("after_consolidation", after)
+    r.metric("merged", merged)
+
+    r.assert_true(after < before, f"consolidation reduced points: {before} -> {after}")
+    r.assert_ge(merged, 10, f"at least 10 points merged (got {merged})")
+
+    # Confidence should have increased for surviving points
+    pts = cloud.get_points()
+    if pts:
+        max_conf = max(p.confidence for p in pts)
+        r.metric("max_confidence", round(max_conf, 2))
+        r.assert_ge(max_conf, 0.8, "consolidated points have high confidence")
+
+    return r
+
+
 ALL_TESTS = [
     test_point_cloud_basic,
     test_point_cloud_decay,
@@ -620,6 +654,7 @@ ALL_TESTS = [
     test_accuracy_rectangular_room,
     test_accuracy_corridor,
     test_accuracy_dense_triangle,
+    test_consolidation,
 ]
 
 if __name__ == "__main__":

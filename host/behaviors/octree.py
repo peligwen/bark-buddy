@@ -143,11 +143,14 @@ class PointCloud:
 
     def __init__(self, bounds: float = 4.0) -> None:
         self._root = OctreeNode(0.0, 0.0, 0.0, bounds)
-        self._merge_radius = 0.03
+        self._merge_radius = 0.05
+        self._consolidate_radius = 0.08
+        self._consolidate_interval = 15.0
         self._decay_rate = 0.995
         self._decay_interval = 60.0
         self._prune_threshold = 0.02
         self._last_decay = time.monotonic()
+        self._last_consolidate = time.monotonic()
 
     def add_point(
         self, x: float, y: float, z: float, distance_mm: float, source: str = "ultrasonic"
@@ -175,10 +178,55 @@ class PointCloud:
         self._root.insert(point)
         return point
 
+    def consolidate(self) -> int:
+        """Merge nearby points into single high-confidence points. Returns count removed."""
+        now = time.monotonic()
+        if now - self._last_consolidate < self._consolidate_interval:
+            return 0
+        self._last_consolidate = now
+
+        points = self._root.all_points()
+        consumed = set()
+        merged_count = 0
+
+        for i, p in enumerate(points):
+            if id(p) in consumed:
+                continue
+            neighbors = self._root.query_radius(p.x, p.y, p.z, self._consolidate_radius)
+            # Filter to only unconsumed neighbors (excluding self)
+            group = [n for n in neighbors if id(n) not in consumed and n is not p]
+            if not group:
+                continue
+
+            # Merge group into p: weighted average position, sum confidence
+            total_conf = p.confidence
+            wx, wy, wz = p.x * p.confidence, p.y * p.confidence, p.z * p.confidence
+            for n in group:
+                total_conf += n.confidence
+                wx += n.x * n.confidence
+                wy += n.y * n.confidence
+                wz += n.z * n.confidence
+                consumed.add(id(n))
+                n.confidence = 0  # mark for removal
+                merged_count += 1
+
+            p.x = wx / total_conf
+            p.y = wy / total_conf
+            p.z = wz / total_conf
+            p.confidence = min(1.0, total_conf)
+            p.timestamp = now
+
+        # Remove zeroed-out points
+        if merged_count > 0:
+            self._root.remove_below_confidence(0.01)
+
+        return merged_count
+
     def decay_tick(self) -> None:
         now = time.monotonic()
         if now - self._last_decay < self._decay_interval:
             return
+        self.consolidate()  # consolidate before decay
         for p in self._root.all_points():
             p.confidence *= self._decay_rate
         self._root.remove_below_confidence(self._prune_threshold)
