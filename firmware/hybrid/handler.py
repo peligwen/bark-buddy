@@ -106,9 +106,9 @@ def _push_telemetry():
         _last_bat = now
         try:
             mv = _read_battery()
-            pct = max(0, min(100, (mv - 6400) * 100 // 2000))
+            pct = max(0, min(100, (mv - 6000) * 100 // 2400))
             _send({"type": "telem_battery",
-                   "voltage_mv": mv, "pct": pct, "low": mv < 6800})
+                   "voltage_mv": mv, "pct": pct, "low": mv < 6400})
         except:
             pass
 
