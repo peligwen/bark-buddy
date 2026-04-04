@@ -208,4 +208,37 @@ SCORING_PRESETS = {
             ("max_pitch", "minimize", 0.15),
         ],
     },
+    "walk_backward": {
+        "gates": [
+            ("fell", "==", False),
+            ("distance", ">", 0.05),
+        ],
+        "objectives": [
+            ("distance", "maximize", 0.5),
+            ("max_pitch", "minimize", 0.3),
+            ("energy", "minimize", 0.2),
+        ],
+    },
+    "turn_left": {
+        "gates": [
+            ("fell", "==", False),
+            ("abs_heading_change", ">", 5.0),
+        ],
+        "objectives": [
+            ("abs_heading_change", "maximize", 0.5),
+            ("max_pitch", "minimize", 0.25),
+            ("max_roll", "minimize", 0.25),
+        ],
+    },
+    "turn_right": {
+        "gates": [
+            ("fell", "==", False),
+            ("abs_heading_change", ">", 5.0),
+        ],
+        "objectives": [
+            ("abs_heading_change", "maximize", 0.5),
+            ("max_pitch", "minimize", 0.25),
+            ("max_roll", "minimize", 0.25),
+        ],
+    },
 }

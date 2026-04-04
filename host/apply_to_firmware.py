@@ -2,13 +2,18 @@
 """
 Apply gait_config.json parameters to firmware/include/config.h.
 
-Reads the tuned parameters from gait_config.json (produced by sweep runner
+Reads tuned parameters from gait_config.json (produced by sweep runner
 with --apply) and patches the corresponding #define values in config.h.
 
+The firmware currently uses a single set of gait parameters for all
+directions. By default, the forward gait is applied. Use --direction
+to apply a different direction's params.
+
 Usage:
-    python3 apply_to_firmware.py              # preview changes
-    python3 apply_to_firmware.py --write      # write changes to config.h
-    python3 apply_to_firmware.py --config path/to/config.json  # custom config
+    python3 apply_to_firmware.py                     # preview forward gait
+    python3 apply_to_firmware.py --write             # write to config.h
+    python3 apply_to_firmware.py --direction backward # apply backward gait
+    python3 apply_to_firmware.py --all                # show all directions
 """
 
 import argparse
@@ -32,11 +37,28 @@ PARAM_TO_DEFINE = {
     "gait_frequency": ("GAIT_FREQUENCY", lambda v: f"{v:.2f}f", "Hz"),
 }
 
+DIRECTIONS = ["forward", "backward", "turn_left", "turn_right"]
 
-def load_config(path: str) -> dict:
+
+def load_config(path: str, direction: str = "forward") -> dict:
+    """Load params for a specific direction from gait_config.json."""
     with open(path) as f:
         data = json.load(f)
+
+    # Per-direction format
+    directions = data.get("directions", {})
+    if direction in directions:
+        return directions[direction]
+
+    # Legacy flat format
     return data.get("params", data)
+
+
+def load_all_directions(path: str) -> dict:
+    """Load all direction params from gait_config.json."""
+    with open(path) as f:
+        data = json.load(f)
+    return data.get("directions", {})
 
 
 def patch_config_h(config_h_text: str, params: dict) -> tuple[str, list[str]]:
@@ -54,7 +76,6 @@ def patch_config_h(config_h_text: str, params: dict) -> tuple[str, list[str]]:
         value = params[param_key]
         new_value_str = formatter(value)
 
-        # Match: #define GAIT_HIP_AMPLITUDE   8.0f
         pattern = rf"(#define\s+{define_name}\s+)(\S+)"
         match = re.search(pattern, new_text)
         if not match:
@@ -79,8 +100,13 @@ def main():
                         help="Path to gait config JSON")
     parser.add_argument("--firmware-config", default=FIRMWARE_CONFIG_PATH,
                         help="Path to firmware config.h")
+    parser.add_argument("--direction", default="forward",
+                        choices=DIRECTIONS,
+                        help="Which direction's gait to apply (default: forward)")
     parser.add_argument("--write", action="store_true",
                         help="Write changes (default: preview only)")
+    parser.add_argument("--all", action="store_true",
+                        help="Show all tuned directions (no write)")
     args = parser.parse_args()
 
     if not os.path.exists(args.config):
@@ -89,19 +115,39 @@ def main():
         print("  python3 -m sweep.runner --sweep gait --scenario flat_walk --apply")
         sys.exit(1)
 
+    if args.all:
+        directions = load_all_directions(args.config)
+        if not directions:
+            print("No per-direction configs found.")
+            return
+        for dir_name in DIRECTIONS:
+            if dir_name in directions:
+                d = directions[dir_name]
+                params_str = ", ".join(
+                    f"{k}={v:.4f}" for k, v in d.items()
+                    if not k.startswith("_")
+                )
+                score = d.get("_score", "?")
+                print(f"  {dir_name}: {params_str} (score: {score})")
+            else:
+                print(f"  {dir_name}: (not tuned)")
+        return
+
     if not os.path.exists(args.firmware_config):
         print(f"Firmware config not found at {args.firmware_config}")
         sys.exit(1)
 
-    params = load_config(args.config)
+    params = load_config(args.config, args.direction)
+    gait_params = {k: v for k, v in params.items() if k in PARAM_TO_DEFINE}
     print(f"Config: {args.config}")
-    print(f"Params: {json.dumps({k: round(v, 4) for k, v in params.items()})}")
+    print(f"Direction: {args.direction}")
+    print(f"Params: {json.dumps({k: round(v, 4) for k, v in gait_params.items()})}")
     print()
 
     with open(args.firmware_config) as f:
         config_h = f.read()
 
-    new_text, changes = patch_config_h(config_h, params)
+    new_text, changes = patch_config_h(config_h, gait_params)
 
     if not changes:
         print("No matching parameters to update in config.h")

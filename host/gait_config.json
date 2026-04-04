@@ -1,19 +1,41 @@
 {
-  "sweep": "gait",
-  "scenario": "flat_walk",
-  "score": 0.843171,
-  "params": {
-    "hip_amplitude": 0.256336,
-    "knee_amplitude": 0.074813,
-    "lift_height": 0.004654,
-    "gait_frequency": 2.21658
+  "directions": {
+    "forward": {
+      "hip_amplitude": 0.063274,
+      "knee_amplitude": 0.121647,
+      "lift_height": 0.022371,
+      "gait_frequency": 2.600171,
+      "_sweep": "gait",
+      "_scenario": "flat_walk",
+      "_score": 0.834738
+    },
+    "backward": {
+      "hip_amplitude": 0.231927,
+      "knee_amplitude": 0.075302,
+      "lift_height": 0.008617,
+      "gait_frequency": 2.499295,
+      "_sweep": "gait",
+      "_scenario": "walk_backward",
+      "_score": 0.836083
+    },
+    "turn_left": {
+      "hip_amplitude": 0.142815,
+      "knee_amplitude": 0.113274,
+      "lift_height": 0.012521,
+      "gait_frequency": 1.979634,
+      "_sweep": "gait",
+      "_scenario": "turn_left",
+      "_score": 0.749502
+    },
+    "turn_right": {
+      "hip_amplitude": 0.1601,
+      "knee_amplitude": 0.039408,
+      "lift_height": 0.02046,
+      "gait_frequency": 1.461483,
+      "_sweep": "gait",
+      "_scenario": "turn_right",
+      "_score": 0.740755
+    }
   },
-  "metrics": {
-    "distance": 0.4874,
-    "max_pitch": 0.6,
-    "max_roll": 8.21,
-    "energy": 7.8634,
-    "fell": false,
-    "final_height": 0.1368
-  }
+  "params": {}
 }

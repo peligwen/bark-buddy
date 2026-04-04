@@ -90,12 +90,25 @@ _TUNABLE_PARAMS = {
 GAIT_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "..", "gait_config.json")
 
 
+_DIRECTION_GAIT_KEYS = ("hip_amplitude", "lift_height", "gait_frequency")
+_DIRECTIONS = ("forward", "backward", "turn_left", "turn_right")
+
+# Per-direction gait overrides loaded from config (populated by load_gait_config)
+_direction_overrides: dict[str, dict] = {}
+
+
 def load_gait_config(path: str = None) -> dict:
     """Load tunable parameters from gait_config.json.
 
-    Patches module-level constants in this module. Returns the loaded
-    params dict, or empty dict if file doesn't exist.
+    Supports two formats:
+    - Per-direction: {"directions": {"forward": {...}, "backward": {...}, ...}}
+    - Flat (legacy): {"params": {"hip_amplitude": ...}} — applied to all directions
+
+    Patches module-level constants for non-gait params (contact, joint, etc.).
+    Stores per-direction gait params in _direction_overrides for GaitGenerator.
+    Returns the raw loaded data.
     """
+    global _direction_overrides
     path = path or GAIT_CONFIG_PATH
     if not os.path.exists(path):
         return {}
@@ -103,21 +116,40 @@ def load_gait_config(path: str = None) -> dict:
     with open(path) as f:
         data = json.load(f)
 
-    params = data.get("params", data)
-    applied = {}
     g = globals()
+    applied = {}
 
+    # Load per-direction gait params
+    directions = data.get("directions", {})
+    if directions:
+        for dir_name in _DIRECTIONS:
+            if dir_name in directions:
+                _direction_overrides[dir_name] = {
+                    k: float(v) for k, v in directions[dir_name].items()
+                    if k in _DIRECTION_GAIT_KEYS
+                }
+
+    # Load flat params (non-gait go to module globals, gait go to all directions)
+    params = data.get("params", {})
     for config_key, module_attr in _TUNABLE_PARAMS.items():
         if config_key in params:
             value = float(params[config_key])
-            g[module_attr] = value
+            if config_key not in _DIRECTION_GAIT_KEYS:
+                g[module_attr] = value
+            elif not directions:
+                # Legacy flat format: apply gait params to all directions
+                for dir_name in _DIRECTIONS:
+                    if dir_name not in _direction_overrides:
+                        _direction_overrides[dir_name] = {}
+                    _direction_overrides[dir_name][config_key] = value
+                g[module_attr] = value
             applied[config_key] = value
 
-    if applied:
-        logger.info("Loaded gait config from %s: %s", path,
-                     {k: round(v, 4) for k, v in applied.items()})
+    if applied or _direction_overrides:
+        logger.info("Loaded gait config from %s (%d directions, %d global params)",
+                     path, len(_direction_overrides), len(applied))
 
-    return applied
+    return data
 
 
 # Auto-load config on import
@@ -306,20 +338,71 @@ def standing_height() -> float:
 
 # ---- Gait Generator ----
 
+# Direction command codes
+DIR_STOP = 0
+DIR_FORWARD = 3
+DIR_BACKWARD = 4
+DIR_LEFT = 5
+DIR_RIGHT = 6
+
+# Direction names used in gait_config.json
+_DIR_NAMES = {
+    DIR_FORWARD: "forward",
+    DIR_BACKWARD: "backward",
+    DIR_LEFT: "turn_left",
+    DIR_RIGHT: "turn_right",
+}
+
+
+def _default_gait_params():
+    """Default gait params per direction, using module-level constants."""
+    return {
+        "forward":   {"hip_amplitude": GAIT_HIP_AMPLITUDE,
+                      "lift_height": GAIT_LIFT_HEIGHT,
+                      "gait_frequency": GAIT_FREQUENCY},
+        "backward":  {"hip_amplitude": GAIT_HIP_AMPLITUDE,
+                      "lift_height": GAIT_LIFT_HEIGHT,
+                      "gait_frequency": GAIT_FREQUENCY},
+        "turn_left": {"hip_amplitude": GAIT_HIP_AMPLITUDE,
+                      "lift_height": GAIT_LIFT_HEIGHT,
+                      "gait_frequency": GAIT_FREQUENCY},
+        "turn_right": {"hip_amplitude": GAIT_HIP_AMPLITUDE,
+                       "lift_height": GAIT_LIFT_HEIGHT,
+                       "gait_frequency": GAIT_FREQUENCY},
+    }
+
+
 class GaitGenerator:
-    """Trot gait: diagonal pairs alternate stance/swing."""
+    """Trot gait: diagonal pairs alternate stance/swing.
+
+    Supports per-direction gait parameters (hip_amplitude, lift_height,
+    gait_frequency) loaded from gait_config.json.
+    """
 
     def __init__(self):
         self.phase = 0.0
         self.active = False
         self.direction = 0   # 0=stop, 3=fwd, 4=back, 5=left, 6=right
+        self.dir_params = _default_gait_params()
+
+    def _get_params(self) -> dict:
+        """Get gait params for current direction."""
+        name = _DIR_NAMES.get(self.direction)
+        if name and name in self.dir_params:
+            return self.dir_params[name]
+        return self.dir_params["forward"]
 
     def update(self, dt: float) -> list[tuple[float, float]]:
         """Returns list of 4 (hip_target, knee_target) tuples."""
         if not self.active or self.direction == 0:
             return [(STAND_HIP, STAND_KNEE)] * 4
 
-        self.phase = (self.phase + GAIT_FREQUENCY * dt) % 1.0
+        p = self._get_params()
+        hip_amp = p["hip_amplitude"]
+        lift_h = p["lift_height"]
+        freq = p["gait_frequency"]
+
+        self.phase = (self.phase + freq * dt) % 1.0
         targets = []
 
         for leg_idx in range(4):
@@ -332,30 +415,30 @@ class GaitGenerator:
             hip_t = STAND_HIP
             knee_t = STAND_KNEE
 
-            if self.direction in (3, 4):
+            if self.direction in (DIR_FORWARD, DIR_BACKWARD):
                 # Forward/backward: hip oscillates, swing leg lifts
-                sign = 1.0 if self.direction == 3 else -1.0
+                sign = 1.0 if self.direction == DIR_FORWARD else -1.0
                 # Front legs: positive hip angle = forward swing
                 # Rear legs: invert so they push in the same direction
                 leg_sign = 1.0 if leg_idx < 2 else -1.0
-                hip_offset = sign * leg_sign * GAIT_HIP_AMPLITUDE * math.sin(leg_phase * 2 * math.pi)
+                hip_offset = sign * leg_sign * hip_amp * math.sin(leg_phase * 2 * math.pi)
                 hip_t += hip_offset
 
                 # Swing phase (0.0 - 0.5): lift foot
                 if leg_phase < 0.5:
-                    lift = math.sin(leg_phase * 2 * math.pi) * GAIT_LIFT_HEIGHT
+                    lift = math.sin(leg_phase * 2 * math.pi) * lift_h
                     knee_t -= lift * 8  # amplify for knee angle
 
-            elif self.direction in (5, 6):
+            elif self.direction in (DIR_LEFT, DIR_RIGHT):
                 # Turn: one side steps forward, other backward
-                sign = 1.0 if self.direction == 5 else -1.0
+                sign = 1.0 if self.direction == DIR_LEFT else -1.0
                 # Left legs step forward for left turn, right legs backward
                 z_sign = 1.0 if leg_idx in (FL, RL) else -1.0
-                hip_offset = sign * z_sign * GAIT_HIP_AMPLITUDE * math.sin(leg_phase * 2 * math.pi)
+                hip_offset = sign * z_sign * hip_amp * math.sin(leg_phase * 2 * math.pi)
                 hip_t += hip_offset
 
                 if leg_phase < 0.5:
-                    lift = math.sin(leg_phase * 2 * math.pi) * GAIT_LIFT_HEIGHT
+                    lift = math.sin(leg_phase * 2 * math.pi) * lift_h
                     knee_t -= lift * 8
 
             targets.append((hip_t, knee_t))
@@ -396,8 +479,12 @@ class DogPhysics:
         self.legs = [Leg() for _ in range(4)]
         self._update_foot_positions()
 
-        # Gait
+        # Gait (apply per-direction config overrides if loaded)
         self.gait = GaitGenerator()
+        if _direction_overrides:
+            for dir_name, overrides in _direction_overrides.items():
+                if dir_name in self.gait.dir_params:
+                    self.gait.dir_params[dir_name].update(overrides)
 
         # Walls
         self.walls: list[Wall] = []
@@ -600,7 +687,7 @@ class DogPhysics:
 
     def set_motion(self, cmd: int):
         """Set motion command (1=stop, 3=fwd, 4=back, 5=left, 6=right)."""
-        if cmd in (3, 4, 5, 6):
+        if cmd in (DIR_FORWARD, DIR_BACKWARD, DIR_LEFT, DIR_RIGHT):
             self.gait.active = True
             self.gait.direction = cmd
         else:

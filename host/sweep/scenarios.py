@@ -492,9 +492,107 @@ def sustained_walk(phys: DogPhysics, params: dict, config: dict) -> dict:
     }
 
 
+def walk_backward(phys: DogPhysics, params: dict, config: dict) -> dict:
+    """Walk backward on flat ground. Measures speed, stability, efficiency."""
+    duration = config.get("duration", 5.0)
+    _settle(phys)
+    return _track_walk(phys, duration, direction=4)
+
+
+def turn_left(phys: DogPhysics, params: dict, config: dict) -> dict:
+    """Turn left in place. Measures heading change, stability."""
+    duration = config.get("duration", 3.0)
+
+    _settle(phys)
+    _, _, yaw0 = phys.read_imu()
+
+    phys.set_motion(5)  # left turn
+
+    max_pitch = 0.0
+    max_roll = 0.0
+    fell = False
+    steps = int(duration / SIM_DT)
+    sample_interval = max(1, steps // 100)
+
+    for step_i in range(steps):
+        phys.step(SIM_DT)
+        if step_i % sample_interval == 0:
+            pitch, roll, _ = phys.read_imu()
+            max_pitch = max(max_pitch, abs(pitch))
+            max_roll = max(max_roll, abs(roll))
+            if _has_fallen(phys):
+                fell = True
+                break
+
+    phys.set_motion(1)
+    _settle(phys, 0.3)
+
+    _, _, yaw1 = phys.read_imu()
+    heading_change = yaw1 - yaw0
+    while heading_change > 180:
+        heading_change -= 360
+    while heading_change < -180:
+        heading_change += 360
+
+    return {
+        "heading_change": round(heading_change, 2),
+        "abs_heading_change": round(abs(heading_change), 2),
+        "max_pitch": round(max_pitch, 2),
+        "max_roll": round(max_roll, 2),
+        "fell": fell,
+    }
+
+
+def turn_right(phys: DogPhysics, params: dict, config: dict) -> dict:
+    """Turn right in place. Measures heading change, stability."""
+    duration = config.get("duration", 3.0)
+
+    _settle(phys)
+    _, _, yaw0 = phys.read_imu()
+
+    phys.set_motion(6)  # right turn
+
+    max_pitch = 0.0
+    max_roll = 0.0
+    fell = False
+    steps = int(duration / SIM_DT)
+    sample_interval = max(1, steps // 100)
+
+    for step_i in range(steps):
+        phys.step(SIM_DT)
+        if step_i % sample_interval == 0:
+            pitch, roll, _ = phys.read_imu()
+            max_pitch = max(max_pitch, abs(pitch))
+            max_roll = max(max_roll, abs(roll))
+            if _has_fallen(phys):
+                fell = True
+                break
+
+    phys.set_motion(1)
+    _settle(phys, 0.3)
+
+    _, _, yaw1 = phys.read_imu()
+    heading_change = yaw1 - yaw0
+    while heading_change > 180:
+        heading_change -= 360
+    while heading_change < -180:
+        heading_change += 360
+
+    return {
+        "heading_change": round(heading_change, 2),
+        "abs_heading_change": round(abs(heading_change), 2),
+        "max_pitch": round(max_pitch, 2),
+        "max_roll": round(max_roll, 2),
+        "fell": fell,
+    }
+
+
 # Registry
 SCENARIOS = {
     "flat_walk": flat_walk,
+    "walk_backward": walk_backward,
+    "turn_left": turn_left,
+    "turn_right": turn_right,
     "push_recovery": push_recovery,
     "slope_climb": slope_climb,
     "obstacle_crossing": obstacle_crossing,

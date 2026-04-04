@@ -72,6 +72,9 @@ SWEEP_PRESETS = {
 # Default scenario configs (can be overridden via --config)
 DEFAULT_SCENARIO_CONFIGS = {
     "flat_walk": {"duration": 5.0},
+    "walk_backward": {"duration": 5.0},
+    "turn_left": {"duration": 3.0},
+    "turn_right": {"duration": 3.0},
     "push_recovery": {"push_force": 0.15, "walk_time_before": 1.5,
                        "max_time": 3.0, "settle_threshold": 5.0},
     "slope_climb": {"slope_deg": 10.0, "duration": 5.0},
@@ -90,7 +93,7 @@ def run_sweep(sweep_name: str, scenario_name: str,
               expansion: float = 0.1, top_pct: float = 0.2,
               output_dir: str = None, scenario_config: dict = None,
               scoring_config: dict = None, seed: int = 42,
-              apply: bool = False):
+              apply: bool = False, direction: str = None):
     """Run a recursive parameter sweep.
 
     Args:
@@ -215,7 +218,7 @@ def run_sweep(sweep_name: str, scenario_name: str,
         print(f"Best params written to: {best_path}")
 
         if apply:
-            _apply_best_params(all_passing[0], sweep_name, scenario_name)
+            _apply_best_params(all_passing[0], sweep_name, scenario_name, direction)
 
     print("Done.")
 
@@ -223,29 +226,67 @@ def run_sweep(sweep_name: str, scenario_name: str,
 GAIT_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "..", "gait_config.json")
 
 
-def _apply_best_params(best_result: dict, sweep_name: str, scenario_name: str):
-    """Write best params to gait_config.json for the sim to load on startup."""
-    config = {
-        "sweep": sweep_name,
-        "scenario": scenario_name,
-        "score": best_result["score"],
-        "params": {k: round(v, 6) if isinstance(v, float) else v
-                   for k, v in best_result["params"].items()},
-        "metrics": best_result["metrics"],
-    }
+# Gait params that go into per-direction config (vs global params like contact_k)
+_DIRECTION_GAIT_KEYS = {"hip_amplitude", "knee_amplitude", "lift_height", "gait_frequency"}
 
-    # Merge with existing config (other sweeps may have set other params)
+# Auto-detect direction from scenario name
+_SCENARIO_DIRECTION = {
+    "flat_walk": "forward",
+    "walk_backward": "backward",
+    "sustained_walk": "forward",
+    "turn_left": "turn_left",
+    "turn_right": "turn_right",
+    "turn_accuracy": None,  # needs explicit --direction
+}
+
+
+def _apply_best_params(best_result: dict, sweep_name: str,
+                       scenario_name: str, direction: str = None):
+    """Write best params to gait_config.json with per-direction gait params.
+
+    Gait params (hip_amplitude, lift_height, gait_frequency) go into
+    directions.<direction>. Other params (contact_k, joint_kp, etc.)
+    go into global params.
+    """
+    best_params = {k: round(v, 6) if isinstance(v, float) else v
+                   for k, v in best_result["params"].items()}
+
+    # Auto-detect direction if not specified
+    if direction is None:
+        direction = _SCENARIO_DIRECTION.get(scenario_name)
+
+    # Load existing config
     if os.path.exists(GAIT_CONFIG_PATH):
         with open(GAIT_CONFIG_PATH) as f:
-            existing = json.load(f)
-        existing_params = existing.get("params", {})
-        existing_params.update(config["params"])
-        config["params"] = existing_params
+            config = json.load(f)
+    else:
+        config = {}
+
+    config.setdefault("directions", {})
+    config.setdefault("params", {})
+
+    # Split params into direction-specific gait vs global
+    gait_params = {k: v for k, v in best_params.items() if k in _DIRECTION_GAIT_KEYS}
+    global_params = {k: v for k, v in best_params.items() if k not in _DIRECTION_GAIT_KEYS}
+
+    # Write direction-specific gait params
+    if direction and gait_params:
+        config["directions"].setdefault(direction, {})
+        config["directions"][direction].update(gait_params)
+        config["directions"][direction]["_sweep"] = sweep_name
+        config["directions"][direction]["_scenario"] = scenario_name
+        config["directions"][direction]["_score"] = best_result["score"]
+        print(f"  {direction}: {gait_params}")
+
+    # Write global params
+    if global_params:
+        config["params"].update(global_params)
+        print(f"  global: {global_params}")
 
     with open(GAIT_CONFIG_PATH, "w") as f:
         json.dump(config, f, indent=2)
 
-    print(f"Applied best params to: {GAIT_CONFIG_PATH}")
+    print(f"Applied to: {GAIT_CONFIG_PATH}")
 
 
 def main():
@@ -280,6 +321,9 @@ Examples:
                         help="JSON file with scenario config overrides")
     parser.add_argument("--apply", action="store_true",
                         help="Apply best params to gait_config.json for sim to use")
+    parser.add_argument("--direction", type=str, default=None,
+                        choices=["forward", "backward", "turn_left", "turn_right"],
+                        help="Direction to apply gait params to (auto-detected from scenario if omitted)")
     parser.add_argument("--list-sweeps", action="store_true",
                         help="List available sweep presets")
     parser.add_argument("--list-scenarios", action="store_true",
@@ -321,6 +365,7 @@ Examples:
         scenario_config=scenario_config,
         seed=args.seed,
         apply=args.apply,
+        direction=args.direction,
     )
 
 
