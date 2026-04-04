@@ -18,7 +18,8 @@ Method:
 Usage:
     python3 capture_stock_pose.py                # full mapping
     python3 capture_stock_pose.py --servo 6      # single servo
-    python3 capture_stock_pose.py --find-level    # find level standing pose
+    python3 capture_stock_pose.py --find-level   # find level standing pose
+    python3 capture_stock_pose.py --host 192.168.1.163  # connect over WiFi
 """
 
 import argparse
@@ -29,7 +30,9 @@ import signal
 import sys
 import time
 
-import serial_asyncio
+sys.path.insert(0, os.path.dirname(__file__))
+
+from firmware_transport import FirmwareTransport
 
 SERVO_NAMES = [
     "FL_hip", "FL_knee", "FR_hip", "FR_knee",
@@ -40,113 +43,50 @@ SERVO_NAMES = [
 STANDING_POSE = [2096, 1621, 2170, 1611, 904, 1379, 1389, 830]
 
 
-class FirmwareConnection:
-    """Low-level JSON serial connection to custom firmware."""
+# --- Helpers that operate on a FirmwareTransport directly ---
 
-    def __init__(self, port, baudrate=115200):
-        self._port = port
-        self._baudrate = baudrate
-        self._reader = None
-        self._writer = None
-        self._imu = {"pitch": 0.0, "roll": 0.0, "yaw": 0.0}
-        self._last_ack = None
-        self._read_task = None
-
-    async def connect(self):
-        self._reader, self._writer = await serial_asyncio.open_serial_connection(
-            url=self._port, baudrate=self._baudrate
-        )
-        # DTR reset
-        so = self._writer.transport.serial
-        so.dtr = False
-        await asyncio.sleep(0.1)
-        so.dtr = True
-        await asyncio.sleep(3.0)
-        self._read_task = asyncio.create_task(self._read_loop())
-        # Wait for first IMU reading
-        await asyncio.sleep(1.0)
-
-    async def close(self):
-        if self._read_task:
-            self._read_task.cancel()
-            try:
-                await self._read_task
-            except asyncio.CancelledError:
-                pass
-        if self._writer:
-            self._writer.close()
-
-    def send(self, msg):
-        self._writer.write((json.dumps(msg) + "\n").encode())
-
-    async def read_imu(self, settle_ms=100):
-        """Read IMU after settling."""
+async def read_imu(transport: FirmwareTransport, settle_ms: int = 100) -> dict:
+    """Return cached IMU reading, optionally waiting for the sensor to settle."""
+    if settle_ms > 0:
         await asyncio.sleep(settle_ms / 1000.0)
-        return dict(self._imu)
-
-    async def set_servo(self, index, pulse_us):
-        self._last_ack = None
-        self.send({"type": "cmd_servo", "index": index, "pulse_us": pulse_us})
-        # Wait for ack briefly
-        for _ in range(20):
-            if self._last_ack:
-                return self._last_ack
-            await asyncio.sleep(0.01)
-        return None
-
-    async def set_all_servos(self, values, reps=5, delay=0.02):
-        """Set all 8 servos, repeating to work with frail slew rate."""
-        for _ in range(reps):
-            for i, us in enumerate(values):
-                self.send({"type": "cmd_servo", "index": i, "pulse_us": us})
-            await asyncio.sleep(delay)
-
-    async def enter_test_mode(self, frail=True):
-        self.send({"type": "cmd_test_mode", "enable": True, "frail": frail})
-        await asyncio.sleep(0.5)
-
-    async def exit_test_mode(self):
-        self.send({"type": "cmd_test_mode", "enable": False})
-        await asyncio.sleep(1.0)
-
-    def ping(self):
-        self.send({"type": "ping"})
-
-    async def _read_loop(self):
-        try:
-            while True:
-                line = await self._reader.readline()
-                text = line.decode(errors="replace").strip()
-                if not text.startswith("{"):
-                    continue
-                try:
-                    msg = json.loads(text)
-                except json.JSONDecodeError:
-                    continue
-                if msg.get("type") == "telem_imu":
-                    self._imu["pitch"] = msg.get("pitch", 0)
-                    self._imu["roll"] = msg.get("roll", 0)
-                    self._imu["yaw"] = msg.get("yaw", 0)
-                elif msg.get("type") == "ack":
-                    self._last_ack = msg
-        except asyncio.CancelledError:
-            pass
+    return transport.get_imu()
 
 
-async def gradual_move(conn, start, target, steps=50, settle_ms=100):
+async def set_all_servos(transport: FirmwareTransport, values: list[int],
+                         reps: int = 5, delay: float = 0.02) -> None:
+    """Set all 8 servos, repeating to work through frail slew rate."""
+    for _ in range(reps):
+        for i, us in enumerate(values):
+            await transport.send_json({"type": "cmd_servo", "index": i, "pulse_us": us})
+        await asyncio.sleep(delay)
+
+
+async def enter_test_mode(transport: FirmwareTransport, frail: bool = True) -> None:
+    await transport.send_json({"type": "cmd_test_mode", "enable": True, "frail": frail})
+    await asyncio.sleep(0.5)
+
+
+async def exit_test_mode(transport: FirmwareTransport) -> None:
+    await transport.send_json({"type": "cmd_test_mode", "enable": False})
+    await asyncio.sleep(1.0)
+
+
+# --- Algorithm functions (unchanged logic, operate on transport) ---
+
+async def gradual_move(transport, start, target, steps=50, settle_ms=100):
     """Move from start pose to target pose gradually. Returns final IMU."""
     for step in range(1, steps + 1):
         t = step / steps
         pose = [int(s + (e - s) * t) for s, e in zip(start, target)]
-        await conn.set_all_servos(pose, reps=3, delay=0.02)
+        await set_all_servos(transport, pose, reps=3, delay=0.02)
         await asyncio.sleep(0.02)
         if step % 10 == 0:
-            conn.ping()
+            await transport.send_json({"type": "ping"})
     await asyncio.sleep(settle_ms / 1000.0)
-    return await conn.read_imu(settle_ms=50)
+    return await read_imu(transport, settle_ms=50)
 
 
-async def probe_servo(conn, base_pose, servo_idx, offsets, dwell_ms=100):
+async def probe_servo(transport, base_pose, servo_idx, offsets, dwell_ms=100):
     """Probe one servo at various offsets from base_pose. Returns results."""
     results = []
     standing = base_pose[servo_idx]
@@ -158,9 +98,9 @@ async def probe_servo(conn, base_pose, servo_idx, offsets, dwell_ms=100):
 
         pose = list(base_pose)
         pose[servo_idx] = us
-        await conn.set_all_servos(pose, reps=8, delay=0.02)
-        conn.ping()
-        imu = await conn.read_imu(settle_ms=dwell_ms)
+        await set_all_servos(transport, pose, reps=8, delay=0.02)
+        await transport.send_json({"type": "ping"})
+        imu = await read_imu(transport, settle_ms=dwell_ms)
 
         results.append({
             "servo": servo_idx,
@@ -174,19 +114,18 @@ async def probe_servo(conn, base_pose, servo_idx, offsets, dwell_ms=100):
     return results
 
 
-async def map_all_servos(conn, args):
+async def map_all_servos(transport, args):
     """Full servo mapping: classify each servo by IMU response."""
     print("=== Servo Mapping ===\n")
 
-    # Enter test mode
-    await conn.enter_test_mode(frail=True)
+    await enter_test_mode(transport, frail=True)
 
     # Start from center crouch
     center = [1500] * 8
     print("Moving to center crouch...")
-    await conn.set_all_servos(center, reps=60, delay=0.05)
+    await set_all_servos(transport, center, reps=60, delay=0.05)
     await asyncio.sleep(0.5)
-    center_imu = await conn.read_imu()
+    center_imu = await read_imu(transport)
     print(f"Center IMU: pitch={center_imu['pitch']:.1f}  roll={center_imu['roll']:.1f}\n")
 
     # Probe offsets (relative to center)
@@ -196,7 +135,7 @@ async def map_all_servos(conn, args):
 
     for idx in range(8):
         print(f"--- Servo {idx} ({SERVO_NAMES[idx]}) ---")
-        results = await probe_servo(conn, center, idx, offsets, dwell_ms=args.dwell)
+        results = await probe_servo(transport, center, idx, offsets, dwell_ms=args.dwell)
 
         if not results:
             print("  No results\n")
@@ -243,7 +182,7 @@ async def map_all_servos(conn, args):
         print()
 
         # Return to center between servos
-        await conn.set_all_servos(center, reps=15, delay=0.03)
+        await set_all_servos(transport, center, reps=15, delay=0.03)
         await asyncio.sleep(0.3)
 
     # Summary
@@ -267,28 +206,28 @@ async def map_all_servos(conn, args):
                     "standing_pose_tested": STANDING_POSE}, f, indent=2)
     print(f"\nSaved to {out_path}")
 
-    await conn.exit_test_mode()
+    await exit_test_mode(transport)
     return all_results
 
 
-async def find_level(conn, args):
+async def find_level(transport, args):
     """Search for the standing pose that minimizes tilt.
 
     Starts from the current STANDING_POSE, then iteratively adjusts
     each servo to reduce pitch and roll toward zero.
     """
     print("=== Find Level Standing Pose ===\n")
-    await conn.enter_test_mode(frail=True)
+    await enter_test_mode(transport, frail=True)
 
     # Start from center, rise to current pose
     center = [1500] * 8
     current = list(STANDING_POSE)
 
     print("Rising from center to current standing pose...")
-    await conn.set_all_servos(center, reps=60, delay=0.05)
+    await set_all_servos(transport, center, reps=60, delay=0.05)
     await asyncio.sleep(0.5)
 
-    final_imu = await gradual_move(conn, center, current, steps=50, settle_ms=200)
+    final_imu = await gradual_move(transport, center, current, steps=50, settle_ms=200)
     print(f"At standing: pitch={final_imu['pitch']:.1f}  roll={final_imu['roll']:.1f}")
 
     tilt = (final_imu["pitch"] ** 2 + final_imu["roll"] ** 2) ** 0.5
@@ -297,7 +236,7 @@ async def find_level(conn, args):
     if tilt > 10:
         print("WARNING: tilt > 10° — probably on 3 legs. Aborting.")
         print("Fix the standing pose first (use --map to identify issues).")
-        await conn.exit_test_mode()
+        await exit_test_mode(transport)
         return
 
     # Iterative adjustment: for each servo, try ±step and keep the better value
@@ -312,7 +251,7 @@ async def find_level(conn, args):
             improved = False
             passes += 1
             for idx in range(8):
-                imu_at = await conn.read_imu(settle_ms=100)
+                imu_at = await read_imu(transport, settle_ms=100)
                 current_tilt = (imu_at["pitch"] ** 2 + imu_at["roll"] ** 2) ** 0.5
 
                 best_tilt = current_tilt
@@ -324,9 +263,9 @@ async def find_level(conn, args):
                         continue
                     test_pose = list(best_pose)
                     test_pose[idx] = test_val
-                    await conn.set_all_servos(test_pose, reps=8, delay=0.02)
-                    conn.ping()
-                    test_imu = await conn.read_imu(settle_ms=args.dwell)
+                    await set_all_servos(transport, test_pose, reps=8, delay=0.02)
+                    await transport.send_json({"type": "ping"})
+                    test_imu = await read_imu(transport, settle_ms=args.dwell)
                     test_tilt = (test_imu["pitch"] ** 2 + test_imu["roll"] ** 2) ** 0.5
 
                     if test_tilt < best_tilt - 0.3:  # require meaningful improvement
@@ -336,11 +275,11 @@ async def find_level(conn, args):
                 if best_val != best_pose[idx]:
                     old = best_pose[idx]
                     best_pose[idx] = best_val
-                    await conn.set_all_servos(best_pose, reps=8, delay=0.02)
+                    await set_all_servos(transport, best_pose, reps=8, delay=0.02)
                     print(f"  {SERVO_NAMES[idx]:>10}: {old} → {best_val}  tilt: {best_tilt:.1f}°")
                     improved = True
 
-        imu_now = await conn.read_imu(settle_ms=200)
+        imu_now = await read_imu(transport, settle_ms=200)
         tilt_now = (imu_now["pitch"] ** 2 + imu_now["roll"] ** 2) ** 0.5
         print(f"  After ±{step}: pitch={imu_now['pitch']:.1f}  "
               f"roll={imu_now['roll']:.1f}  tilt={tilt_now:.1f}°\n")
@@ -351,7 +290,7 @@ async def find_level(conn, args):
         changed = " (changed)" if best_pose[i] != STANDING_POSE[i] else ""
         print(f"  {SERVO_NAMES[i]:>10}: {best_pose[i]}{changed}")
 
-    final = await conn.read_imu(settle_ms=300)
+    final = await read_imu(transport, settle_ms=300)
     final_tilt = (final["pitch"] ** 2 + final["roll"] ** 2) ** 0.5
     print(f"\nFinal IMU: pitch={final['pitch']:.1f}  roll={final['roll']:.1f}  tilt={final_tilt:.1f}°")
 
@@ -374,10 +313,10 @@ async def find_level(conn, args):
     print(f"    // {', '.join(SERVO_NAMES)}")
     print(f"}};")
 
-    await conn.exit_test_mode()
+    await exit_test_mode(transport)
 
 
-async def walk_capture(conn, args):
+async def walk_capture(transport, args):
     """Capture IMU during 1-second walks in each direction."""
     print("=== Walk Capture (1s per direction) ===\n")
 
@@ -391,25 +330,24 @@ async def walk_capture(conn, args):
     for name, cmd in directions:
         print(f"--- {name} ---")
         # Stand first
-        conn.send({"type": "cmd_stand"})
+        await transport.send_json({"type": "cmd_stand"})
         await asyncio.sleep(1.0)
 
-        pre_imu = await conn.read_imu(settle_ms=100)
+        pre_imu = await read_imu(transport, settle_ms=100)
         print(f"  Before: pitch={pre_imu['pitch']:.1f}  roll={pre_imu['roll']:.1f}")
 
         # Walk 1 second
-        conn.send(cmd)
+        await transport.send_json(cmd)
         samples = []
         for _ in range(20):  # 20 samples over 1s
             await asyncio.sleep(0.05)
-            imu = await conn.read_imu(settle_ms=0)
-            samples.append(dict(imu))
+            samples.append(transport.get_imu())
 
         # Stop
-        conn.send({"type": "cmd_move", "direction": "stop"})
+        await transport.send_json({"type": "cmd_move", "direction": "stop"})
         await asyncio.sleep(0.5)
 
-        post_imu = await conn.read_imu(settle_ms=200)
+        post_imu = await read_imu(transport, settle_ms=200)
 
         pitches = [s["pitch"] for s in samples]
         rolls = [s["roll"] for s in samples]
@@ -418,49 +356,51 @@ async def walk_capture(conn, args):
         print(f"  After:  pitch={post_imu['pitch']:.1f}  roll={post_imu['roll']:.1f}")
         print()
 
-    conn.send({"type": "cmd_stand"})
+    await transport.send_json({"type": "cmd_stand"})
     await asyncio.sleep(1.0)
 
 
 async def run(args):
     port = args.port
-    if not port:
+    host = args.host
+    if not port and not host:
         import glob
         candidates = glob.glob("/dev/cu.usbserial-*")
         port = candidates[0] if candidates else None
-    if not port:
-        print("No USB serial device found")
+    if not port and not host:
+        print("No USB serial device found and no --host specified")
         sys.exit(1)
 
-    conn = FirmwareConnection(port)
-    await conn.connect()
+    transport = FirmwareTransport(port=port, host=host, dtr_reset=(port is not None))
+    await transport.open()
 
     try:
         if args.find_level:
-            await find_level(conn, args)
+            await find_level(transport, args)
         elif args.walk:
-            await walk_capture(conn, args)
+            await walk_capture(transport, args)
         elif args.servo is not None:
-            await conn.enter_test_mode(frail=True)
+            await enter_test_mode(transport, frail=True)
             center = [1500] * 8
-            await conn.set_all_servos(center, reps=60, delay=0.05)
+            await set_all_servos(transport, center, reps=60, delay=0.05)
             await asyncio.sleep(0.5)
             offsets = list(range(-150, 151, 25))
-            results = await probe_servo(conn, center, args.servo, offsets, dwell_ms=args.dwell)
+            results = await probe_servo(transport, center, args.servo, offsets, dwell_ms=args.dwell)
             for r in results:
                 print(f"  {r['pulse_us']:4d}μs ({r['offset']:+4d})  "
                       f"pitch={r['pitch']:6.1f}  roll={r['roll']:6.1f}")
-            await conn.exit_test_mode()
+            await exit_test_mode(transport)
         else:
-            await map_all_servos(conn, args)
+            await map_all_servos(transport, args)
     finally:
-        await conn.close()
+        await transport.close()
 
 
 def main():
     parser = argparse.ArgumentParser(
         description="MechDog servo mapping and pose discovery")
-    parser.add_argument("--port", default=None)
+    parser.add_argument("--port", default=None, help="Serial port (auto-detected)")
+    parser.add_argument("--host", default=None, help="WiFi host (e.g. 192.168.1.163)")
     parser.add_argument("--servo", type=int, default=None, metavar="IDX",
                         help="Probe a single servo (0-7)")
     parser.add_argument("--find-level", action="store_true",

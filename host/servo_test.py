@@ -19,6 +19,7 @@ Usage:
     python3 servo_test.py --all                   # probe all 8 servos
     python3 servo_test.py --no-frail              # disable frail mode (careful!)
     python3 servo_test.py --standing              # just stand and report IMU
+    python3 servo_test.py --host 192.168.1.163    # connect over WiFi TCP
 """
 
 import argparse
@@ -32,6 +33,8 @@ import time
 
 # Ensure host/ is on path
 sys.path.insert(0, os.path.dirname(__file__))
+
+from firmware_transport import FirmwareTransport
 
 logging.basicConfig(level=logging.INFO, format="%(name)s %(message)s")
 logger = logging.getLogger("servo_test")
@@ -47,55 +50,30 @@ STANDING_POSE = [2096, 1621, 2170, 1611, 904, 1379, 1389, 830]
 
 
 class ServoTester:
-    """Manages test mode session over serial JSON protocol."""
+    """Manages test mode session using FirmwareTransport (serial or WiFi)."""
 
-    def __init__(self, port: str, baudrate: int = 115200, frail: bool = True):
-        self._port = port
-        self._baudrate = baudrate
+    def __init__(self, port: str = None, host: str = None, frail: bool = True):
         self._frail = frail
-        self._reader = None
-        self._writer = None
-        self._imu = {"pitch": 0.0, "roll": 0.0, "yaw": 0.0}
-        self._last_ack = None
-        self._reader_task = None
+        self._transport = FirmwareTransport(
+            port=port, host=host, dtr_reset=(port is not None)
+        )
         self._heartbeat_task = None
         self._log_file = None
         self._log_path = None
 
     async def connect(self):
-        """Open serial and enter test mode."""
-        import serial_asyncio
-        self._reader, self._writer = await serial_asyncio.open_serial_connection(
-            url=self._port, baudrate=self._baudrate
-        )
-
-        # DTR reset to get clean state
-        transport = self._writer.transport
-        serial_obj = transport.serial if hasattr(transport, 'serial') else None
-        if serial_obj and hasattr(serial_obj, 'dtr'):
-            serial_obj.dtr = False
-            await asyncio.sleep(0.1)
-            serial_obj.dtr = True
-            await asyncio.sleep(3.0)  # wait for boot
-
-        # Drain boot output
-        await self._drain()
-
-        # Open log file
+        """Open transport and enter test mode."""
         ts = time.strftime("%Y%m%d_%H%M%S")
         self._log_path = f"servo_test_{ts}.ndjson"
         self._log_file = open(self._log_path, "w")
         logger.info("Logging to %s", self._log_path)
 
-        # Start background reader
-        self._reader_task = asyncio.create_task(self._read_loop())
+        await self._transport.open()
 
-        # Enter test mode
-        await self._send({"type": "cmd_test_mode", "enable": True, "frail": self._frail})
+        await self._transport.send_json({"type": "cmd_test_mode", "enable": True, "frail": self._frail})
         await asyncio.sleep(0.5)
         logger.info("Test mode active (frail=%s)", self._frail)
 
-        # Start heartbeat
         self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
 
     async def disconnect(self):
@@ -109,42 +87,29 @@ class ServoTester:
 
         # Return to standing
         try:
-            await self._send({"type": "cmd_test_mode", "enable": False})
+            await self._transport.send_json({"type": "cmd_test_mode", "enable": False})
             await asyncio.sleep(1.0)
         except Exception:
             pass
 
-        if self._reader_task:
-            self._reader_task.cancel()
-            try:
-                await self._reader_task
-            except asyncio.CancelledError:
-                pass
-
-        if self._writer:
-            self._writer.close()
+        await self._transport.close()
 
         if self._log_file:
             self._log_file.close()
             logger.info("Log saved: %s", self._log_path)
 
     async def read_imu(self) -> dict:
-        """Get current IMU reading (from background reader cache)."""
-        return dict(self._imu)
+        """Get current IMU reading from the transport's telemetry cache."""
+        return self._transport.get_imu()
 
     async def set_servo(self, index: int, pulse_us: int) -> dict:
         """Set a servo and return the ack with readback."""
-        self._last_ack = None
-        await self._send({"type": "cmd_servo", "index": index, "pulse_us": pulse_us})
-
-        # Wait for ack
-        deadline = time.monotonic() + 2.0
-        while time.monotonic() < deadline:
-            if self._last_ack and self._last_ack.get("ref_type") == "cmd_servo":
-                return self._last_ack
-            await asyncio.sleep(0.02)
-
-        return {"ok": False, "error": "timeout"}
+        self._log({"event": "send", "type": "cmd_servo", "index": index, "pulse_us": pulse_us})
+        await self._transport.send_json({"type": "cmd_servo", "index": index, "pulse_us": pulse_us})
+        ack = await self._transport.recv_ack("cmd_servo", timeout=2.0)
+        if ack is None:
+            return {"ok": False, "error": "timeout"}
+        return ack
 
     async def probe_servo(self, index: int, range_us: int = 100,
                           step_us: int = 10, dwell_ms: int = 500) -> list[dict]:
@@ -218,59 +183,13 @@ class ServoTester:
 
     # --- Internal ---
 
-    async def _send(self, msg: dict):
-        """Send a JSON message."""
-        line = json.dumps(msg) + "\n"
-        self._writer.write(line.encode())
-        await self._writer.drain()
-        self._log({"event": "send", **msg})
-
-    async def _read_loop(self):
-        """Background reader — updates IMU cache, captures acks."""
-        try:
-            while True:
-                line = await self._reader.readline()
-                text = line.decode(errors="replace").strip()
-                if not text.startswith("{"):
-                    continue
-                try:
-                    msg = json.loads(text)
-                except json.JSONDecodeError:
-                    continue
-
-                msg_type = msg.get("type", "")
-
-                if msg_type == "telem_imu":
-                    self._imu["pitch"] = msg.get("pitch", 0)
-                    self._imu["roll"] = msg.get("roll", 0)
-                    self._imu["yaw"] = msg.get("yaw", 0)
-
-                elif msg_type == "ack":
-                    self._last_ack = msg
-                    ref = msg.get("ref_type", "")
-                    if not msg.get("ok"):
-                        logger.warning("NACK: %s — %s", ref, msg.get("error", "?"))
-
-        except asyncio.CancelledError:
-            pass
-
     async def _heartbeat_loop(self):
         """Send pings to keep test mode alive."""
         try:
             while True:
                 await asyncio.sleep(3.0)
-                await self._send({"type": "ping"})
+                await self._transport.send_json({"type": "ping"})
         except asyncio.CancelledError:
-            pass
-
-    async def _drain(self):
-        """Read and discard any buffered serial data."""
-        try:
-            while True:
-                data = await asyncio.wait_for(self._reader.read(1024), timeout=0.2)
-                if not data:
-                    break
-        except asyncio.TimeoutError:
             pass
 
     def _log(self, entry: dict):
@@ -301,6 +220,7 @@ Examples:
   python3 servo_test.py --all                       # probe all servos
   python3 servo_test.py --sweep 6                   # full calibration sweep
   python3 servo_test.py --no-frail --probe 0        # disable frail (careful!)
+  python3 servo_test.py --host 192.168.1.163        # connect over WiFi
 
 Servo map:
   0=FL_hip  1=FL_knee  2=FR_hip  3=FR_knee
@@ -308,6 +228,7 @@ Servo map:
         """,
     )
     parser.add_argument("--port", default=None, help="Serial port (auto-detected)")
+    parser.add_argument("--host", default=None, help="WiFi host (e.g. 192.168.1.163)")
     parser.add_argument("--probe", type=int, default=None, metavar="IDX",
                         help="Probe a single servo (0-7)")
     parser.add_argument("--sweep", type=int, default=None, metavar="IDX",
@@ -325,12 +246,15 @@ Servo map:
 
     args = parser.parse_args()
 
-    port = args.port or find_serial_port()
-    if not port:
-        print("No USB serial device found")
+    port = args.port
+    host = args.host
+    if not port and not host:
+        port = find_serial_port()
+    if not port and not host:
+        print("No USB serial device found and no --host specified")
         sys.exit(1)
 
-    tester = ServoTester(port=port, frail=not args.no_frail)
+    tester = ServoTester(port=port, host=host, frail=not args.no_frail)
 
     # Handle Ctrl+C gracefully
     loop = asyncio.get_event_loop()

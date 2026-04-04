@@ -68,6 +68,47 @@ class Transport(abc.ABC):
         """Reset internal state (position, heading, etc). Optional override."""
         pass
 
+    # --- Optional capabilities (safe defaults for transports that don't support them) ---
+
+    def get_position(self) -> Optional[tuple]:
+        """Dead-reckoned (x, y, z) in metres. None if not supported."""
+        return None
+
+    def get_heading(self) -> Optional[float]:
+        """Dead-reckoned heading in degrees. None if not supported."""
+        return None
+
+    def get_joint_states(self) -> Optional[dict]:
+        """Sim joint angles for diagnostics. None if not supported."""
+        return None
+
+    def get_noise_params(self) -> Optional[dict]:
+        """Sim noise parameters. None if not supported."""
+        return None
+
+    def set_noise_params(self, params: dict) -> None:
+        """Set sim noise parameters. No-op if not supported."""
+
+    @property
+    def firmware_info(self) -> dict:
+        """Boot/status info from firmware. Empty dict if not supported."""
+        return {}
+
+    async def exec_repl(self, cmd: str) -> None:
+        """Execute a MicroPython REPL command. Raises NotImplementedError if not supported."""
+        raise NotImplementedError("REPL not available on this transport")
+
+    async def check_wifi_status(self) -> dict:
+        """Query WiFi status from the dog. Returns {connected: False} if not supported."""
+        return {"connected": False}
+
+    async def setup_wifi(self, ssid: str, password: str) -> dict:
+        """Connect the dog to WiFi. Returns error dict if not supported."""
+        return {"ok": False, "error": "Not supported on this transport"}
+
+    async def set_led_status(self, status: str) -> None:
+        """Set sonar LED status indicator. No-op if not supported."""
+
 
 
 

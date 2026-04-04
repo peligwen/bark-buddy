@@ -25,11 +25,13 @@ class FirmwareTransport(JsonStreamTransport):
 
     log_prefix = "FirmwareTransport"
 
-    def __init__(self, port: str = None, host: str = None, tcp_port: int = 9000):
+    def __init__(self, port: str = None, host: str = None, tcp_port: int = 9000,
+                 dtr_reset: bool = False):
         super().__init__()
         self._port = port
         self._host = host
         self._tcp_port = tcp_port
+        self._dtr_reset = dtr_reset
 
     async def open(self) -> None:
         if self._port:
@@ -37,7 +39,18 @@ class FirmwareTransport(JsonStreamTransport):
             self._reader, self._writer = await serial_asyncio.open_serial_connection(
                 url=self._port, baudrate=115200
             )
-            await asyncio.sleep(1)
+            if self._dtr_reset:
+                serial_obj = getattr(self._writer.transport, 'serial', None)
+                if serial_obj and hasattr(serial_obj, 'dtr'):
+                    serial_obj.dtr = False
+                    await asyncio.sleep(0.1)
+                    serial_obj.dtr = True
+                    await asyncio.sleep(3.0)
+                    await self._drain()
+                else:
+                    await asyncio.sleep(1)
+            else:
+                await asyncio.sleep(1)
         elif self._host:
             self._reader, self._writer = await asyncio.open_connection(
                 self._host, self._tcp_port
@@ -56,3 +69,11 @@ class FirmwareTransport(JsonStreamTransport):
 
         logger.info("FirmwareTransport opened on %s",
                     self._port or f"{self._host}:{self._tcp_port}")
+
+    async def _drain(self) -> None:
+        """Discard buffered serial data (e.g. after DTR reset boot output)."""
+        try:
+            while True:
+                await asyncio.wait_for(self._reader.read(1024), timeout=0.2)
+        except asyncio.TimeoutError:
+            pass

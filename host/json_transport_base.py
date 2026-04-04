@@ -12,16 +12,16 @@ bootstrap vs ping). close() is provided here and is identical for both.
 import asyncio
 import json
 import logging
-import math
 import time
 from typing import Optional
 
 from comms import Transport, READ_TIMEOUT
+from dead_reckoning import DeadReckoningMixin
 
 logger = logging.getLogger(__name__)
 
 
-class JsonStreamTransport(Transport):
+class JsonStreamTransport(DeadReckoningMixin, Transport):
     """
     Abstract base for transports that speak streaming NDJSON.
 
@@ -30,8 +30,6 @@ class JsonStreamTransport(Transport):
     Subclasses must implement open() and provide a log_prefix class attribute.
     """
 
-    FORWARD_SPEED = 0.10
-    TURN_SPEED = 45.0
     log_prefix = "JsonStream"  # Override in subclass for cleaner log messages
 
     def __init__(self):
@@ -47,12 +45,10 @@ class JsonStreamTransport(Transport):
         self._battery_mv = 7400
         self._firmware_info = {}
 
-        # Dead reckoning
-        self._heading = 0.0
-        self._x = 0.0
-        self._y = 0.0
-        self._motion_cmd = 1
-        self._last_motion_time = 0.0
+        # Ack queue for tools that need to wait on specific ack messages
+        self._ack_queue: asyncio.Queue = asyncio.Queue()
+
+        self._init_dead_reckoning()
 
     @property
     def firmware_info(self) -> dict:
@@ -102,22 +98,48 @@ class JsonStreamTransport(Transport):
     def is_open(self) -> bool:
         return self._open
 
-    def reset(self) -> None:
-        self._x = 0.0
-        self._y = 0.0
-        self._heading = 0.0
-        self._motion_cmd = 1
-        self._last_motion_time = time.monotonic()
-
-    def get_position(self) -> tuple[float, float, float]:
-        self._step_dead_reckoning()
-        return (self._x, self._y, 0.0)
-
     def get_heading(self) -> float:
+        """Return IMU yaw if available, otherwise dead-reckoned heading."""
         if self._imu.get("yaw", 0) != 0:
             return self._imu["yaw"]
         self._step_dead_reckoning()
         return self._heading
+
+    # --- Public telemetry accessors (for tools that bypass CMD protocol) ---
+
+    def get_imu(self) -> dict:
+        """Current IMU reading from telemetry cache."""
+        return dict(self._imu)
+
+    def get_sonar_mm(self) -> int:
+        """Current sonar reading from telemetry cache."""
+        return self._sonar_mm
+
+    def get_battery_mv(self) -> int:
+        """Current battery voltage from telemetry cache."""
+        return self._battery_mv
+
+    async def send_json(self, msg: dict) -> None:
+        """Send a raw JSON message to firmware. For tools that speak JSON directly."""
+        if not self._open:
+            raise ConnectionError(f"{self.log_prefix} not open")
+        await self._send_json(msg)
+
+    async def recv_ack(self, ref_type: str, timeout: float = 2.0) -> Optional[dict]:
+        """Wait for a specific ack message from the firmware telemetry stream."""
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout
+        while True:
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                return None
+            try:
+                msg = await asyncio.wait_for(self._ack_queue.get(), timeout=remaining)
+                if msg.get("ref_type") == ref_type:
+                    return msg
+                # Wrong ref_type — keep draining until we find a match or time out
+            except asyncio.TimeoutError:
+                return None
 
     # --- CMD → JSON translation ---
 
@@ -196,6 +218,11 @@ class JsonStreamTransport(Transport):
         elif msg_type == "boot":
             self._firmware_info = msg
             logger.info("%s boot: %s", self.log_prefix, msg)
+        elif msg_type == "ack":
+            self._ack_queue.put_nowait(msg)
+            if not msg.get("ok"):
+                logger.warning("%s NACK: %s — %s", self.log_prefix,
+                               msg.get("ref_type", "?"), msg.get("error", "?"))
         elif msg_type == "pong":
             logger.debug("%s pong", self.log_prefix)
         elif msg_type == "error":
@@ -209,25 +236,3 @@ class JsonStreamTransport(Transport):
         self._writer.write((json.dumps(msg) + "\n").encode())
         await self._writer.drain()
 
-    # --- Dead reckoning ---
-
-    def _step_dead_reckoning(self) -> None:
-        now = time.monotonic()
-        dt = now - self._last_motion_time if self._last_motion_time > 0 else 0
-        if dt <= 0 or dt > 1.0:
-            self._last_motion_time = now
-            return
-        self._last_motion_time = now
-        cmd = self._motion_cmd
-        if cmd == 3:
-            rad = math.radians(self._heading)
-            self._x += self.FORWARD_SPEED * dt * math.cos(rad)
-            self._y += self.FORWARD_SPEED * dt * math.sin(rad)
-        elif cmd == 4:
-            rad = math.radians(self._heading)
-            self._x -= self.FORWARD_SPEED * dt * math.cos(rad)
-            self._y -= self.FORWARD_SPEED * dt * math.sin(rad)
-        elif cmd == 5:
-            self._heading -= self.TURN_SPEED * dt
-        elif cmd == 6:
-            self._heading += self.TURN_SPEED * dt

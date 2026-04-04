@@ -8,11 +8,11 @@ Subclasses only need to implement the I/O layer: _exec() and _exec_read().
 import abc
 import asyncio
 import logging
-import math
 import time
 from typing import Optional
 
 from comms import Transport, READ_TIMEOUT
+from dead_reckoning import DeadReckoningMixin
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +60,7 @@ LED_COLORS = {
 }
 
 
-class HardwareTransport(Transport):
+class HardwareTransport(DeadReckoningMixin, Transport):
     """
     Abstract base for transports that talk to MechDog via MicroPython REPL.
 
@@ -68,18 +68,10 @@ class HardwareTransport(Transport):
     Subclasses implement _exec(), _exec_read(), open(), and close().
     """
 
-    # Dead reckoning speeds (rough estimates for real hardware)
-    FORWARD_SPEED = 0.10  # m/s
-    TURN_SPEED = 45.0     # deg/s
-
     def __init__(self):
         self._open = False
         self._last_response: Optional[str] = None
-        self._heading = 0.0
-        self._x = 0.0
-        self._y = 0.0
-        self._motion_cmd = 1  # STOP
-        self._last_motion_time = 0.0
+        self._init_dead_reckoning()
 
     async def _init_repl(self) -> None:
         """Run REPL init commands to set up MechDog objects."""
@@ -127,21 +119,6 @@ class HardwareTransport(Transport):
 
     def is_open(self) -> bool:
         return self._open
-
-    def reset(self) -> None:
-        self._x = 0.0
-        self._y = 0.0
-        self._heading = 0.0
-        self._motion_cmd = 1
-        self._last_motion_time = time.monotonic()
-
-    def get_position(self) -> tuple[float, float, float]:
-        self._step_dead_reckoning()
-        return (self._x, self._y, 0.0)
-
-    def get_heading(self) -> float:
-        self._step_dead_reckoning()
-        return self._heading
 
     # --- CMD translation ---
 
@@ -211,30 +188,6 @@ class HardwareTransport(Transport):
             return "CMD|6|7400|$"
 
         return None
-
-    # --- Dead reckoning ---
-
-    def _step_dead_reckoning(self) -> None:
-        now = time.monotonic()
-        dt = now - self._last_motion_time if self._last_motion_time > 0 else 0
-        if dt <= 0 or dt > 1.0:
-            self._last_motion_time = now
-            return
-        self._last_motion_time = now
-
-        cmd = self._motion_cmd
-        if cmd == 3:  # forward
-            rad = math.radians(self._heading)
-            self._x += self.FORWARD_SPEED * dt * math.cos(rad)
-            self._y += self.FORWARD_SPEED * dt * math.sin(rad)
-        elif cmd == 4:  # backward
-            rad = math.radians(self._heading)
-            self._x -= self.FORWARD_SPEED * dt * math.cos(rad)
-            self._y -= self.FORWARD_SPEED * dt * math.sin(rad)
-        elif cmd == 5:  # turn left
-            self._heading -= self.TURN_SPEED * dt
-        elif cmd == 6:  # turn right
-            self._heading += self.TURN_SPEED * dt
 
     async def check_wifi_status(self) -> dict:
         """Check if the dog has WiFi connected. Returns {connected, ip, ssid}."""

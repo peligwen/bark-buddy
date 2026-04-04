@@ -98,7 +98,7 @@ class Server:
         # Don't auto-enable homeostasis — it breaks stock firmware gait.
 
         # Check if dog has WiFi available
-        if hasattr(self._transport, 'check_wifi_status') and 'usb' in self._transport_label:
+        if 'usb' in self._transport_label:
             # Stock firmware: query WiFi status via REPL
             try:
                 wifi = await self._transport.check_wifi_status()
@@ -108,7 +108,7 @@ class Server:
                     logger.info("Dog WiFi detected: %s (%s)", wifi.get("ip"), wifi.get("ssid"))
             except Exception:
                 self._detected_wifi = {"connected": False}
-        elif hasattr(self._transport, 'firmware_info') and 'fw' in self._transport_label:
+        elif 'fw' in self._transport_label:
             # Custom firmware: WiFi info comes from boot/status messages
             await asyncio.sleep(1)  # wait for boot message
             fw = self._transport.firmware_info
@@ -153,7 +153,7 @@ class Server:
     async def _switch_transport(self, mode: str) -> dict:
         """Switch between transport modes: 'usb', 'wifi', 'sim'. Returns status dict."""
         # Signal shutdown on current transport LED
-        if hasattr(self._transport, 'set_led_status') and self._transport.is_open():
+        if self._transport.is_open():
             try:
                 await self._transport.set_led_status("shutdown")
             except Exception:
@@ -251,10 +251,10 @@ class Server:
     async def _add_live_point(self, distance_mm: int) -> None:
         """Add an ultrasonic reading as a map point using current position/heading."""
         import math
-        if not hasattr(self._transport, "get_position") or not hasattr(self._transport, "get_heading"):
-            return
         pos = self._transport.get_position()
         heading = self._transport.get_heading()
+        if pos is None or heading is None:
+            return
         rad = math.radians(heading)
         dist_m = distance_mm / 1000.0
         x = pos[0] + dist_m * math.cos(rad)
@@ -273,8 +273,6 @@ class Server:
 
     async def _update_led_status(self):
         """Update sonar LED based on current state."""
-        if not hasattr(self._transport, 'set_led_status'):
-            return
         if self._lock_holder:
             await self._transport.set_led_status("controlled")
         else:
@@ -421,8 +419,9 @@ class Server:
             status["wifi_available"] = True
             status["wifi_ip"] = wifi_info.get("ip", "")
             status["wifi_ssid"] = wifi_info.get("ssid", "")
-        if hasattr(self._transport, "get_noise_params"):
-            status["noise_params"] = self._transport.get_noise_params()
+        noise = self._transport.get_noise_params()
+        if noise is not None:
+            status["noise_params"] = noise
         await ws.send_str(json.dumps(status))
 
         # Send version hash for stale client detection
@@ -531,12 +530,10 @@ class Server:
             if direction in DIRECTION_MAP:
                 # Wake servos if idle
                 if self._servos_idle and direction != "stop":
-                    if hasattr(self._transport, 'exec_repl'):
-                        try:
-                            await self._transport.exec_repl(
-                                "_dog.set_default_pose()")
-                        except Exception:
-                            pass
+                    try:
+                        await self._transport.exec_repl("_dog.set_default_pose()")
+                    except Exception:
+                        pass
                     self._servos_idle = False
                 await self._dog.move(direction)
                 self._motion = direction
@@ -612,11 +609,12 @@ class Server:
             if action == "start" and not self._scan.running:
                 # Use transport's dead-reckoned position (not patrol's)
                 ox, oy, heading = 0.0, 0.0, 0.0
-                if hasattr(self._transport, "get_position"):
-                    pos = self._transport.get_position()
+                pos = self._transport.get_position()
+                if pos is not None:
                     ox, oy = pos[0], pos[1]
-                if hasattr(self._transport, "get_heading"):
-                    heading = self._transport.get_heading()
+                h = self._transport.get_heading()
+                if h is not None:
+                    heading = h
                 self._mode = "scan"
                 await self._broadcast_status()
                 self._scan.start(
@@ -645,7 +643,7 @@ class Server:
                 })
 
         elif msg_type == "cmd_sim_noise":
-            if hasattr(self._transport, "set_noise_params"):
+            if self._transport.get_noise_params() is not None:
                 self._transport.set_noise_params(msg.get("params", {}))
                 await ws.send_str(json.dumps({
                     "type": "sim_noise_ack", "ok": True,
@@ -668,14 +666,12 @@ class Server:
             password = msg.get("password", "")
             if not ssid:
                 await ws.send_str(json.dumps({"type": "wifi_setup_result", "ok": False, "error": "No SSID"}))
-            elif hasattr(self._transport, 'setup_wifi'):
+            else:
                 result = await self._transport.setup_wifi(ssid, password)
                 if result.get("ok"):
                     self._wifi_host = result.get("ip")
                     self._detected_wifi = {"connected": True, "ip": result["ip"], "ssid": ssid}
                 await ws.send_str(json.dumps({"type": "wifi_setup_result", **result}))
-            else:
-                await ws.send_str(json.dumps({"type": "wifi_setup_result", "ok": False, "error": "Not on USB"}))
 
         elif msg_type == "cmd_reset":
             if self._transport:
@@ -755,7 +751,7 @@ class Server:
                         "roll": imu["roll"],
                     }
                     # Include sim joint data when available (diagnostic only)
-                    if self._transport and hasattr(self._transport, "get_joint_states"):
+                    if self._transport:
                         joints = self._transport.get_joint_states()
                         if joints:
                             imu_msg["joints"] = joints
@@ -764,12 +760,13 @@ class Server:
                     # Odometry: dead-reckoned position + heading (separate from IMU)
                     if self._transport and self._ws_clients:
                         odom = {"type": "telem_odometry", "motion": self._motion}
-                        if hasattr(self._transport, "get_position"):
-                            pos = self._transport.get_position()
+                        pos = self._transport.get_position()
+                        heading = self._transport.get_heading()
+                        if pos is not None:
                             odom["x"] = round(pos[0], 4)
                             odom["y"] = round(pos[1], 4)
-                        if hasattr(self._transport, "get_heading"):
-                            odom["heading"] = round(self._transport.get_heading(), 1)
+                        if heading is not None:
+                            odom["heading"] = round(heading, 1)
                         await self._broadcast(odom)
 
                 # Ultrasonic polling — continues during scan for live mapping
@@ -801,14 +798,15 @@ class Server:
                 if (self._last_motion_time > 0
                         and not self._servos_idle
                         and self._motion == "stop"
-                        and now - self._last_motion_time > self._servo_idle_timeout
-                        and hasattr(self._transport, 'exec_repl')):
+                        and now - self._last_motion_time > self._servo_idle_timeout):
+                    self._servos_idle = True  # Set first — prevents rapid retry on non-REPL transports
                     try:
                         for _ in range(5):
                             await self._transport.exec_repl(
                                 "_dog.transform([0, 0, -1], [0, 0, 0], 80)")
-                        self._servos_idle = True
                         logger.info("Servo idle timeout — resting")
+                    except NotImplementedError:
+                        pass  # Not supported on this transport (e.g. custom firmware)
                     except Exception:
                         pass
 
