@@ -14,7 +14,7 @@ Control system for Hiwonder MechDog robot dog. Stock hardware (no Pi/extra senso
 
 Two firmware paths, same Python host and web UI:
 
-- **Custom firmware (primary):** C++ on ESP32-S3, JSON/NDJSON over WiFi TCP (port 9000) or serial. Full servo control, gait engine, IMU/sonar streaming, heartbeat. This is the target.
+- **Custom firmware (primary):** C++ on ESP32-S (D0WD), JSON/NDJSON over WiFi TCP (port 9000) or serial. Full servo control, gait engine, IMU/sonar streaming, heartbeat. This is the target.
 - **Stock firmware (fallback):** MicroPython REPL over USB serial or WiFi WebREPL. Used for bootstrapping and when custom firmware isn't flashed.
 - **Serial:** Available on both firmware paths for debugging and development.
 
@@ -68,7 +68,7 @@ Flow (stock fallback): Browser → WebSocket (JSON) → Python host → REPL com
 
 ## Conventions
 
-- Firmware: C++ (PlatformIO), ArduinoJson, ESP32-S3
+- Firmware: C++ (PlatformIO), ArduinoJson, ESP32-S (D0WD)
 - Host: Python 3.11+, asyncio, pyserial-asyncio, websockets
 - Web: Vanilla HTML/CSS/JS (ES modules), Three.js r128 via CDN
 - Transport: auto-detected (USB serial → hardware, none → PyBullet sim). Override: `--sim`, `--serial /dev/...`, `--wifi 192.168.1.163`

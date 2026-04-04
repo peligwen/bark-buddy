@@ -8,7 +8,7 @@
 │  Local Dev PC   │           port 9000 (primary)        │  MechDog             │
 │                 │                                      │                      │
 │  Python Host    │      USB Serial (debug/fallback)     │  Custom Firmware     │
-│  - Web Server   │      ◄──────────────────────────►    │  - ESP32-S3 (C++)    │
+│  - Web Server   │      ◄──────────────────────────►    │  - ESP32-S (D0WD) (C++)    │
 │  - Behavior     │           115200 baud                │  - Gait Engine       │
 │    Engine       │                                      │  - Servo Control     │
 │  - Transport    │                                      │  - QMI8658 IMU       │
@@ -35,7 +35,7 @@ Python Host  ←Serial REPL / WiFi WebREPL→  Stock MicroPython Firmware
 
 ## Hardware
 
-- **Hiwonder MechDog** — ESP32-S3, 8 coreless PWM servos (2/leg), QMI8658 IMU, I2C ultrasonic
+- **Hiwonder MechDog** — ESP32-S (D0WD), 8 coreless PWM servos (2/leg), QMI8658 IMU, I2C ultrasonic
 - **No Raspberry Pi or extra sensors** — stock hardware only
 
 ## Firmware Paths
@@ -50,8 +50,8 @@ Python Host  ←Serial REPL / WiFi WebREPL→  Stock MicroPython Firmware
 
 | Layer | Language | Tools | Responsibility |
 |---|---|---|---|
-| Custom Firmware | C++ | PlatformIO, ArduinoJson, ESP32-S3 | Gait engine, servo PWM, IMU/sonar streaming, balance, heartbeat, LED control |
-| Stock Firmware | MicroPython | ESP32-S3 (stock) | Fallback motion via `_dog.move()`, REPL-accessible sensors |
+| Custom Firmware | C++ | PlatformIO, ArduinoJson, ESP32-S (D0WD) | Gait engine, servo PWM, IMU/sonar streaming, balance, heartbeat, LED control |
+| Stock Firmware | MicroPython | ESP32-S (D0WD) (stock) | Fallback motion via `_dog.move()`, REPL-accessible sensors |
 | Host | Python 3.11+ | asyncio, pyserial-asyncio, aiohttp, websockets | Behavior layers, transport abstraction, web server, telemetry relay |
 | Web UI | HTML/CSS/JS | Vanilla ES modules, Three.js r128 | D-pad control, 3D dog visualization, 2D scan map, telemetry gauges |
 | Simulation | Python | PyBullet | Physics sim with URDF model, simulated sensors |
@@ -90,7 +90,7 @@ bark-buddy/
 │   ├── src/                 # main.cpp, gait.cpp, imu.cpp, servos.cpp, sonar.cpp
 │   ├── include/             # config.h, protocol.h, gait.h, imu.h, servos.h, sonar.h, poses.h
 │   ├── test/                # kinematics, balance PID, gait, pose tests
-│   └── platformio.ini       # ESP32-S3 PlatformIO config
+│   └── platformio.ini       # ESP32-S (D0WD) PlatformIO config
 ├── host/                    # Python host
 │   ├── server.py            # Web server + WebSocket handler
 │   ├── comms.py             # Protocol layer + transport ABC

@@ -2,7 +2,7 @@
 
 ## Scope
 
-Custom C++ firmware running on the MechDog's ESP32-S3, communicating over WiFi with a Python host that provides behaviors, a web UI, and 3D visualization. The stock MicroPython firmware was used for bootstrapping and remains available as a fallback. Serial is the debug transport.
+Custom C++ firmware running on the MechDog's ESP32-S (D0WD), communicating over WiFi with a Python host that provides behaviors, a web UI, and 3D visualization. The stock MicroPython firmware was used for bootstrapping and remains available as a fallback. Serial is the debug transport.
 
 ## Bootstrapping (Stock Firmware) ✅
 

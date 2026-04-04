@@ -2,11 +2,12 @@
 #include <stdint.h>
 
 // ============================================================
-// Hardware Configuration — Hiwonder MechDog ESP32-S3
+// Hardware Configuration — Hiwonder MechDog (ESP32-S / D0WD)
 // ============================================================
-// IMPORTANT: Pin assignments are PLACEHOLDERS until verified
-// via stock firmware REPL introspection. Do NOT enable
-// PINS_VERIFIED until you've confirmed each GPIO.
+// Main controller: ESP32-S dual-mode SoC (D0WD). The separate
+// ESP32-S3 on the vision module is for the camera only and is
+// not connected in the current configuration.
+// All pin assignments verified via stock firmware REPL.
 // ============================================================
 
 #ifndef PINS_VERIFIED
@@ -82,6 +83,17 @@ static const uint16_t STANDING_POSE[8] = {
 
 // --- Servo Idle ---
 #define SERVO_IDLE_TIMEOUT_MS   30000   // detach servos after 30s no movement
+
+// --- Frail Mode (servo protection during testing) ---
+// Frail mode is active during test mode. Limits servo authority to
+// prevent damage from bad commands or overheating.
+#define FRAIL_MAX_OFFSET_US     200     // max ±μs deviation from standing pose
+#define FRAIL_SLEW_RATE_US      10      // max μs change per gait tick (20ms)
+#define FRAIL_DUTY_ON_MS        30000   // max continuous servo-on time
+#define FRAIL_COOLDOWN_MS       10000   // mandatory rest after duty limit
+
+// --- Test Mode ---
+#define TEST_HEARTBEAT_MS       10000   // exit test mode if no command for 10s
 
 // --- LED Brightness ---
 #define LED_BRIGHTNESS  15  // 0-255, kept dim for subtle indicator
