@@ -18,7 +18,7 @@ These phases used the stock MicroPython firmware and REPL protocol to bring up t
 ### Phase 2: Basic Movement (Remote Control) ✅
 
 1. ~~Build Python web server~~ → `server.py` with aiohttp (static files + WebSocket)
-2. ~~Create web UI with D-pad~~ → `web/index.html`, `app.js`, `style.css`
+2. ~~Create web UI with D-pad~~ → `web/index.html`, `app.module.js`, `style.css`
 3. ~~Wire WebSocket to comms~~ → browser D-pad → JSON → Python → CMD → serial
 4. ~~Verify on mock~~ → 6 end-to-end checks pass (HTTP, WebSocket, telemetry, commands)
 5. Verify on hardware: D-pad controls move the dog

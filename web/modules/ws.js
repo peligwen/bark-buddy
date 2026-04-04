@@ -20,7 +20,9 @@ export function connect() {
     ws.onmessage = function (event) {
         try {
             if (messageHandler) messageHandler(JSON.parse(event.data));
-        } catch (e) {}
+        } catch (e) {
+            console.warn("[ws] message handler error:", e, event.data);
+        }
     };
 }
 
