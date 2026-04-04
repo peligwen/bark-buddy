@@ -23,7 +23,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 from behaviors.scan import ScanBehavior, ScanResult, SCAN_STEP_DEG
 from behaviors.map_store import MapStore
 from comms import DogComms
-from mock_serial import MockTransport
+from sim.sim_transport import SimTransport
 
 logging.basicConfig(level=logging.WARNING, format="%(name)s %(message)s")
 logger = logging.getLogger("test_scan")
@@ -31,10 +31,11 @@ logger.setLevel(logging.INFO)
 
 
 async def run_tests():
+
     results = {}
 
     # --- Unit tests: ScanBehavior ---
-    transport = MockTransport()
+    transport = SimTransport()
     dog = DogComms(transport)
     await dog.connect()
 
@@ -152,7 +153,7 @@ async def run_tests():
         from aiohttp import web, ClientSession
         from server import Server
 
-        transport2 = MockTransport()
+        transport2 = SimTransport()
         dog2 = DogComms(transport2)
         web_dir = os.path.join(os.path.dirname(__file__), "..", "web")
 

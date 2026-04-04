@@ -19,7 +19,7 @@ from behaviors.map_store import MapStore
 from behaviors.patrol import PatrolBehavior, Waypoint
 from behaviors.scan import ScanBehavior
 from comms import DogComms, DIRECTION_MAP
-from mock_serial import MockTransport
+from sim.sim_transport import SimTransport
 
 logger = logging.getLogger(__name__)
 
@@ -75,10 +75,14 @@ class Server:
             response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
         return response
 
+    async def _index_handler(self, request):
+        return web.FileResponse(os.path.join(self._web_dir, "index.html"))
+
     async def start(self, host: str = "0.0.0.0", port: int = 8080):
         app = web.Application(middlewares=[self._no_cache_middleware])
         app.router.add_get("/ws", self._ws_handler)
-        app.router.add_static("/", self._web_dir, show_index=True)
+        app.router.add_get("/", self._index_handler)
+        app.router.add_static("/", self._web_dir)
         app.on_startup.append(self._on_startup)
         app.on_shutdown.append(self._on_shutdown)
 
@@ -197,12 +201,15 @@ class Server:
                 )
                 label = f"wifi:{self._wifi_host}"
             elif mode == "sim":
-                transport = MockTransport()
+                transport = SimTransport()
                 label = "sim"
-            elif mode == "sim+":
-                from mock_firmware import MockFirmwareTransport
-                transport = MockFirmwareTransport()
-                label = "sim+"
+            elif mode == "hybrid":
+                from hybrid_transport import HybridTransport
+                port = find_serial_port()
+                if not port:
+                    return {"ok": False, "error": "No USB serial device found"}
+                transport = HybridTransport(port=port)
+                label = f"hybrid:{port.split('/')[-1]}"
             else:
                 return {"ok": False, "error": f"Unknown mode: {mode}"}
 
@@ -229,8 +236,8 @@ class Server:
 
         except Exception as e:
             logger.exception("Failed to switch transport to %s", mode)
-            # Fall back to mock
-            self._transport = MockTransport()
+            # Fall back to sim
+            self._transport = SimTransport()
             self._dog = DogComms(self._transport)
             self._balance = BalanceLayer(self._dog)
             self._patrol = PatrolBehavior(self._dog)
@@ -720,10 +727,10 @@ class Server:
 
     async def _telemetry_loop(self):
         """Poll IMU, ultrasonic, and battery, broadcast to browser clients."""
-        # Use firmware-rate polling for sim+ and custom firmware transports
-        from mock_firmware import MockFirmwareTransport
+        # Use firmware-rate polling for transports with push telemetry
         from firmware_transport import FirmwareTransport
-        is_fast = isinstance(self._transport, (MockFirmwareTransport, FirmwareTransport))
+        from hybrid_transport import HybridTransport
+        is_fast = isinstance(self._transport, (SimTransport, FirmwareTransport, HybridTransport))
         imu_interval = 1.0 / (20 if is_fast else IMU_POLL_HZ)
         ultra_interval = 1.0 / (20 if is_fast else ULTRASONIC_POLL_HZ)
         battery_interval = 1.0 / BATTERY_POLL_HZ
@@ -856,7 +863,13 @@ def _restart_server():
 
 
 async def _detect_serial_transport(port: str):
-    """Auto-detect firmware type on a serial port."""
+    """Auto-detect firmware type on a serial port.
+
+    Detection order:
+    1. JSON ping → custom firmware (FirmwareTransport)
+    2. Ctrl+C → MicroPython → hybrid mode (HybridTransport)
+    3. Fallback → hybrid mode (best-effort)
+    """
     import serial
     logger.info("Auto-detecting firmware on %s...", port)
     try:
@@ -876,71 +889,61 @@ async def _detect_serial_transport(port: str):
             logger.info("Detected custom firmware on %s", port)
             return transport, label
 
-        # Try Ctrl+C for MicroPython REPL
+        # Try Ctrl+C for MicroPython REPL → use hybrid mode
         ser.write(b'\x03\x03\r\n')
         time.sleep(0.5)
         resp = ser.read(ser.in_waiting).decode(errors="replace")
         ser.close()
 
         if ">>>" in resp or "MicroPython" in resp:
-            from repl_transport import ReplTransport
-            transport = ReplTransport(port=port)
-            label = f"usb:{port.split('/')[-1]}"
-            logger.info("Detected MicroPython REPL on %s", port)
+            from hybrid_transport import HybridTransport
+            transport = HybridTransport(port=port)
+            label = f"hybrid:{port.split('/')[-1]}"
+            logger.info("Detected MicroPython on %s, using hybrid mode", port)
             return transport, label
 
     except Exception as e:
         logger.warning("Detection failed: %s", e)
 
-    # Default to REPL transport
-    from repl_transport import ReplTransport
-    transport = ReplTransport(port=port)
-    label = f"usb:{port.split('/')[-1]}"
-    logger.info("Defaulting to REPL transport for %s", port)
+    # Fallback to hybrid (most likely stock firmware)
+    from hybrid_transport import HybridTransport
+    transport = HybridTransport(port=port)
+    label = f"hybrid:{port.split('/')[-1]}"
+    logger.info("Defaulting to hybrid transport for %s", port)
     return transport, label
 
 
 async def main(args):
-    if args.wifi:
-        from webrepl_transport import WebReplTransport
+    wifi_host = None
+
+    if args.sim:
+        transport = SimTransport()
+        transport_label = "sim"
+        logger.info("Using physics simulation")
+    elif args.wifi:
+        # WiFi to real hardware
         host_port = args.wifi.split(":")
-        host = host_port[0]
+        wifi_host = host_port[0]
         port = int(host_port[1]) if len(host_port) > 1 else 8266
         password = args.wifi_password or "bark"
-        transport = WebReplTransport(host=host, port=port, password=password)
-        transport_label = f"wifi:{host}"
-        logger.info("Using WebREPL transport: %s:%d", host, port)
-    elif args.serial:
-        port = args.serial if args.serial != "auto" else find_serial_port()
-        if port is None:
-            logger.error("No USB serial port found")
-            raise SystemExit(1)
-        transport, transport_label = await _detect_serial_transport(port)
-    elif not args.sim:
-        # No transport flag — auto-detect USB serial, fall back to sim+
-        port = find_serial_port()
-        if port:
-            logger.info("Auto-detected serial port: %s", port)
-            transport, transport_label = await _detect_serial_transport(port)
-        else:
-            from mock_firmware import MockFirmwareTransport
-            transport = MockFirmwareTransport()
-            transport_label = "sim+"
-            logger.info("No serial port found, using sim+ mock transport")
-    elif args.sim == "classic":
-        transport = MockTransport()
-        transport_label = "sim"
-        logger.info("Using classic mock transport (CMD protocol)")
+        from webrepl_transport import WebReplTransport
+        transport = WebReplTransport(host=wifi_host, port=port, password=password)
+        transport_label = f"wifi:{wifi_host}"
+        logger.info("Using WebREPL transport: %s:%d", wifi_host, port)
     else:
-        from mock_firmware import MockFirmwareTransport
-        transport = MockFirmwareTransport()
-        transport_label = "sim+"
-        logger.info("Using sim+ mock transport (firmware-rate telemetry)")
+        # Auto-detect: USB serial → hybrid/custom/stock, fallback → sim
+        serial_port = args.serial if args.serial else find_serial_port()
+        if serial_port:
+            logger.info("Found serial port: %s", serial_port)
+            transport, transport_label = await _detect_serial_transport(serial_port)
+        else:
+            transport = SimTransport()
+            transport_label = "sim"
+            logger.info("No hardware found, using physics simulation")
 
     dog = DogComms(transport)
     web_dir = os.path.join(os.path.dirname(__file__), "..", "web")
     web_dir = os.path.abspath(web_dir)
-    wifi_host = args.wifi.split(":")[0] if args.wifi else None
     server = Server(dog, web_dir, transport=transport, transport_label=transport_label,
                     wifi_host=wifi_host, wifi_password=args.wifi_password or "bark")
     await server.start(host=args.host, port=args.port)
@@ -954,15 +957,14 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Bark-Buddy web server")
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8080)
+    parser.add_argument("--sim", action="store_true",
+                        help="Force PyBullet simulation (default if no hardware found)")
     parser.add_argument("--serial", default=None,
-                        help="Serial port for MechDog (e.g. /dev/ttyUSB0). Omit for mock.")
+                        help="Serial port (e.g. /dev/cu.usbserial-10). Auto-detected if omitted.")
     parser.add_argument("--wifi", default=None,
-                        help="MechDog WiFi address (e.g. 192.168.1.163 or 192.168.1.163:8266)")
+                        help="WiFi address (e.g. 192.168.1.163)")
     parser.add_argument("--wifi-password", default="bark",
                         help="WebREPL password (default: bark)")
-    parser.add_argument("--sim", nargs="?", const="plus", default=None,
-                        choices=["plus", "classic"],
-                        help="Sim mode: 'plus' (default) or 'classic' (CMD protocol)")
     parser.add_argument("--restart", action="store_true",
                         help="Restart a running server via WebSocket command")
     args = parser.parse_args()
