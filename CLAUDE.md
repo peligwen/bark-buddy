@@ -19,7 +19,7 @@ Two firmware paths, same Python host and web UI:
 - **Serial:** Available on both firmware paths for debugging and development.
 
 Components:
-- **MechDog:** ESP32-S3, 8 PWM servos, QMI8658 IMU, I2C ultrasonic
+- **MechDog:** ESP32-D0WD, 8 PWM servos, QMI8658 IMU, I2C ultrasonic
 - **Local dev machine (Python):** Web server, behavior engine, transport layer
 - **Browser:** Dark-themed control UI with 3D visualization
 
@@ -28,35 +28,32 @@ Flow (stock fallback): Browser → WebSocket (JSON) → Python host → REPL com
 
 ## Key Design Decisions
 
-- **Firmware:** Custom C++ firmware over WiFi is the primary target. Stock MicroPython firmware is the fallback/bootstrap path.
-- **Transport (primary):** WiFi TCP with JSON/NDJSON — custom firmware listens on port 9000, host connects as TCP client.
-- **Transport (fallback):** USB serial REPL or WiFi WebREPL — for stock firmware, bootstrapping, and pin discovery.
-- **Transport (debug):** USB serial available on both firmware paths for development and debugging.
-- **Custom firmware API:** JSON messages — `cmd_move`, `cmd_stand`, `cmd_balance`, `cmd_servo`, `cmd_led`. Firmware streams telemetry (`telem_imu`, `telem_sonar`, `telem_battery`, `telem_status`).
-- **Stock firmware API:** `_dog.move(speed, direction)` via HW_MechDog module. Don't modify gait params or homeostasis — stock defaults work.
-- **Browser protocol:** WebSocket + JSON (same regardless of firmware path)
+- **Simulation:** PyBullet physics — rigid body, ground contact, leg kinematics. Default when no hardware connected.
+- **Hardware (auto-detected):** Plug in USB → auto-detects custom firmware (JSON ping) or stock firmware (hybrid NDJSON handler). No flags needed.
+- **Transport:** All paths speak the same NDJSON protocol. Transports are implementation details, not user choices.
+- **Firmware API:** JSON messages — `cmd_move`, `cmd_stand`, `cmd_balance`, `cmd_servo`, `cmd_led`. Firmware streams telemetry (`telem_imu`, `telem_sonar`, `telem_battery`, `telem_status`).
+- **Browser protocol:** WebSocket + JSON
 - **Behaviors:** Composable layers — balance runs beneath remote or patrol
 - **Web UI:** Dark theme, D-pad controls, 3D dog view + scan map, vanilla JS (ES modules)
-- **Testing:** Mock transport for dev, PyBullet sim, real hardware via WiFi/serial
 
 **Stock firmware caveat:** The stock firmware runs a background thread (`start_main`) that polls BLE/WiFi for CMD protocol. Direct `_dog.move()` calls work when neither BLE nor WiFi socket is connected to the firmware's listener. Calling `set_gait_params()` or `homeostasis()` can break the default gait — avoid modifying firmware state beyond `move()`. This limitation is one reason custom firmware is preferred.
 
 ## Project Layout
 
-- `firmware/` — Custom C++ firmware (PlatformIO, ESP32-S3)
+- `firmware/` — Custom C++ firmware (PlatformIO, ESP32)
   - `src/` — main.cpp, gait.cpp, imu.cpp, servos.cpp, sonar.cpp
   - `include/` — config.h, protocol.h, gait.h, imu.h, servos.h, sonar.h, poses.h
+  - `hybrid/` — MicroPython NDJSON handler (runs on stock firmware)
   - `test/` — kinematics, balance PID, gait, pose tests
-  - `platformio.ini` — ESP32-S3 build config
+  - `platformio.ini` — ESP32 build config
 - `host/` — Python host application
   - `server.py` — web server + WebSocket + telemetry loop
   - `comms.py` — CMD protocol layer + Transport ABC
   - `firmware_transport.py` — transport for custom firmware (JSON/NDJSON)
+  - `hybrid_transport.py` — hybrid transport (uploads NDJSON handler to stock firmware via REPL)
   - `hw_transport.py` — shared base for stock firmware transports (CMD→REPL)
   - `repl_transport.py` — USB serial REPL transport (stock firmware / debug)
   - `webrepl_transport.py` — WiFi WebREPL transport (stock firmware fallback)
-  - `mock_serial.py` — mock transport for dev without hardware
-  - `mock_firmware.py` — mock custom firmware for dev
   - `setup_wifi.py` — interactive WiFi + WebREPL setup script
   - `capture_profile.py` — profile capture + parameter optimizer
   - `behaviors/` — balance.py, patrol.py, scan.py, map_store.py, wall_fit.py, wall_mesh.py, octree.py
@@ -74,7 +71,7 @@ Flow (stock fallback): Browser → WebSocket (JSON) → Python host → REPL com
 - Firmware: C++ (PlatformIO), ArduinoJson, ESP32-S3
 - Host: Python 3.11+, asyncio, pyserial-asyncio, websockets
 - Web: Vanilla HTML/CSS/JS (ES modules), Three.js r128 via CDN
-- Transport: `--wifi 192.168.1.163` (primary) or `--serial /dev/cu.usbserial-XXX` (debug) or mock (default)
+- Transport: auto-detected (USB serial → hardware, none → PyBullet sim). Override: `--sim`, `--serial /dev/...`, `--wifi 192.168.1.163`
 
 ## Custom Firmware Protocol (JSON/NDJSON)
 
