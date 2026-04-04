@@ -21,6 +21,13 @@ static bool attached = false;
 static TaskHandle_t servo_task_handle = NULL;
 static uint32_t servo_pin_mask[8] = {0};
 
+// Frail mode state
+static bool frail_mode = false;
+static uint16_t frail_target_us[8] = {0};  // slew-rate filtered targets
+static unsigned long duty_start = 0;       // when continuous movement started
+static bool in_cooldown = false;
+static unsigned long cooldown_start = 0;
+
 // Sort servos by pulse width for efficient sequential pin-lowering
 struct ServoOrder {
     uint8_t index;
@@ -113,7 +120,7 @@ bool servos_init() {
         float t = (float)step / (float)SOFTSTART_STEPS;
         for (int i = 0; i < 8; i++) {
             uint16_t target = STANDING_POSE[i];
-            uint16_t pos = SERVO_CENTER_US + (uint16_t)((float)(target - SERVO_CENTER_US) * t);
+            uint16_t pos = SERVO_CENTER_US + (uint16_t)((float)((int16_t)target - (int16_t)SERVO_CENTER_US) * t);
             pos = clamp_us(pos);
             current_us[i] = pos;
             target_us[i] = pos;
@@ -127,7 +134,28 @@ bool servos_init() {
 
 void servo_write_us(uint8_t index, uint16_t pulse_us) {
     if (!attached || index >= 8) return;
+    if (in_cooldown) return;  // blocked during frail cooldown
     pulse_us = clamp_us(pulse_us);
+
+    if (frail_mode) {
+        // Range clamp: limit deviation from standing pose
+        int16_t standing = (int16_t)STANDING_POSE[index];
+        int16_t offset = (int16_t)pulse_us - standing;
+        if (offset > FRAIL_MAX_OFFSET_US) offset = FRAIL_MAX_OFFSET_US;
+        if (offset < -FRAIL_MAX_OFFSET_US) offset = -FRAIL_MAX_OFFSET_US;
+        pulse_us = (uint16_t)(standing + offset);
+
+        // Slew rate limit: max change per write
+        int16_t current = (int16_t)frail_target_us[index];
+        if (current > 0) {
+            int16_t delta = (int16_t)pulse_us - current;
+            if (delta > FRAIL_SLEW_RATE_US) delta = FRAIL_SLEW_RATE_US;
+            if (delta < -FRAIL_SLEW_RATE_US) delta = -FRAIL_SLEW_RATE_US;
+            pulse_us = (uint16_t)(current + delta);
+        }
+        frail_target_us[index] = pulse_us;
+    }
+
     current_us[index] = pulse_us;
     target_us[index] = pulse_us;
 }
@@ -160,4 +188,69 @@ void servos_detach_all() {
 
 bool servos_active() {
     return attached;
+}
+
+// --- Frail mode ---
+
+void servos_set_frail(bool enabled) {
+    frail_mode = enabled;
+    in_cooldown = false;
+    duty_start = 0;
+    if (enabled) {
+        // Initialize slew targets to current positions
+        for (int i = 0; i < 8; i++) {
+            frail_target_us[i] = current_us[i] > 0 ? current_us[i] : STANDING_POSE[i];
+        }
+    }
+}
+
+bool servos_frail() {
+    return frail_mode;
+}
+
+bool servos_update_duty(unsigned long now_ms) {
+    if (!frail_mode || !attached) {
+        in_cooldown = false;
+        return false;
+    }
+
+    // Check if in cooldown
+    if (in_cooldown) {
+        if (now_ms - cooldown_start >= FRAIL_COOLDOWN_MS) {
+            in_cooldown = false;
+            duty_start = now_ms;
+        }
+        return in_cooldown;
+    }
+
+    // Check if any servo is away from standing
+    bool any_active = false;
+    for (int i = 0; i < 8; i++) {
+        if (current_us[i] > 0) {
+            int16_t diff = (int16_t)current_us[i] - (int16_t)STANDING_POSE[i];
+            if (abs(diff) > 5) {
+                any_active = true;
+                break;
+            }
+        }
+    }
+
+    if (any_active) {
+        if (duty_start == 0) duty_start = now_ms;
+        if (now_ms - duty_start >= FRAIL_DUTY_ON_MS) {
+            // Force cooldown — return all servos to standing
+            for (int i = 0; i < 8; i++) {
+                uint16_t standing = STANDING_POSE[i];
+                current_us[i] = standing;
+                target_us[i] = standing;
+                frail_target_us[i] = standing;
+            }
+            in_cooldown = true;
+            cooldown_start = now_ms;
+        }
+    } else {
+        duty_start = 0;  // reset timer when at rest
+    }
+
+    return in_cooldown;
 }
