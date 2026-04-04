@@ -35,6 +35,8 @@ static bool connected = false;
 static bool balance_enabled = false;
 static bool low_battery = false;
 static bool manual_servo_mode = false;
+static bool test_mode = false;
+static unsigned long last_test_cmd = 0;
 
 // Telemetry timers
 static unsigned long last_imu = 0;
@@ -295,6 +297,26 @@ void loop() {
         last_status = now;
     }
 
+    // Test mode heartbeat — exit test mode if host goes quiet
+    if (test_mode && (now - last_test_cmd > TEST_HEARTBEAT_MS)) {
+        test_mode = false;
+        manual_servo_mode = false;
+        servos_set_frail(false);
+        gait_set_state(GaitState::STAND);
+    }
+
+    // Frail mode duty cycle tracking
+    if (servos_update_duty(now)) {
+        // In cooldown — LEDs flash amber
+        if ((now / 500) % 2 == 0) {
+            if (xSemaphoreTake(i2c_mutex, pdMS_TO_TICKS(10))) {
+                sonar_set_rgb(1, LED_BRIGHTNESS, LED_BRIGHTNESS / 2, 0);
+                sonar_set_rgb(2, LED_BRIGHTNESS, LED_BRIGHTNESS / 2, 0);
+                xSemaphoreGive(i2c_mutex);
+            }
+        }
+    }
+
     // Calibration mode (mutually exclusive with gait)
     if (calibrate_active()) {
         calibrate_update(now);
@@ -355,13 +377,75 @@ void handle_message(const JsonDocument& doc) {
     else if (strcmp(type, MSG_CMD_SERVO) == 0) {
 #if PINS_VERIFIED
         manual_servo_mode = true;  // disable gait engine
+        if (test_mode) last_test_cmd = millis();  // keep test mode alive
+
+        // Wake servos if detached (fixes idle timeout during testing)
+        if (!servos_active()) {
+            servos_init();
+            if (test_mode) servos_set_frail(true);  // re-enable frail after wake
+        }
+
         uint8_t idx = doc["index"] | 0;
         uint16_t us = doc["pulse_us"] | 1500;
         servo_write_us(idx, us);
-        send_ack(MSG_CMD_SERVO, true);
+
+        // Ack with readback so host can verify
+        JsonDocument resp;
+        resp["type"] = MSG_ACK;
+        resp["ref_type"] = MSG_CMD_SERVO;
+        resp["ok"] = true;
+        resp["index"] = idx;
+        resp["actual_us"] = servo_read_us(idx);
+        resp["frail"] = servos_frail();
+        send_json(resp);
 #else
         send_ack(MSG_CMD_SERVO, false, "pins_not_verified");
 #endif
+    }
+    else if (strcmp(type, MSG_CMD_TEST_MODE) == 0) {
+        bool enable = doc["enable"] | true;
+        bool frail = doc["frail"] | true;  // frail on by default
+        if (enable) {
+            test_mode = true;
+            last_test_cmd = millis();
+            manual_servo_mode = true;
+            gait_set_state(GaitState::STOP);
+
+            // Wake servos if detached
+            if (!servos_active()) {
+                servos_init();
+            }
+
+            servos_set_frail(frail);
+
+            // Purple LED = test mode
+            if (xSemaphoreTake(i2c_mutex, pdMS_TO_TICKS(50))) {
+                sonar_set_rgb(1, LED_BRIGHTNESS / 2, 0, LED_BRIGHTNESS);
+                sonar_set_rgb(2, LED_BRIGHTNESS / 2, 0, LED_BRIGHTNESS);
+                xSemaphoreGive(i2c_mutex);
+            }
+        } else {
+            test_mode = false;
+            manual_servo_mode = false;
+            servos_set_frail(false);
+            gait_set_state(GaitState::STAND);
+
+            // Green LED = normal
+            if (xSemaphoreTake(i2c_mutex, pdMS_TO_TICKS(50))) {
+                sonar_set_rgb(1, 0, LED_BRIGHTNESS, 0);
+                sonar_set_rgb(2, 0, LED_BRIGHTNESS, 0);
+                xSemaphoreGive(i2c_mutex);
+            }
+        }
+
+        JsonDocument resp;
+        resp["type"] = MSG_ACK;
+        resp["ref_type"] = "cmd_test_mode";
+        resp["ok"] = true;
+        resp["test_mode"] = test_mode;
+        resp["frail"] = servos_frail();
+        resp["servos_active"] = servos_active();
+        send_json(resp);
     }
     else if (strcmp(type, MSG_CMD_CALIBRATE) == 0) {
         const char* action = doc["action"] | "sweep";
