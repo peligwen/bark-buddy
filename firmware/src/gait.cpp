@@ -1,4 +1,5 @@
 #include "gait.h"
+#include "gait_math.h"
 #include "config.h"
 #include "servos.h"
 #include <Arduino.h>
@@ -96,46 +97,25 @@ void gait_update(unsigned long now_ms) {
         return;
     }
 
-    // Advance phase based on gait frequency and speed
-    float freq = GAIT_FREQUENCY * speed;
-    phase += 2.0f * M_PI * freq * dt;
+    // Advance phase
+    phase += 2.0f * M_PI * GAIT_FREQUENCY * speed * dt;
     if (phase > 2.0f * M_PI) phase -= 2.0f * M_PI;
 
-    // Sinusoidal trot gait
-    // Diagonal pairs: FL+RR (phase A), FR+RL (phase B = A + PI)
-    float hipAmp = GAIT_HIP_AMPLITUDE * speed;
-    float kneeAmp = GAIT_KNEE_AMPLITUDE * speed;
+    // Map GaitState to GaitDir for the shared math kernel
+    GaitDir gdir = GaitDir::FORWARD;
+    if (state == GaitState::WALK_BACKWARD) gdir = GaitDir::BACKWARD;
+    else if (state == GaitState::TURN_LEFT)  gdir = GaitDir::TURN_LEFT;
+    else if (state == GaitState::TURN_RIGHT) gdir = GaitDir::TURN_RIGHT;
 
-    float sinA = sinf(phase);
-    float sinB = sinf(phase + GAIT_PHASE_OFFSET);
+    GaitAngles a = gait_tick(phase, gdir,
+                             GAIT_HIP_AMPLITUDE, GAIT_KNEE_AMPLITUDE, speed);
 
-    // Direction multiplier
-    float dir = 1.0f;
-    if (state == GaitState::WALK_BACKWARD) dir = -1.0f;
-
-    // For turning: one side moves more than the other
-    float leftMul = 1.0f, rightMul = 1.0f;
-    if (state == GaitState::TURN_LEFT) {
-        leftMul = 0.3f;
-        rightMul = 1.0f;
-    } else if (state == GaitState::TURN_RIGHT) {
-        leftMul = 1.0f;
-        rightMul = 0.3f;
-    }
-
-    // FL (pair A, left side)
-    servo_write_us(0, angle_to_us(0, dir * hipAmp * sinA * leftMul));
-    servo_write_us(1, angle_to_us(1, -kneeAmp * fmaxf(0, sinA)));
-
-    // FR (pair B, right side)
-    servo_write_us(2, angle_to_us(2, dir * hipAmp * sinB * rightMul));
-    servo_write_us(3, angle_to_us(3, -kneeAmp * fmaxf(0, sinB)));
-
-    // RL (pair B, left side)
-    servo_write_us(4, angle_to_us(4, dir * hipAmp * sinB * leftMul));
-    servo_write_us(5, angle_to_us(5, -kneeAmp * fmaxf(0, sinB)));
-
-    // RR (pair A, right side)
-    servo_write_us(6, angle_to_us(6, dir * hipAmp * sinA * rightMul));
-    servo_write_us(7, angle_to_us(7, -kneeAmp * fmaxf(0, sinA)));
+    servo_write_us(0, angle_to_us(0, a.hip[GAIT_FL]));
+    servo_write_us(1, angle_to_us(1, a.knee[GAIT_FL]));
+    servo_write_us(2, angle_to_us(2, a.hip[GAIT_FR]));
+    servo_write_us(3, angle_to_us(3, a.knee[GAIT_FR]));
+    servo_write_us(4, angle_to_us(4, a.hip[GAIT_RL]));
+    servo_write_us(5, angle_to_us(5, a.knee[GAIT_RL]));
+    servo_write_us(6, angle_to_us(6, a.hip[GAIT_RR]));
+    servo_write_us(7, angle_to_us(7, a.knee[GAIT_RR]));
 }

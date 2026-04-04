@@ -1,4 +1,5 @@
 #include "imu.h"
+#include "cf_filter.h"
 #include "config.h"
 #include <math.h>
 
@@ -29,17 +30,9 @@
 #define ACCEL_SCALE     (9.81f / 4096.0f)   // ±8g → 4096 LSB/g
 #define GYRO_SCALE      (1.0f / 64.0f)      // ±512dps → 64 LSB/dps
 
-// Complementary filter coefficient: fraction of gyro vs accel.
-// 0.95 = 95% gyro (fast response) + 5% accel (slow drift correction).
-// At 50Hz the accel time constant is ~0.02/(1-0.95) = 0.4s.
-#define CF_ALPHA        0.95f
-
 static TwoWire* _wire = nullptr;
 static unsigned long _lastTime = 0;
-static float _yaw = 0.0f;
-static float _cf_pitch = 0.0f;
-static float _cf_roll  = 0.0f;
-static bool  _cf_init  = false;
+static CFState _cf = {};
 
 static bool writeReg(uint8_t reg, uint8_t val) {
     _wire->beginTransmission(QMI8658_ADDR);
@@ -89,10 +82,7 @@ bool imu_init(TwoWire& wire) {
     delay(30);
 
     _lastTime = millis();
-    _yaw     = 0.0f;
-    _cf_pitch = 0.0f;
-    _cf_roll  = 0.0f;
-    _cf_init  = false;
+    cf_reset(_cf);
 
     return true;
 }
@@ -123,32 +113,15 @@ bool imu_read(IMUData& out) {
     out.gy = raw_gy * GYRO_SCALE;
     out.gz = raw_gz * GYRO_SCALE;
 
-    // Accel-only pitch and roll (used as correction reference)
-    float accel_pitch = atan2f(out.ax, sqrtf(out.ay * out.ay + out.az * out.az)) * 180.0f / (float)M_PI;
-    float accel_roll  = atan2f(out.ay, sqrtf(out.ax * out.ax + out.az * out.az)) * 180.0f / (float)M_PI;
-
     unsigned long now = millis();
     float dt = (now - _lastTime) / 1000.0f;
     _lastTime = now;
 
-    if (!_cf_init) {
-        // Seed filter from accelerometer on first read
-        _cf_pitch = accel_pitch;
-        _cf_roll  = accel_roll;
-        _cf_init  = true;
-    } else if (dt > 0.0f && dt < 1.0f) {
-        // Complementary filter: blend gyro integration with accel correction.
-        // gy = pitch rate (rotation about Y), gx = roll rate (rotation about X).
-        _cf_pitch = CF_ALPHA * (_cf_pitch + out.gy * dt) + (1.0f - CF_ALPHA) * accel_pitch;
-        _cf_roll  = CF_ALPHA * (_cf_roll  + out.gx * dt) + (1.0f - CF_ALPHA) * accel_roll;
+    cf_update(_cf, out.ax, out.ay, out.az, out.gx, out.gy, out.gz, dt);
 
-        // Yaw from gyro integration only (no magnetometer for correction)
-        _yaw += out.gz * dt;
-    }
-
-    out.pitch = _cf_pitch;
-    out.roll  = _cf_roll;
-    out.yaw   = _yaw;
+    out.pitch = _cf.pitch;
+    out.roll  = _cf.roll;
+    out.yaw   = _cf.yaw;
 
     return true;
 }

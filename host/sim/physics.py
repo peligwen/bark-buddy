@@ -156,6 +156,48 @@ def load_gait_config(path: str = None) -> dict:
 _loaded_config = load_gait_config()
 
 
+# ---- Complementary Filter ----
+# Python mirror of firmware/include/cf_filter.h :: cf_update().
+# Keep in sync: CF_ALPHA, axis conventions (gy=pitch rate, gx=roll rate).
+# Used by: replay/analysis tools, future sim noise injection, onboard model dev.
+
+CF_ALPHA = 0.95  # matches cf_filter.h default
+
+
+class CFFilter:
+    """Complementary filter: blends gyro integration with accel-derived angles."""
+
+    __slots__ = ('pitch', 'roll', 'yaw', '_init')
+
+    def __init__(self):
+        self.pitch = 0.0
+        self.roll  = 0.0
+        self.yaw   = 0.0
+        self._init = False
+
+    def reset(self):
+        self.pitch = 0.0
+        self.roll  = 0.0
+        self.yaw   = 0.0
+        self._init = False
+
+    def update(self, ax, ay, az, gx, gy, gz, dt):
+        """Update pitch/roll/yaw from one IMU sample (units match firmware)."""
+        accel_pitch = math.degrees(math.atan2(ax, math.sqrt(ay*ay + az*az)))
+        accel_roll  = math.degrees(math.atan2(ay, math.sqrt(ax*ax + az*az)))
+
+        if not self._init:
+            self.pitch = accel_pitch
+            self.roll  = accel_roll
+            self._init = True
+            return
+
+        if 0.0 < dt < 1.0:
+            self.pitch = CF_ALPHA * (self.pitch + gy * dt) + (1.0 - CF_ALPHA) * accel_pitch
+            self.roll  = CF_ALPHA * (self.roll  + gx * dt) + (1.0 - CF_ALPHA) * accel_roll
+            self.yaw  += gz * dt
+
+
 # ---- Vec3 ----
 
 class Vec3:
@@ -334,6 +376,48 @@ def standing_height() -> float:
     """Body center height when standing with default angles."""
     foot = leg_fk(FL, STAND_HIP, STAND_KNEE)
     return -foot.y + FOOT_R
+
+
+# ---- Gait Math Kernel ----
+# Python mirror of firmware/include/gait_math.h :: gait_tick().
+# Keep in sync: phase convention (radians, 0→2π), amplitude units (degrees),
+# diagonal pairing (FL+RR = sinA, FR+RL = sinB), differential turning.
+#
+# GaitDir values: 0=forward, 1=backward, 2=turn_left, 3=turn_right
+
+_GAIT_FL, _GAIT_FR, _GAIT_RL, _GAIT_RR = 0, 1, 2, 3  # leg indices
+
+_GAIT_FORWARD, _GAIT_BACKWARD, _GAIT_TURN_LEFT, _GAIT_TURN_RIGHT = 0, 1, 2, 3
+
+
+def gait_tick(phase_rad: float, gdir: int,
+              hip_amp_deg: float, knee_amp_deg: float,
+              speed: float = 1.0) -> list:
+    """Compute per-leg angle offsets (degrees from standing pose) for one tick.
+
+    Returns list of 4 (hip_offset_deg, knee_offset_deg) for FL/FR/RL/RR.
+
+    Mirrors firmware/include/gait_math.h :: gait_tick() exactly.
+    Turning strategy: differential amplitude (both sides swing forward,
+    slow side at 0.3×). This differs from GaitGenerator.update() below
+    which uses opposite-sign turns for the physics sim — a known divergence.
+    """
+    sin_a = math.sin(phase_rad)
+    sin_b = math.sin(phase_rad + math.pi)
+
+    dir_sign  = -1.0 if gdir == _GAIT_BACKWARD   else 1.0
+    left_mul  =  0.3 if gdir == _GAIT_TURN_LEFT  else 1.0
+    right_mul =  0.3 if gdir == _GAIT_TURN_RIGHT else 1.0
+
+    ha = hip_amp_deg  * speed
+    ka = knee_amp_deg * speed
+
+    return [
+        (dir_sign * ha * sin_a * left_mul,  -ka * max(0.0, sin_a)),  # FL
+        (dir_sign * ha * sin_b * right_mul, -ka * max(0.0, sin_b)),  # FR
+        (dir_sign * ha * sin_b * left_mul,  -ka * max(0.0, sin_b)),  # RL
+        (dir_sign * ha * sin_a * right_mul, -ka * max(0.0, sin_a)),  # RR
+    ]
 
 
 # ---- Gait Generator ----
