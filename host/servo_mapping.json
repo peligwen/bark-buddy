@@ -1,0 +1,83 @@
+{
+  "mapping": {
+    "0": {
+      "name": "FL_hip",
+      "primary_axis": "pitch",
+      "polarity": "-",
+      "pitch_range": 6.9,
+      "roll_range": 4.9,
+      "moved": true
+    },
+    "1": {
+      "name": "FL_knee",
+      "primary_axis": "roll",
+      "polarity": "-",
+      "pitch_range": 0.1,
+      "roll_range": 0.3,
+      "moved": false
+    },
+    "2": {
+      "name": "FR_hip",
+      "primary_axis": "pitch",
+      "polarity": "-",
+      "pitch_range": 1.8,
+      "roll_range": 1.3,
+      "moved": true
+    },
+    "3": {
+      "name": "FR_knee",
+      "primary_axis": "roll",
+      "polarity": "+",
+      "pitch_range": 0.0,
+      "roll_range": 0.1,
+      "moved": false
+    },
+    "4": {
+      "name": "RL_hip",
+      "primary_axis": "roll",
+      "polarity": "-",
+      "pitch_range": 0.0,
+      "roll_range": 0.0,
+      "moved": false
+    },
+    "5": {
+      "name": "RL_knee",
+      "primary_axis": "pitch",
+      "polarity": "-",
+      "pitch_range": 0.3,
+      "roll_range": 0.2,
+      "moved": false
+    },
+    "6": {
+      "name": "RR_hip",
+      "primary_axis": "roll",
+      "polarity": "-",
+      "pitch_range": 0.0,
+      "roll_range": 0.0,
+      "moved": false
+    },
+    "7": {
+      "name": "RR_knee",
+      "primary_axis": "roll",
+      "polarity": "-",
+      "pitch_range": 0.0,
+      "roll_range": 0,
+      "moved": false
+    }
+  },
+  "center_imu": {
+    "pitch": 8.3,
+    "roll": -3.8,
+    "yaw": -0.7
+  },
+  "standing_pose_tested": [
+    2096,
+    1621,
+    2170,
+    1611,
+    904,
+    1379,
+    1389,
+    830
+  ]
+}
