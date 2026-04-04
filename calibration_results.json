@@ -1,0 +1,90 @@
+[
+  {
+    "servo": 0,
+    "pin": 14,
+    "label": "FL_hip",
+    "points": 0,
+    "max_pitch_delta": 0.0,
+    "max_roll_delta": 0.0,
+    "primary_axis": "?",
+    "moved": false,
+    "cal_data": []
+  },
+  {
+    "servo": 1,
+    "pin": 13,
+    "label": "FL_knee",
+    "points": 0,
+    "max_pitch_delta": 0.0,
+    "max_roll_delta": 0.0,
+    "primary_axis": "?",
+    "moved": false,
+    "cal_data": []
+  },
+  {
+    "servo": 2,
+    "pin": 16,
+    "label": "FR_hip",
+    "points": 0,
+    "max_pitch_delta": 0.0,
+    "max_roll_delta": 0.0,
+    "primary_axis": "?",
+    "moved": false,
+    "cal_data": []
+  },
+  {
+    "servo": 3,
+    "pin": 17,
+    "label": "FR_knee",
+    "points": 0,
+    "max_pitch_delta": 0.0,
+    "max_roll_delta": 0.0,
+    "primary_axis": "?",
+    "moved": false,
+    "cal_data": []
+  },
+  {
+    "servo": 4,
+    "pin": 18,
+    "label": "RL_hip",
+    "points": 0,
+    "max_pitch_delta": 0.0,
+    "max_roll_delta": 0.0,
+    "primary_axis": "?",
+    "moved": false,
+    "cal_data": []
+  },
+  {
+    "servo": 5,
+    "pin": 8,
+    "label": "RL_knee",
+    "points": 0,
+    "max_pitch_delta": 0.0,
+    "max_roll_delta": 0.0,
+    "primary_axis": "?",
+    "moved": false,
+    "cal_data": []
+  },
+  {
+    "servo": 6,
+    "pin": 5,
+    "label": "RR_hip",
+    "points": 0,
+    "max_pitch_delta": 0.0,
+    "max_roll_delta": 0.0,
+    "primary_axis": "?",
+    "moved": false,
+    "cal_data": []
+  },
+  {
+    "servo": 7,
+    "pin": 7,
+    "label": "RR_knee",
+    "points": 0,
+    "max_pitch_delta": 0.0,
+    "max_roll_delta": 0.0,
+    "primary_axis": "?",
+    "moved": false,
+    "cal_data": []
+  }
+]
