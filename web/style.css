@@ -211,7 +211,7 @@ header h1 {
 /* WiFi setup modal */
 .modal { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 1000; }
 .modal.hidden { display: none; }
-.modal-content { background: var(--panel-bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; min-width: 280px; max-width: 340px; }
+.modal-content { background: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; min-width: 280px; max-width: 340px; }
 .modal-content h3 { margin: 0 0 12px; font-size: 0.85rem; color: var(--text); }
 .modal-content label { display: block; font-size: 0.7rem; color: var(--text-muted); margin: 8px 0 4px; }
 .modal-content input { width: 100%; padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); color: var(--text); font-size: 0.8rem; box-sizing: border-box; }
