@@ -3,3 +3,4 @@ __pycache__/
 .pio/
 .vscode/
 sweep_results/
+.claude/
