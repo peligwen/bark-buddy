@@ -108,10 +108,10 @@ class Server:
                     logger.info("Dog WiFi detected: %s (%s)", wifi.get("ip"), wifi.get("ssid"))
             except Exception:
                 self._detected_wifi = {"connected": False}
-        elif hasattr(self._transport, '_firmware_info') and 'fw' in self._transport_label:
+        elif hasattr(self._transport, 'firmware_info') and 'fw' in self._transport_label:
             # Custom firmware: WiFi info comes from boot/status messages
             await asyncio.sleep(1)  # wait for boot message
-            fw = self._transport._firmware_info
+            fw = self._transport.firmware_info
             if fw.get("wifi") and fw.get("wifi_ip"):
                 self._wifi_host = fw["wifi_ip"]
                 self._detected_wifi = {"connected": True, "ip": fw["wifi_ip"]}
@@ -259,7 +259,7 @@ class Server:
         dist_m = distance_mm / 1000.0
         x = pos[0] + dist_m * math.cos(rad)
         y = pos[1] + dist_m * math.sin(rad)
-        point = self._map._cloud.add_point(x=x, y=y, z=0.09, distance_mm=distance_mm, source="ultrasonic")
+        point = self._map.add_point(x=x, y=y, z=0.09, distance_mm=distance_mm, source="ultrasonic")
         # Broadcast live point for real-time 2D map
         if point and self._ws_clients:
             await self._broadcast({
@@ -349,7 +349,8 @@ class Server:
         for name in sorted(os.listdir(web_dir)):
             path = os.path.join(web_dir, name)
             if os.path.isfile(path):
-                h.update(open(path, "rb").read())
+                with open(path, "rb") as f:
+                    h.update(f.read())
         return h.hexdigest()[:8]
 
     # --- Control lock ---
@@ -530,9 +531,9 @@ class Server:
             if direction in DIRECTION_MAP:
                 # Wake servos if idle
                 if self._servos_idle and direction != "stop":
-                    if hasattr(self._transport, '_exec'):
+                    if hasattr(self._transport, 'exec_repl'):
                         try:
-                            await self._transport._exec(
+                            await self._transport.exec_repl(
                                 "_dog.set_default_pose()")
                         except Exception:
                             pass
@@ -618,11 +619,11 @@ class Server:
                     heading = self._transport.get_heading()
                 self._mode = "scan"
                 await self._broadcast_status()
-                self._scan._task = asyncio.create_task(self._scan.execute(
+                self._scan.start(
                     origin_x=ox, origin_y=oy,
                     origin_heading=heading,
-                ))
-                self._scan._task.add_done_callback(self._scan_task_done)
+                    done_callback=self._scan_task_done,
+                )
             elif action == "stop":
                 await self._scan.cancel()
                 self._mode = "remote"
@@ -793,7 +794,7 @@ class Server:
 
                 # Point cloud maintenance (skip during scan)
                 if not self._scan.running:
-                    self._map._cloud.consolidate()
+                    self._map.consolidate()
                     self._map.decay_tick()
 
                 # Servo idle timeout — lie down to rest (PWM stays alive for wake-up)
@@ -801,10 +802,10 @@ class Server:
                         and not self._servos_idle
                         and self._motion == "stop"
                         and now - self._last_motion_time > self._servo_idle_timeout
-                        and hasattr(self._transport, '_exec')):
+                        and hasattr(self._transport, 'exec_repl')):
                     try:
                         for _ in range(5):
-                            await self._transport._exec(
+                            await self._transport.exec_repl(
                                 "_dog.transform([0, 0, -1], [0, 0, 0], 80)")
                         self._servos_idle = True
                         logger.info("Servo idle timeout — resting")

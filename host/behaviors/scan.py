@@ -147,6 +147,20 @@ class ScanBehavior:
             self._running = False
             self._progress = 0
 
+    def start(self, origin_x: float = 0, origin_y: float = 0,
+              origin_heading: float = 0,
+              done_callback: Optional[Callable] = None) -> asyncio.Task:
+        """Create and track the scan task. Returns the task for caller reference."""
+        task = asyncio.create_task(self.execute(
+            origin_x=origin_x,
+            origin_y=origin_y,
+            origin_heading=origin_heading,
+        ))
+        self._task = task
+        if done_callback:
+            task.add_done_callback(done_callback)
+        return task
+
     async def cancel(self) -> None:
         self._running = False
         if self._task:

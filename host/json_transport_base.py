@@ -54,6 +54,11 @@ class JsonStreamTransport(Transport):
         self._motion_cmd = 1
         self._last_motion_time = 0.0
 
+    @property
+    def firmware_info(self) -> dict:
+        """Boot/status info from firmware (WiFi IP, TCP port, etc.)."""
+        return self._firmware_info
+
     # --- Transport ABC implementation ---
 
     async def close(self) -> None:

@@ -51,6 +51,16 @@ class MapStore:
                      index, len(scan.points), self._cloud.point_count)
         return index
 
+    def add_point(self, x: float, y: float, z: float,
+                  distance_mm: int, source: str = "ultrasonic"):
+        """Add a single live point (e.g. from continuous telemetry mapping)."""
+        return self._cloud.add_point(x=x, y=y, z=z,
+                                     distance_mm=distance_mm, source=source)
+
+    def consolidate(self) -> None:
+        """Merge nearby points and prune low-confidence ones."""
+        self._cloud.consolidate()
+
     def decay_tick(self) -> None:
         self._cloud.decay_tick()
 

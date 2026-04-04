@@ -98,6 +98,10 @@ class HardwareTransport(Transport):
         await self._exec(f"_sonar.setRGB(1, {r}, {g}, {b})")
         await self._exec(f"_sonar.setRGB(2, {r}, {g}, {b})")
 
+    async def exec_repl(self, cmd: str) -> None:
+        """Execute a MicroPython REPL command (public API for server use)."""
+        await self._exec(cmd)
+
     # --- Transport interface ---
 
     async def send(self, data: str) -> None:
