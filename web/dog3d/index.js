@@ -164,8 +164,10 @@ var Dog3D = {
             state.targetX = msg.x * S;
             state.targetZ = msg.y * S;
         }
-        // rotation.y = +90deg faces -Z, but heading=90deg (turned left) should
-        // face +Z (sim +Y), so negate to get correct visual direction
+        // heading positive = turned left
+        // Three.js rotation.y positive = CCW viewed from +Y (= visual left)
+        // Negate because Three.js Y-axis rotation is right-hand rule:
+        // +rotation.y rotates from +X toward -Z, which is visually RIGHT
         if (msg.heading != null) {
             state.targetYaw = -msg.heading * (Math.PI / 180);
         }
