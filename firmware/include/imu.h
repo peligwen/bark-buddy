@@ -4,8 +4,8 @@
 struct IMUData {
     float ax, ay, az;   // m/s²
     float gx, gy, gz;   // deg/s
-    float pitch, roll;  // from accelerometer (degrees)
-    float yaw;          // integrated from gyro (drifts)
+    float pitch, roll;  // complementary filter: gyro + accel (degrees)
+    float yaw;          // integrated from gyro only (drifts without magnetometer)
 };
 
 bool imu_init(TwoWire& wire);
