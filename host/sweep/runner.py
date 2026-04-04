@@ -89,7 +89,8 @@ def run_sweep(sweep_name: str, scenario_name: str,
               n_workers: int = 8, target_score: float = 0.9,
               expansion: float = 0.1, top_pct: float = 0.2,
               output_dir: str = None, scenario_config: dict = None,
-              scoring_config: dict = None, seed: int = 42):
+              scoring_config: dict = None, seed: int = 42,
+              apply: bool = False):
     """Run a recursive parameter sweep.
 
     Args:
@@ -213,7 +214,38 @@ def run_sweep(sweep_name: str, scenario_name: str,
         best_path = write_best_params(ranked, output_dir, sweep_name)
         print(f"Best params written to: {best_path}")
 
+        if apply:
+            _apply_best_params(all_passing[0], sweep_name, scenario_name)
+
     print("Done.")
+
+
+GAIT_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "..", "gait_config.json")
+
+
+def _apply_best_params(best_result: dict, sweep_name: str, scenario_name: str):
+    """Write best params to gait_config.json for the sim to load on startup."""
+    config = {
+        "sweep": sweep_name,
+        "scenario": scenario_name,
+        "score": best_result["score"],
+        "params": {k: round(v, 6) if isinstance(v, float) else v
+                   for k, v in best_result["params"].items()},
+        "metrics": best_result["metrics"],
+    }
+
+    # Merge with existing config (other sweeps may have set other params)
+    if os.path.exists(GAIT_CONFIG_PATH):
+        with open(GAIT_CONFIG_PATH) as f:
+            existing = json.load(f)
+        existing_params = existing.get("params", {})
+        existing_params.update(config["params"])
+        config["params"] = existing_params
+
+    with open(GAIT_CONFIG_PATH, "w") as f:
+        json.dump(config, f, indent=2)
+
+    print(f"Applied best params to: {GAIT_CONFIG_PATH}")
 
 
 def main():
@@ -223,7 +255,7 @@ def main():
         epilog="""
 Examples:
   python -m sweep.runner --sweep gait --scenario flat_walk
-  python -m sweep.runner --sweep gait --scenario flat_walk --samples 50 --rounds 2
+  python -m sweep.runner --sweep gait --scenario flat_walk --samples 50 --rounds 2 --apply
   python -m sweep.runner --sweep balance_pid --scenario push_recovery --workers 4
   python -m sweep.runner --sweep full --scenario sustained_walk --samples 300
   python -m sweep.runner --list-sweeps
@@ -246,6 +278,8 @@ Examples:
                         help="Output directory")
     parser.add_argument("--config", type=str, default=None,
                         help="JSON file with scenario config overrides")
+    parser.add_argument("--apply", action="store_true",
+                        help="Apply best params to gait_config.json for sim to use")
     parser.add_argument("--list-sweeps", action="store_true",
                         help="List available sweep presets")
     parser.add_argument("--list-scenarios", action="store_true",
@@ -286,6 +320,7 @@ Examples:
         output_dir=args.output_dir,
         scenario_config=scenario_config,
         seed=args.seed,
+        apply=args.apply,
     )
 
 

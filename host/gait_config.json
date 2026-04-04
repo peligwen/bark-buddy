@@ -1,0 +1,19 @@
+{
+  "sweep": "gait",
+  "scenario": "flat_walk",
+  "score": 0.843171,
+  "params": {
+    "hip_amplitude": 0.256336,
+    "knee_amplitude": 0.074813,
+    "lift_height": 0.004654,
+    "gait_frequency": 2.21658
+  },
+  "metrics": {
+    "distance": 0.4874,
+    "max_pitch": 0.6,
+    "max_roll": 8.21,
+    "energy": 7.8634,
+    "fell": false,
+    "final_height": 0.1368
+  }
+}

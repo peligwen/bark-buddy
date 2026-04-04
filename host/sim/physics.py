@@ -12,8 +12,13 @@ Dimensions and standing pose match the official MechDog spec and
 firmware/test/kinematics.h exactly.
 """
 
+import json
+import logging
 import math
+import os
 from dataclasses import dataclass, field
+
+logger = logging.getLogger(__name__)
 
 # ---- Dimensions (meters) — from kinematics.h / official spec ----
 UPPER_LEN = 0.055
@@ -63,6 +68,60 @@ GAIT_FREQUENCY = 1.5        # Hz
 # Movement
 FORWARD_SPEED = 0.10    # m/s
 TURN_SPEED = 45.0        # deg/s
+
+# ---- Config loading ----
+
+# All tunable params that can be overridden via gait_config.json
+_TUNABLE_PARAMS = {
+    "hip_amplitude": "GAIT_HIP_AMPLITUDE",
+    "knee_amplitude": "GAIT_KNEE_AMPLITUDE",
+    "lift_height": "GAIT_LIFT_HEIGHT",
+    "gait_frequency": "GAIT_FREQUENCY",
+    "contact_k": "CONTACT_K",
+    "contact_c": "CONTACT_C",
+    "contact_mu": "CONTACT_MU",
+    "joint_kp": "JOINT_KP",
+    "joint_kd": "JOINT_KD",
+    "max_torque": "JOINT_MAX_TORQUE",
+    "forward_speed": "FORWARD_SPEED",
+    "turn_speed": "TURN_SPEED",
+}
+
+GAIT_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "..", "gait_config.json")
+
+
+def load_gait_config(path: str = None) -> dict:
+    """Load tunable parameters from gait_config.json.
+
+    Patches module-level constants in this module. Returns the loaded
+    params dict, or empty dict if file doesn't exist.
+    """
+    path = path or GAIT_CONFIG_PATH
+    if not os.path.exists(path):
+        return {}
+
+    with open(path) as f:
+        data = json.load(f)
+
+    params = data.get("params", data)
+    applied = {}
+    g = globals()
+
+    for config_key, module_attr in _TUNABLE_PARAMS.items():
+        if config_key in params:
+            value = float(params[config_key])
+            g[module_attr] = value
+            applied[config_key] = value
+
+    if applied:
+        logger.info("Loaded gait config from %s: %s", path,
+                     {k: round(v, 4) for k, v in applied.items()})
+
+    return applied
+
+
+# Auto-load config on import
+_loaded_config = load_gait_config()
 
 
 # ---- Vec3 ----
