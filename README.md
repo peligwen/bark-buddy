@@ -4,7 +4,7 @@ Give our Hiwonder MechDog Open Source AI Robot Dog some real brains.
 
 ## What Is This?
 
-Custom firmware and host software for the [Hiwonder MechDog](https://www.hiwonder.com/) robot dog. The goal is a custom C++ firmware on the ESP32-S3 communicating over WiFi with a Python host that runs behaviors, serves a web UI, and provides 3D visualization and ultrasonic mapping.
+Custom firmware and host software for the [Hiwonder MechDog](https://www.hiwonder.com/) robot dog. The goal is a semi-autonomous robot: custom C++ firmware on the ESP32-S (D0WD) communicates over WiFi with a Python host that runs behaviors, serves a web UI, and maintains a world model from ultrasonic scanning. The dog navigates to user-defined goals using that world model.
 
 The stock MicroPython firmware is supported as a fallback for bootstrapping and when the custom firmware isn't flashed. USB serial is available for debugging on both paths.
 
@@ -12,7 +12,7 @@ The stock MicroPython firmware is supported as a fallback for bootstrapping and 
 
 | Milestone | Capabilities |
 |---|---|
-| 1 — Remote, Balance, Patrol | Web UI D-pad control, IMU-based balance, waypoint patrol, telemetry dashboard |
+| 1 — Remote, Balance, Scan | Web UI D-pad control, IMU-based balance, ultrasonic scan, telemetry dashboard |
 | 2 — Ultrasonic Mapping | 360° scanning, point cloud accumulation, wall detection (chain-based + DBSCAN/PCA), wall mesh generation with corner snapping |
 | 3 — Physics Simulation | PyBullet SimTransport with URDF model, simulated IMU/sonar, room creation for mapping tests |
 | 4 — Wall Mesh & Visualization | Three.js 3D dog model, gait animation, wall rendering, ES module UI refactor |
@@ -20,8 +20,14 @@ The stock MicroPython firmware is supported as a fallback for bootstrapping and 
 ## Current Work
 
 - Custom firmware deployment and WiFi transport integration
-- Servo pin verification and hardware testing
-- UI refinement and wall rendering fidelity
+- Servo mapping validation (RR hip servo blown — awaiting replacement part)
+- Hardware testing once servo arrives
+
+## Up Next
+
+- SLAM-based localization (IMU + sonar scan matching)
+- Composite multi-scan mapping
+- Waypoint navigation UI with path planning and obstacle avoidance
 
 ## Architecture
 
@@ -60,7 +66,7 @@ Open `http://localhost:8080` in your browser.
 ```bash
 cd firmware
 pio test          # run tests first
-pio run -t upload # flash to ESP32-S3
+pio run -t upload # flash to ESP32-S (D0WD)
 ```
 
 ## Documentation

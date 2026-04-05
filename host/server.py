@@ -16,7 +16,6 @@ from aiohttp import web
 
 from behaviors.balance import BalanceLayer
 from behaviors.map_store import MapStore
-from behaviors.patrol import PatrolBehavior, Waypoint
 from behaviors.scan import ScanBehavior
 from comms import DogComms, DIRECTION_MAP
 from sim.sim_transport import SimTransport
@@ -51,10 +50,9 @@ class Server:
         self._ws_clients: set[web.WebSocketResponse] = set()
         self._poll_task: asyncio.Task | None = None
         self._balance = BalanceLayer(dog)
-        self._patrol = PatrolBehavior(dog)
         self._scan = ScanBehavior(dog)
         self._map = MapStore()
-        self._mode = "remote"  # remote | patrol | scan
+        self._mode = "remote"  # remote | scan
         self._motion = "stop"  # last motion direction
         self._action = None    # last action code or None
         self._last_motion_time = 0.0   # for servo idle timeout
@@ -121,11 +119,6 @@ class Server:
         self._balance.on_fall(self._on_fall)
         self._balance.on_recovered(self._on_recovered)
 
-        # Register patrol callbacks
-        self._patrol.on_waypoint_reached(self._on_waypoint_reached)
-        self._patrol.on_patrol_complete(self._on_patrol_complete)
-        self._patrol.on_position_update(self._on_position_update)
-
         # Register scan callbacks
         self._scan.on_point(self._on_scan_point)
         self._scan.on_complete(self._on_scan_complete)
@@ -143,8 +136,6 @@ class Server:
                     pass
         if self._scan.running:
             await self._scan.cancel()
-        if self._patrol.running:
-            await self._patrol.stop()
         await self._balance.stop()
         for ws in set(self._ws_clients):
             await ws.close()
@@ -217,12 +208,9 @@ class Server:
             self._transport = transport
             self._dog = DogComms(transport)
             self._balance = BalanceLayer(self._dog)
-            self._patrol = PatrolBehavior(self._dog)
             self._scan = ScanBehavior(self._dog)
             self._scan.on_point(self._on_scan_point)
             self._scan.on_complete(self._on_scan_complete)
-            self._patrol.on_patrol_complete(self._on_patrol_complete)
-            self._patrol.on_position_update(self._on_position_update)
             self._balance.on_fall(self._on_fall)
             self._balance.on_recovered(self._on_recovered)
 
@@ -289,26 +277,6 @@ class Server:
     async def _on_recovered(self, imu: dict):
         """Broadcast recovery event to all clients."""
         await self._broadcast({"type": "event_recovered"})
-
-    async def _on_waypoint_reached(self, index: int, wp: Waypoint):
-        await self._broadcast({
-            "type": "patrol_waypoint",
-            "index": index,
-            "x": wp.x, "y": wp.y, "heading": wp.heading,
-        })
-
-    async def _on_patrol_complete(self):
-        self._mode = "remote"
-        await self._broadcast({"type": "patrol_complete"})
-        await self._broadcast_status()
-
-    async def _on_position_update(self, pos: dict):
-        await self._broadcast({
-            "type": "patrol_position",
-            "x": round(pos["x"], 3),
-            "y": round(pos["y"], 3),
-            "heading": round(pos["heading"], 1),
-        })
 
     async def _on_scan_point(self, point, progress: int):
         """Broadcast each scan point as it's captured."""
@@ -505,7 +473,7 @@ class Server:
             return
 
         # --- Control commands (gated by lock) ---
-        if msg_type in ("cmd_move", "cmd_stand", "cmd_balance", "cmd_patrol",
+        if msg_type in ("cmd_move", "cmd_stand", "cmd_balance",
                          "cmd_action", "cmd_scan"):
             if not self._can_control(ws):
                 await ws.send_str(json.dumps({
@@ -560,29 +528,6 @@ class Server:
                 "enabled": self._balance.enabled,
             })
 
-        elif msg_type == "cmd_patrol":
-            action = msg.get("action", "stop")
-            if action == "start":
-                waypoints_raw = msg.get("waypoints", [])
-                try:
-                    waypoints = [
-                        Waypoint(x=float(w["x"]), y=float(w["y"]),
-                                 heading=float(w.get("heading", 0)))
-                        for w in waypoints_raw
-                    ]
-                except (KeyError, TypeError, ValueError):
-                    logger.warning("Invalid waypoint data: %s", waypoints_raw)
-                    return
-                if waypoints:
-                    self._patrol.set_waypoints(waypoints)
-                    self._mode = "patrol"
-                    await self._patrol.start()
-                    await self._broadcast_status()
-            elif action == "stop":
-                await self._patrol.stop()
-                self._mode = "remote"
-                await self._broadcast_status()
-
         elif msg_type == "cmd_pose":
             pose_name = msg.get("pose", "stand")
             # On real hardware, translate to stand/sit/lie commands
@@ -607,7 +552,7 @@ class Server:
         elif msg_type == "cmd_scan":
             action = msg.get("action", "start")
             if action == "start" and not self._scan.running:
-                # Use transport's dead-reckoned position (not patrol's)
+                # Use transport's dead-reckoned position as scan origin
                 ox, oy, heading = 0.0, 0.0, 0.0
                 pos = self._transport.get_position()
                 if pos is not None:

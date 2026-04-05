@@ -4,3 +4,4 @@ __pycache__/
 .vscode/
 sweep_results/
 .claude/
+firmware/include/config_local.h

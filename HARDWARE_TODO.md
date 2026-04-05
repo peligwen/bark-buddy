@@ -41,8 +41,9 @@ Run sim alongside real hardware, compare telemetry side by side.
 
 ## 3. Servo-to-Leg Mapping Validation
 
-The servo-to-joint mapping is only partially confirmed via IMU response.
-Back left leg was tucking in — polarity or assignment is wrong somewhere.
+The servo-to-joint mapping is **untrusted** — prior identification data was collected during a messy code state and should be discarded. `identify_servos.py` and `servo_test.py` also need a code review before running again.
+
+**Pre-requisite:** Review `identify_servos.py` and `servo_test.py` before using on hardware.
 
 - With dog standing on flat surface, run `identify_servos.py` via hybrid mode's `cmd_servo`
 - Move each servo one at a time in 5μs steps, record IMU deltas
@@ -50,7 +51,9 @@ Back left leg was tucking in — polarity or assignment is wrong somewhere.
 - Produce a definitive mapping: servo index → joint name → polarity
 - Update `config.h` SERVO_POLARITY and STANDING_POSE arrays
 
-**Safety:** Servos get warm. Take breaks. Check delta from baseline not absolute tilt.
+**Note:** RR hip servo is currently blown — awaiting replacement. Map remaining 7 servos first; validate RR hip after replacement.
+
+**Safety:** Servos get warm. Take breaks. Use frail mode. Check delta from baseline not absolute tilt.
 
 ## 4. Movement Direction Calibration
 
@@ -61,7 +64,7 @@ After the stock firmware reflash, movement is off:
 
 **Method:**
 - Use IMU yaw to measure actual turn rate for `move(20, -50)` and `move(20, 50)`
-- Use dead reckoning + IMU to measure forward drift angle
+- Use IMU to measure forward drift angle over 2s
 - Adjust MOTION_CMDS speed/direction values in `handler.py` until:
   - Forward goes straight (< 5° drift over 2s)
   - Left/right turn at roughly equal rates

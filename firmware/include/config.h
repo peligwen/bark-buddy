@@ -59,6 +59,11 @@ static const uint16_t STANDING_POSE[8] = {
 #define BATTERY_NOMINAL_MV  7400
 
 // --- WiFi ---
+// Credentials come from config_local.h (gitignored).
+// Copy firmware/include/config_local.h.example → config_local.h and fill in values.
+#if __has_include("config_local.h")
+#include "config_local.h"
+#endif
 #ifndef WIFI_SSID
 #define WIFI_SSID ""
 #endif

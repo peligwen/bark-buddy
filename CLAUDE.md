@@ -1,14 +1,15 @@
 # Bark-Buddy
 
-Control system for Hiwonder MechDog robot dog. Stock hardware (no Pi/extra sensors).
+Semi-autonomous control system for Hiwonder MechDog robot dog. Stock hardware (no Pi/extra sensors).
 
 ## Status
 
-- **Milestone 1** (Remote, Balance, Patrol) — complete
+- **Milestone 1** (Remote, Balance, Scanning) — complete
 - **Milestone 2** (Ultrasonic Scanning/Mapping) — complete
 - **Milestone 3** (PyBullet Physics Simulation) — complete
 - **Milestone 4** (Wall Mesh & 3D Visualization) — complete
-- **Current work** — Custom firmware deployment, WiFi transport, hardware testing
+- **Current work** — Custom firmware deployment, servo mapping validation (RR hip servo blown — awaiting replacement), hardware testing
+- **Next milestone** — SLAM-based localization, composite multi-scan mapping, waypoint navigation UI
 
 ## Architecture
 
@@ -33,8 +34,9 @@ Flow (stock fallback): Browser → WebSocket (JSON) → Python host → REPL com
 - **Transport:** All paths speak the same NDJSON protocol. Transports are implementation details, not user choices.
 - **Firmware API:** JSON messages — `cmd_move`, `cmd_stand`, `cmd_balance`, `cmd_servo`, `cmd_led`. Firmware streams telemetry (`telem_imu`, `telem_sonar`, `telem_battery`, `telem_status`).
 - **Browser protocol:** WebSocket + JSON
-- **Behaviors:** Composable layers — balance runs beneath remote or patrol
+- **Behaviors:** Composable layers — balance runs beneath remote or scan
 - **Web UI:** Dark theme, D-pad controls, 3D dog view + scan map, vanilla JS (ES modules)
+- **Goal:** Semi-autonomous — user sets goals from the UI, dog navigates using a continuously updated world model (sonar + future camera)
 
 **Stock firmware caveat:** The stock firmware runs a background thread (`start_main`) that polls BLE/WiFi for CMD protocol. Direct `_dog.move()` calls work when neither BLE nor WiFi socket is connected to the firmware's listener. Calling `set_gait_params()` or `homeostasis()` can break the default gait — avoid modifying firmware state beyond `move()`. This limitation is one reason custom firmware is preferred.
 
@@ -56,7 +58,7 @@ Flow (stock fallback): Browser → WebSocket (JSON) → Python host → REPL com
   - `webrepl_transport.py` — WiFi WebREPL transport (stock firmware fallback)
   - `setup_wifi.py` — interactive WiFi + WebREPL setup script
   - `capture_profile.py` — profile capture + parameter optimizer
-  - `behaviors/` — balance.py, patrol.py, scan.py, map_store.py, wall_fit.py, wall_mesh.py, octree.py
+  - `behaviors/` — balance.py, scan.py, map_store.py, wall_fit.py, wall_mesh.py, octree.py
   - `sim/` — PyBullet simulation (sim_transport.py, mechdog.urdf)
 - `web/` — static web UI (ES modules)
   - `index.html` — page structure
@@ -106,6 +108,15 @@ Telemetry (firmware → host):
 - Custom firmware: test with `pio test` before flashing. Servo pins must be verified before enabling `PINS_VERIFIED`.
 - Stock firmware: don't modify gait/balance state — use move() only.
 
+## Planned Future Work
+
+- **SLAM-based localization** — IMU + sonar scan matching for proper position estimation (replaces dead reckoning)
+- **Composite multi-scan mapping** — merge overlapping scans into a persistent world model
+- **Waypoint navigation UI** — user places waypoints on 2D map; path planning + obstacle avoidance handles routing
+- **Camera/vision** — ESP32-S3 camera module integration; visual data layered on sonar world model
+- **Semantic understanding** — room labeling, local LLM for natural language goals ("go check the living room")
+- **Multi-platform support** — abstract robot config to support other quadrupeds and custom builds
+
 ## Out of Scope
 
-Camera/vision, object carrying, runtime AI, mobile app, Pi integration.
+Object carrying, mobile app, Pi integration.

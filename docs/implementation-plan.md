@@ -136,22 +136,53 @@ The custom C++ firmware is implemented and tested but awaiting final hardware de
 
 ## Future (Planned)
 
-### Multi-Scan & Patrol Integration
+### SLAM-Based Localization
 
-- Scan at each patrol waypoint to build composite map
-- Merge overlapping scans with position correction
-- Map persistence (save/load)
+Replace dead reckoning with proper position estimation using IMU + sonar scan matching:
 
-### Obstacle-Aware Planning
+- Incremental scan matching (ICP or similar) to correct position drift
+- EKF or particle filter fusing IMU heading + scan observations
+- Persistent position/map across sessions
+- Expose position confidence metric to host and UI
 
-- Use map data to identify obstacles
-- Generate obstacle-aware waypoint paths
-- Real-time obstacle avoidance during patrol
+### Composite Multi-Scan Mapping
+
+- Accumulate scans at multiple positions into a single coherent map
+- Merge overlapping scans with position-corrected alignment
+- Map persistence (save/load between sessions)
+- Point cloud consolidation and decay across merged scans
+
+### Waypoint Navigation with Path Planning
+
+- User places waypoints on 2D map in the browser UI
+- A*/RRT path planner generates obstacle-aware route
+- Real-time obstacle avoidance during navigation
+- Live position estimate shown on 2D map
+
+### Camera & Visual Integration
+
+- ESP32-S3 camera module integration (separate chip, already on MechDog)
+- Visual data layered on top of sonar world model
+- Stream to browser UI
+- Future: visual odometry to supplement sonar-based localization
+
+### Semantic Understanding (Long-Term)
+
+- Room labeling based on map geometry and patrol history
+- Local LLM integration for natural language goal-setting ("go check the living room")
+- Goal queue with priority and status reporting
 
 ### Advanced Gait
 
-- Profile-based gait optimization
+- Profile-based gait optimization from hardware telemetry
 - Custom gaits (trot, gallop) via parametric gait engine
+- On-chip leg contact estimation → model predictive control for balance
+
+### Multi-Platform Support
+
+- Abstract robot description (servo layout, geometry, gait params) into config
+- Support other quadruped platforms beyond MechDog
+- Custom-built robots via URDF + config file
 
 ## Verification Matrix
 
@@ -160,7 +191,7 @@ The custom C++ firmware is implemented and tested but awaiting final hardware de
 | Remote Control | Open web UI, D-pad controls move the dog |
 | Balance | Enable balance → push dog → firmware corrects |
 | Telemetry | IMU gauges + battery + ultrasonic update in real-time in web UI |
-| Patrol | Start patrol → dog navigates waypoints via dead reckoning |
+| Waypoint Nav | Place waypoint on 2D map → dog navigates with obstacle avoidance |
 | Connection Loss | Disconnect WiFi → UI shows disconnected → reconnect → resumes |
 | Composability | Patrol + balance active simultaneously |
 | Ultrasonic | Distance display updates, color warnings for close objects |
@@ -169,4 +200,4 @@ The custom C++ firmware is implemented and tested but awaiting final hardware de
 
 ## Out of Scope
 
-Camera/vision, object carrying, runtime AI, mobile app, Pi integration, SLAM.
+Object carrying, mobile app, Pi integration.
