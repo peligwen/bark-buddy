@@ -33,11 +33,13 @@ JOINT_LABELS = ['FL_hip', 'FL_knee', 'FR_hip', 'FR_knee',
                 'RL_hip', 'RL_knee', 'RR_hip', 'RR_knee']
 
 # Safety
-TILT_LIMIT = 12.0   # degrees
+TILT_LIMIT = 6.0     # degrees — abort if cumulative delta exceeds this
+JERK_LIMIT = 2.0     # degrees — abort on sudden per-step jump (stall/impact)
 STEP_US = 5          # microseconds per step
-MAX_STEPS = 40       # max 200μs sweep
+MAX_STEPS = 20       # max 100μs sweep (was 40/200μs — conservative for fresh servo)
 DWELL_S = 0.15       # seconds between steps
 IMU_SAMPLES = 2      # readings to average
+STAND_LEVEL_LIMIT = 15.0  # degrees — abort if dog isn't level after cmd_stand
 
 
 def leg_fk(leg_idx, hip_angle, knee_angle):
@@ -180,6 +182,22 @@ def run_identification(port):
     print("Standing up...")
     t.send_json({"type": "cmd_stand"})
     time.sleep(3)
+
+    # Verify dog actually stood up before proceeding
+    check_p, check_r = t.read_imu(IMU_SAMPLES)
+    if check_p is None:
+        print("ERROR: Cannot read IMU after cmd_stand")
+        t.close()
+        return
+    print(f"Post-stand IMU: pitch={check_p:.2f}° roll={check_r:.2f}°")
+    if abs(check_p) > STAND_LEVEL_LIMIT or abs(check_r) > STAND_LEVEL_LIMIT:
+        print(f"ABORT — dog is not level after cmd_stand "
+              f"(pitch={check_p:.1f}° roll={check_r:.1f}°, limit=±{STAND_LEVEL_LIMIT}°). "
+              f"Check legs before proceeding.")
+        t.set_all_standing()
+        t.close()
+        return
+
     # Stop gait engine — cmd_move stop sets STOP state which still runs gait_update
     # Use calibration mode instead which disables gait
     t.send_json({"type": "cmd_calibrate", "action": "stop"})
@@ -219,6 +237,8 @@ def run_identification(port):
         sweep_data = []
         aborted = False
 
+        prev_p, prev_r = baseline_p, baseline_r
+
         for step in range(1, MAX_STEPS + 1):
             delta = step * STEP_US
             t.set_servo(servo_idx, pos + delta)
@@ -230,6 +250,8 @@ def run_identification(port):
 
             dp = p - baseline_p
             dr = r - baseline_r
+            jerk_p = abs(p - prev_p)
+            jerk_r = abs(r - prev_r)
 
             sweep_data.append({
                 'delta_us': delta,
@@ -237,8 +259,21 @@ def run_identification(port):
                 'dp': dp, 'dr': dr,
             })
 
-            # Safety check — limit CHANGE from baseline, not absolute value
+            prev_p, prev_r = p, r
+
+            # Jerk check — sudden large change (stall or impact)
+            if jerk_p > JERK_LIMIT or jerk_r > JERK_LIMIT:
+                print(f"  ABORT (jerk) at +{delta}μs: "
+                      f"step Δpitch={jerk_p:.1f}° Δroll={jerk_r:.1f}° > {JERK_LIMIT}°")
+                t.set_servo(servo_idx, pos)
+                time.sleep(0.3)
+                aborted = True
+                break
+
+            # Tilt accumulation check
             if abs(dp) > TILT_LIMIT or abs(dr) > TILT_LIMIT:
+                print(f"  ABORT (tilt) at +{delta}μs: "
+                      f"dp={dp:.1f}° dr={dr:.1f}° > {TILT_LIMIT}°")
                 t.set_servo(servo_idx, pos)
                 time.sleep(0.3)
                 aborted = True
@@ -253,6 +288,8 @@ def run_identification(port):
                 (max(abs(d['dp']) for d in sweep_data) < 0.3 and
                  max(abs(d['dr']) for d in sweep_data) < 0.3)):
 
+            prev_p, prev_r = baseline_p, baseline_r
+
             for step in range(1, MAX_STEPS + 1):
                 delta = -(step * STEP_US)
                 t.set_servo(servo_idx, pos + delta)
@@ -264,6 +301,8 @@ def run_identification(port):
 
                 dp = p - baseline_p
                 dr = r - baseline_r
+                jerk_p = abs(p - prev_p)
+                jerk_r = abs(r - prev_r)
 
                 sweep_data.append({
                     'delta_us': delta,
@@ -271,7 +310,19 @@ def run_identification(port):
                     'dp': dp, 'dr': dr,
                 })
 
+                prev_p, prev_r = p, r
+
+                if jerk_p > JERK_LIMIT or jerk_r > JERK_LIMIT:
+                    print(f"  ABORT (jerk) at {delta}μs: "
+                          f"step Δpitch={jerk_p:.1f}° Δroll={jerk_r:.1f}° > {JERK_LIMIT}°")
+                    t.set_servo(servo_idx, pos)
+                    time.sleep(0.3)
+                    aborted = True
+                    break
+
                 if abs(dp) > TILT_LIMIT or abs(dr) > TILT_LIMIT:
+                    print(f"  ABORT (tilt) at {delta}μs: "
+                          f"dp={dp:.1f}° dr={dr:.1f}° > {TILT_LIMIT}°")
                     t.set_servo(servo_idx, pos)
                     time.sleep(0.3)
                     aborted = True

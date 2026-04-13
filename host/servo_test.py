@@ -111,9 +111,35 @@ class ServoTester:
             return {"ok": False, "error": "timeout"}
         return ack
 
+    async def stand_up(self, level_limit: float = 15.0):
+        """Send cmd_stand, wait for dog to rise, verify IMU is near-level.
+
+        Aborts with SystemExit if IMU reads too tilted after standing — indicates
+        the dog didn't actually stand up (e.g. a leg failed).
+        """
+        logger.info("Sending cmd_stand — watch the dog rise...")
+        await self._transport.send_json({"type": "cmd_stand"})
+        await asyncio.sleep(3.0)
+
+        imu = await self.read_imu()
+        pitch, roll = imu.get("pitch", 0.0), imu.get("roll", 0.0)
+        logger.info("Post-stand IMU: pitch=%.1f  roll=%.1f", pitch, roll)
+        if abs(pitch) > level_limit or abs(roll) > level_limit:
+            logger.error("ABORT — dog is not level after cmd_stand "
+                         "(pitch=%.1f roll=%.1f, limit=±%.1f°). "
+                         "Check legs before proceeding.", pitch, roll, level_limit)
+            raise SystemExit(1)
+        logger.info("Stand OK — proceeding.")
+
     async def probe_servo(self, index: int, range_us: int = 100,
-                          step_us: int = 10, dwell_ms: int = 500) -> list[dict]:
+                          step_us: int = 10, dwell_ms: int = 500,
+                          tilt_limit: float = 6.0,
+                          jerk_limit: float = 2.0) -> list[dict]:
         """Sweep a single servo around its standing pose, recording IMU at each step.
+
+        Aborts early if:
+        - Total tilt delta from baseline exceeds tilt_limit
+        - A single step causes a jerk > jerk_limit (sudden stall or impact)
 
         Returns list of {pulse_us, pitch, roll, actual_us} dicts.
         """
@@ -125,12 +151,16 @@ class ServoTester:
         await asyncio.sleep(0.5)
 
         values = list(range(standing - range_us, standing + range_us + 1, step_us))
-        logger.info("Probing %s (servo %d): %d→%d μs, %d steps, %dms dwell",
-                     SERVO_NAMES[index], index, values[0], values[-1],
-                     len(values), dwell_ms)
+        logger.info("Probing %s (servo %d): %d→%d μs, %d steps, %dms dwell  "
+                    "[tilt_limit=%.1f°  jerk_limit=%.1f°]",
+                    SERVO_NAMES[index], index, values[0], values[-1],
+                    len(values), dwell_ms, tilt_limit, jerk_limit)
 
         baseline = await self.read_imu()
         logger.info("Baseline IMU: pitch=%.1f roll=%.1f", baseline["pitch"], baseline["roll"])
+
+        prev_pitch = baseline["pitch"]
+        prev_roll = baseline["roll"]
 
         for us in values:
             ack = await self.set_servo(index, us)
@@ -138,6 +168,11 @@ class ServoTester:
             imu = await self.read_imu()
 
             actual = ack.get("actual_us", us)
+            d_pitch = round(imu["pitch"] - baseline["pitch"], 2)
+            d_roll = round(imu["roll"] - baseline["roll"], 2)
+            jerk_p = abs(imu["pitch"] - prev_pitch)
+            jerk_r = abs(imu["roll"] - prev_roll)
+
             result = {
                 "servo": index,
                 "name": SERVO_NAMES[index],
@@ -145,15 +180,34 @@ class ServoTester:
                 "actual_us": actual,
                 "pitch": imu["pitch"],
                 "roll": imu["roll"],
-                "d_pitch": round(imu["pitch"] - baseline["pitch"], 2),
-                "d_roll": round(imu["roll"] - baseline["roll"], 2),
+                "d_pitch": d_pitch,
+                "d_roll": d_roll,
             }
             results.append(result)
             self._log({"event": "probe", **result})
 
             logger.info("  %4dμs (actual=%4d)  pitch=%6.1f (%+.1f)  roll=%6.1f (%+.1f)",
-                         us, actual, imu["pitch"], result["d_pitch"],
-                         imu["roll"], result["d_roll"])
+                         us, actual, imu["pitch"], d_pitch, imu["roll"], d_roll)
+
+            # Jerk check — sudden large change between steps
+            if jerk_p > jerk_limit or jerk_r > jerk_limit:
+                logger.warning("ABORT — jerk detected at %dμs: Δpitch=%.1f Δroll=%.1f "
+                                "(limit=%.1f°) — possible stall or impact",
+                                us, jerk_p, jerk_r, jerk_limit)
+                await self.set_servo(index, standing)
+                await asyncio.sleep(0.5)
+                return results
+
+            # Tilt accumulation check
+            if abs(d_pitch) > tilt_limit or abs(d_roll) > tilt_limit:
+                logger.warning("ABORT — tilt limit at %dμs: d_pitch=%.1f d_roll=%.1f "
+                                "(limit=%.1f°)", us, d_pitch, d_roll, tilt_limit)
+                await self.set_servo(index, standing)
+                await asyncio.sleep(0.5)
+                return results
+
+            prev_pitch = imu["pitch"]
+            prev_roll = imu["roll"]
 
         # Return to standing
         await self.set_servo(index, standing)
@@ -241,6 +295,10 @@ Servo map:
                         help="Step size in μs (default: 10)")
     parser.add_argument("--dwell", type=int, default=100,
                         help="Dwell time in ms per step (default: 100)")
+    parser.add_argument("--tilt-limit", type=float, default=6.0,
+                        help="Abort if pitch or roll delta exceeds this (degrees, default: 6.0)")
+    parser.add_argument("--jerk-limit", type=float, default=2.0,
+                        help="Abort if a single step changes IMU by more than this (degrees, default: 2.0)")
     parser.add_argument("--no-frail", action="store_true",
                         help="Disable frail mode (full servo authority)")
 
@@ -263,24 +321,31 @@ Servo map:
 
     try:
         await tester.connect()
+        await tester.stand_up()
 
         if args.standing:
             await tester.standing_report()
 
         elif args.probe is not None:
             await tester.probe_servo(args.probe, range_us=args.range,
-                                     step_us=args.step, dwell_ms=args.dwell)
+                                     step_us=args.step, dwell_ms=args.dwell,
+                                     tilt_limit=args.tilt_limit,
+                                     jerk_limit=args.jerk_limit)
 
         elif args.sweep is not None:
             # Full sweep: wider range, finer steps
             await tester.probe_servo(args.sweep, range_us=200,
-                                     step_us=5, dwell_ms=300)
+                                     step_us=5, dwell_ms=300,
+                                     tilt_limit=args.tilt_limit,
+                                     jerk_limit=args.jerk_limit)
 
         elif args.all:
             for idx in range(8):
                 logger.info("")
                 await tester.probe_servo(idx, range_us=args.range,
-                                         step_us=args.step, dwell_ms=args.dwell)
+                                         step_us=args.step, dwell_ms=args.dwell,
+                                         tilt_limit=args.tilt_limit,
+                                         jerk_limit=args.jerk_limit)
                 # Rest between servos
                 await asyncio.sleep(1.0)
 
