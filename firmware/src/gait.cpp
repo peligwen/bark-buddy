@@ -28,6 +28,10 @@ static BodyPose s_target_transform  = {};
 static uint16_t s_transform_duration_ms = 100;
 static unsigned long s_transform_start = 0;
 
+// Return-to-stand taper — smooth blend from gait position to standing pose
+static unsigned long s_stand_ramp_start = 0;
+static uint16_t s_stand_ramp_from[8] = {};
+
 // IMU data for balance
 static float s_pitch = 0.0f;
 static float s_roll  = 0.0f;
@@ -53,8 +57,16 @@ void gait_init() {
 }
 
 void gait_set_state(GaitState new_state, float new_speed) {
+    bool was_walking = (s_state == GaitState::WALK_FORWARD ||
+                        s_state == GaitState::WALK_BACKWARD ||
+                        s_state == GaitState::TURN_LEFT ||
+                        s_state == GaitState::TURN_RIGHT);
+    bool going_to_stand = (new_state == GaitState::STAND ||
+                           new_state == GaitState::STOP);
+
     if (new_state != GaitState::STOP && new_state != GaitState::STAND) {
         s_last_active = millis();
+        s_stand_ramp_start = 0;  // clear taper when resuming gait
         if (s_idle_detached) {
             servos_init();
             s_idle_detached = false;
@@ -62,6 +74,15 @@ void gait_set_state(GaitState new_state, float new_speed) {
     } else if (new_state == GaitState::STAND) {
         s_last_active = millis();
     }
+
+    // Capture current servo positions for return-to-stand taper
+    if (was_walking && going_to_stand && servos_active()) {
+        for (int i = 0; i < 8; i++) {
+            s_stand_ramp_from[i] = servo_read_us(i);
+        }
+        s_stand_ramp_start = millis();
+    }
+
     // Reset balance integrators on direction change to avoid jerk
     if (new_state != s_state) {
         balance_reset();
@@ -121,11 +142,24 @@ void gait_update(unsigned long now_ms) {
     }
 
     if (s_state == GaitState::STAND || s_state == GaitState::STOP) {
-        // Apply body transform at standing pose
-        uint16_t pulses[8];
-        if (body_pose_to_pulses(combined, pulses)) {
+        uint16_t target[8];
+        if (body_pose_to_pulses(combined, target)) {
+            // Taper from last gait position to standing pose over STAND_RETURN_MS
+            bool ramping = s_stand_ramp_start > 0
+                           && (now_ms - s_stand_ramp_start) < STAND_RETURN_MS;
+            float t = ramping
+                      ? fminf((float)(now_ms - s_stand_ramp_start) / STAND_RETURN_MS, 1.0f)
+                      : 1.0f;
             for (int i = 0; i < 8; i++) {
-                servo_write_us(i, apply_offset(i, pulses[i]));
+                uint16_t tgt = apply_offset(i, target[i]);
+                if (ramping && s_stand_ramp_from[i] > 0) {
+                    int16_t blended = (int16_t)s_stand_ramp_from[i]
+                                    + (int16_t)((float)((int16_t)tgt
+                                                       - (int16_t)s_stand_ramp_from[i]) * t);
+                    servo_write_us(i, (uint16_t)blended);
+                } else {
+                    servo_write_us(i, tgt);
+                }
             }
         }
         return;

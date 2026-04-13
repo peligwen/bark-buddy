@@ -37,7 +37,12 @@ inline int servo_log_count() { return _servo_log_count; }
 
 // LEDC stubs — supports both new-style (ledcAttach/ledcWrite(pin,...)) and
 // old-style (ledcSetup/ledcAttachPin/ledcWrite(channel,...)) ESP32 Arduino APIs.
-static uint8_t _channel_to_pin[16] = {};  // 0 means unmapped
+//
+// The firmware uses old-style setup (ledcSetup/ledcAttachPin) but new-style
+// writes (ledcWrite(pin, duty)). We track which pins have been explicitly
+// attached so ledcDetach can zero the right slot; ledcWrite always writes by
+// pin directly.
+static uint8_t _channel_to_pin[16] = {};  // for reference; not used in ledcWrite dispatch
 
 // New-style API
 inline void ledcAttach(uint8_t pin, uint32_t freq, uint8_t resolution) { (void)pin; (void)freq; (void)resolution; }
@@ -48,11 +53,9 @@ inline void ledcSetup(uint8_t channel, uint32_t freq, uint8_t resolution) { (voi
 inline void ledcAttachPin(uint8_t pin, uint8_t channel) { _channel_to_pin[channel] = pin; }
 inline void ledcDetachPin(uint8_t pin) { _servo_duty[pin] = 0; }
 
-// ledcWrite: first arg is channel (old-style) if mapped, else pin (new-style)
-inline void ledcWrite(uint8_t pin_or_channel, uint32_t duty) {
-    uint8_t pin = (pin_or_channel < 16 && _channel_to_pin[pin_or_channel] != 0)
-                  ? _channel_to_pin[pin_or_channel]
-                  : pin_or_channel;
+// ledcWrite always treats the first argument as a pin number.
+// The firmware uses ledcWrite(SERVO_PINS[i], duty) — always pin-based.
+inline void ledcWrite(uint8_t pin, uint32_t duty) {
     _servo_duty[pin] = duty;
     if (_servo_log_count < MAX_CAPTURES) {
         _servo_log[_servo_log_count++] = {pin, duty, _mock_millis};

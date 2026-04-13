@@ -97,9 +97,38 @@ static const uint16_t LYING_DOWN_POSE[8] = {
 #define HEARTBEAT_TIMEOUT_MS 5000
 
 // --- Gait Parameters ---
-#define GAIT_STRIDE_HEIGHT_MM   15.0f   // foot lift height mm (matches stock firmware)
-#define GAIT_STRIDE_LENGTH_MM   20.0f   // forward/back foot swing mm
+#define GAIT_STRIDE_HEIGHT_MM   10.0f   // foot lift height mm (conservative for first hardware tests)
+#define GAIT_STRIDE_LENGTH_MM   12.0f   // forward/back foot swing mm (conservative)
 #define GAIT_FREQUENCY_HZ       1.5f    // steps per second
+
+// --- Return-to-stand taper ---
+// When gait transitions back to STAND/STOP, servo positions are interpolated
+// from wherever they are to the target standing pose over this duration.
+// Prevents violent snap-to-standing on control release.
+#define STAND_RETURN_MS         600     // ms to blend from gait position to standing
+
+// --- Servo polarity overrides ---
+// The IK auto-derives polarity from standing pulse: >1500 → +1, <1500 → -1.
+// If a servo is physically mounted in reverse, override with +1 or -1 here.
+// 0 = use auto-derived polarity.
+// Hypothesis: rear legs (RL/RR, indices 4-7) may need polarity flipped to +1.
+// Test: in test mode, send index 4 pulse 800 — if RL hip swings forward, polarity=-1 is correct.
+//       If it swings backward, set polarity_override[4]=+1.
+// clang-format off
+#ifndef IK_POLARITY_OVERRIDE_DEFINED
+#define IK_POLARITY_OVERRIDE_DEFINED
+static const int8_t SERVO_POLARITY_OVERRIDE[8] = {
+    0,   // 0 FL_hip  — auto (+1, standing=2096)
+    0,   // 1 FL_knee — auto (+1, standing=1621)
+    0,   // 2 FR_hip  — auto (+1, standing=2170)
+    0,   // 3 FR_knee — auto (+1, standing=1611)
+    0,   // 4 RL_hip  — auto (-1, standing=904)  VERIFIED: pulse↓ → forward swing ✓
+    0,   // 5 RL_knee — auto (-1, standing=1379)
+   +1,   // 6 RR_hip  — OVERRIDE: pulse↓ → backward (inverted); +1 corrects it
+   -1,   // 7 RR_knee — OVERRIDE: physically inverted with RR_hip; -1 corrects it
+};
+#endif
+// clang-format on
 
 // --- Servo Idle ---
 #define SERVO_IDLE_TIMEOUT_MS   30000   // detach servos after 30s no movement

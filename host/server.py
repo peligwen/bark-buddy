@@ -635,6 +635,17 @@ class Server:
                 pass
             _restart_server()
 
+        elif msg_type in ("cmd_test_mode", "cmd_servo", "cmd_transform",
+                          "cmd_gait_params", "cmd_shutdown"):
+            # Firmware-direct passthrough — forward as-is
+            if hasattr(self._transport, "send_json"):
+                try:
+                    await self._transport.send_json(msg)
+                except Exception as e:
+                    logger.warning("Passthrough send failed (%s): %s", msg_type, e)
+            else:
+                logger.warning("Transport has no send_json — cannot passthrough %s", msg_type)
+
         else:
             logger.warning("Unknown WS message type: %s", msg_type)
 
@@ -815,12 +826,18 @@ async def _detect_serial_transport(port: str):
     try:
         ser = serial.Serial(port, 115200, timeout=2)
         import time
-        time.sleep(1)
+        # Custom firmware takes up to 2.5s to boot (500ms settle + 2000ms softstart).
+        # Wait long enough to catch a response even after DTR reset.
+        time.sleep(3.0)
 
-        # Try JSON ping first (custom firmware)
-        ser.write(b'{"type":"ping"}\n')
-        time.sleep(0.5)
-        resp = ser.read(ser.in_waiting).decode(errors="replace")
+        # Try JSON ping first (custom firmware) — retry a few times in case of timing
+        resp = ""
+        for _ in range(3):
+            ser.write(b'{"type":"ping"}\n')
+            time.sleep(0.5)
+            resp += ser.read(ser.in_waiting).decode(errors="replace")
+            if '"pong"' in resp:
+                break
         if '"pong"' in resp:
             ser.close()
             from firmware_transport import FirmwareTransport

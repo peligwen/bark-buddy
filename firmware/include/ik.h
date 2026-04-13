@@ -106,10 +106,15 @@ inline const ServoCalEntry* cal_table() {
     // Helper lambda to fill one entry
     auto fill = [&](int idx, float standing_angle) {
         uint16_t su = STANDING_POSE[idx];
-        // Polarity assumption: if standing pulse > 1500 center, increasing angle
-        // increases pulse width. Validated against STANDING_POSE ground truth.
-        // If a servo is mounted in reverse, its polarity must be flipped manually.
-        int8_t   pol = (su >= 1500) ? +1 : -1;
+        // Polarity: if override is set use it, otherwise derive from standing pulse.
+        // Auto-derivation assumes 1500μs = 0° joint angle; increasing angle increases
+        // pulse when standing > 1500. Override per-servo via SERVO_POLARITY_OVERRIDE.
+        int8_t   pol;
+        if (SERVO_POLARITY_OVERRIDE[idx] != 0) {
+            pol = SERVO_POLARITY_OVERRIDE[idx];
+        } else {
+            pol = (su >= 1500) ? +1 : -1;
+        }
         float    dev = (float)((int)su - 1500);
         float    ang_abs = fabsf(standing_angle);
         float    upr = (ang_abs > 1e-4f) ? fabsf(dev) / ang_abs : 0.0f;

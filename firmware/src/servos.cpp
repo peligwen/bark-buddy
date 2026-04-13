@@ -3,7 +3,9 @@
 #include <Arduino.h>
 
 // Hardware PWM via ESP32 LEDC peripheral.
-// Each servo gets its own LEDC channel (managed internally by ledcAttach).
+// Each servo gets its own LEDC channel: servo index i → LEDC channel i.
+// Uses old-style API (ledcSetup/ledcAttachPin/ledcWrite(channel,...)) compatible
+// with espressif32 Arduino core 2.x.
 // Zero CPU usage during pulse generation — no FreeRTOS task, no busy-wait.
 // 14-bit resolution at 50Hz gives ~1.22us per tick (adequate for all servos).
 
@@ -34,8 +36,10 @@ bool servos_init() {
     Serial.println("{\"type\":\"error\",\"msg\":\"PINS_VERIFIED=0, servos disabled\"}");
     return false;
 #else
+    // Channels 0-7 map 1:1 to servo indices.
     for (int i = 0; i < 8; i++) {
-        ledcAttach(SERVO_PINS[i], SERVO_FREQ_HZ, LEDC_RESOLUTION);
+        ledcSetup(i, SERVO_FREQ_HZ, LEDC_RESOLUTION);
+        ledcAttachPin(SERVO_PINS[i], i);
     }
     attached = true;
 
