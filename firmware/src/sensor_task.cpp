@@ -19,7 +19,8 @@ static SemaphoreHandle_t s_i2c_write_done   = nullptr;
 static bool              s_i2c_write_result = false;
 
 static void sensor_task_fn(void*) {
-    // Take ownership of the I2C bus
+    // Take ownership of the I2C bus. Short timeout prevents sonar read stalls
+    // from blocking the task for >1s on the rare occasion the module is busy.
     Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN, I2C_FREQ);
 
     bool imu_ok   = imu_init(Wire);
@@ -62,8 +63,9 @@ static void sensor_task_fn(void*) {
             last_imu = now;
         }
 
-        // Read sonar at TELEM_SONAR_HZ
-        if (now - last_sonar >= 1000 / TELEM_SONAR_HZ) {
+        // Read sonar at 10Hz — module needs ~60ms for a no-object measurement cycle;
+        // telemetry still emits at TELEM_SONAR_HZ from the snapshot.
+        if (now - last_sonar >= 100) {
             uint16_t dist = sonar_read_mm();
             xSemaphoreTake(s_snapshot_mutex, portMAX_DELAY);
             s_snapshot.sonar_mm = dist;

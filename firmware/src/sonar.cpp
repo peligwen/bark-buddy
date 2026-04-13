@@ -21,9 +21,12 @@ static bool writeReg(uint8_t reg, uint8_t val) {
 }
 
 static bool readReg(uint8_t reg, uint8_t* buf, uint8_t len) {
+    // This module requires a full STOP between the register-address write and
+    // the read transaction — it does not support I2C repeated start.
     _wire->beginTransmission(SONAR_ADDR);
     _wire->write(reg);
-    if (_wire->endTransmission(false) != 0) return false;
+    if (_wire->endTransmission() != 0) return false;       // STOP
+    delayMicroseconds(200);                                // let module prepare
     if (_wire->requestFrom((uint8_t)SONAR_ADDR, len) != len) return false;
     for (uint8_t i = 0; i < len; i++) {
         buf[i] = _wire->read();
@@ -50,8 +53,10 @@ uint16_t sonar_read_mm() {
     uint8_t buf[2];
     if (!readReg(SONAR_REG_DISTANCE, buf, 2)) return 0;
 
-    // Big-endian: high byte first
-    return (uint16_t)(buf[0] << 8) | buf[1];
+    // Little-endian: low byte first.
+    // Values ≥ 0xFF00 are module "out of range" / no-object sentinels.
+    uint16_t mm = (uint16_t)(buf[1] << 8) | buf[0];
+    return (mm >= 0xFF00) ? 0 : mm;
 }
 
 void sonar_set_rgb_mode(uint8_t mode) {
