@@ -6,16 +6,17 @@ Semi-autonomous control system for Hiwonder MechDog robot dog. Stock hardware (n
 
 - **Milestone 1** (Remote, Balance, Scanning) — complete
 - **Milestone 2** (Ultrasonic Scanning/Mapping) — complete
-- **Milestone 3** (PyBullet Physics Simulation) — complete
+- **Milestone 3** (Pure-Python Physics Simulation) — complete
 - **Milestone 4** (Wall Mesh & 3D Visualization) — complete
-- **Current work** — Custom firmware deployment, servo mapping validation (RR hip servo blown — awaiting replacement), hardware testing
+- **Firmware Foundation Refactor** (FreeRTOS sensor task, command handler dispatch, WiFi reconnect) — complete
+- **Current work** — IK-based gait pipeline (foot-position IK, body transforms, active balance, stride config)
 - **Next milestone** — SLAM-based localization, composite multi-scan mapping, waypoint navigation UI
 
 ## Architecture
 
 Two firmware paths, same Python host and web UI:
 
-- **Custom firmware (primary):** C++ on ESP32-S (D0WD), JSON/NDJSON over WiFi TCP (port 9000) or serial. Full servo control, gait engine, IMU/sonar streaming, heartbeat. This is the target.
+- **Custom firmware (primary):** C++ on ESP32-S (D0WD), JSON/NDJSON over WiFi TCP (port 9000) or serial. Full servo control, IK gait engine, FreeRTOS sensor task, command handler dispatch table, IMU/sonar streaming, heartbeat. This is the target.
 - **Stock firmware (fallback):** MicroPython REPL over USB serial or WiFi WebREPL. Used for bootstrapping and when custom firmware isn't flashed.
 - **Serial:** Available on both firmware paths for debugging and development.
 
@@ -29,10 +30,10 @@ Flow (stock fallback): Browser → WebSocket (JSON) → Python host → REPL com
 
 ## Key Design Decisions
 
-- **Simulation:** PyBullet physics — rigid body, ground contact, leg kinematics. Default when no hardware connected.
+- **Simulation:** Pure-Python physics engine — rigid body, ground contact, leg kinematics. Default when no hardware connected.
 - **Hardware (auto-detected):** Plug in USB → auto-detects custom firmware (JSON ping) or stock firmware (hybrid NDJSON handler). No flags needed.
 - **Transport:** All paths speak the same NDJSON protocol. Transports are implementation details, not user choices.
-- **Firmware API:** JSON messages — `cmd_move`, `cmd_stand`, `cmd_balance`, `cmd_servo`, `cmd_led`. Firmware streams telemetry (`telem_imu`, `telem_sonar`, `telem_battery`, `telem_status`).
+- **Firmware API:** JSON messages — `cmd_move`, `cmd_stand`, `cmd_balance`, `cmd_servo`, `cmd_led`, `cmd_transform`, `cmd_gait_params`, `cmd_test_mode`, `cmd_offset`. Firmware streams telemetry (`telem_imu`, `telem_sonar`, `telem_battery`, `telem_status`).
 - **Browser protocol:** WebSocket + JSON
 - **Behaviors:** Composable layers — balance runs beneath remote or scan
 - **Web UI:** Dark theme, D-pad controls, 3D dog view + scan map, vanilla JS (ES modules)
@@ -43,10 +44,10 @@ Flow (stock fallback): Browser → WebSocket (JSON) → Python host → REPL com
 ## Project Layout
 
 - `firmware/` — Custom C++ firmware (PlatformIO, ESP32)
-  - `src/` — main.cpp, gait.cpp, imu.cpp, servos.cpp, sonar.cpp
-  - `include/` — config.h, protocol.h, gait.h, imu.h, servos.h, sonar.h, poses.h
+  - `src/` — main.cpp, gait.cpp, imu.cpp, servos.cpp, sonar.cpp, balance.cpp, calibrate.cpp, command_handlers.cpp, offsets.cpp, sensor_task.cpp
+  - `include/` — config.h, protocol.h, gait.h, imu.h, servos.h, sonar.h, balance.h, body_transform.h, calibrate.h, cf_filter.h, command_handlers.h, comms.h, gait_math.h, ik.h, offsets.h, sensor_task.h
   - `hybrid/` — MicroPython NDJSON handler (runs on stock firmware)
-  - `test/` — kinematics, balance PID, gait, pose tests
+  - `test/` — IK, transform, balance, offset, gait, servo tests
   - `platformio.ini` — ESP32 build config
 - `host/` — Python host application
   - `server.py` — web server + WebSocket + telemetry loop
@@ -59,21 +60,21 @@ Flow (stock fallback): Browser → WebSocket (JSON) → Python host → REPL com
   - `setup_wifi.py` — interactive WiFi + WebREPL setup script
   - `capture_profile.py` — profile capture + parameter optimizer
   - `behaviors/` — balance.py, scan.py, map_store.py, wall_fit.py, wall_mesh.py, octree.py
-  - `sim/` — PyBullet simulation (sim_transport.py, mechdog.urdf)
+  - `sim/` — Pure-Python physics simulation (sim_transport.py, physics.py)
 - `web/` — static web UI (ES modules)
   - `index.html` — page structure
   - `style.css` — dark theme, responsive layout
   - `app.module.js` — main entry point
   - `modules/` — ws.js, controls.js, map.js, panels.js
   - `dog3d/` — Three.js 3D visualization (model, gait, camera, sonar, walls, overlay, state)
-- `docs/` — architecture, decisions, implementation plan, protocol spec
+- `docs/` — architecture, decisions, implementation plan, protocol spec, superpowers/
 
 ## Conventions
 
 - Firmware: C++ (PlatformIO), ArduinoJson, ESP32-S (D0WD)
 - Host: Python 3.11+, asyncio, pyserial-asyncio, websockets
 - Web: Vanilla HTML/CSS/JS (ES modules), Three.js r128 via CDN
-- Transport: auto-detected (USB serial → hardware, none → PyBullet sim). Override: `--sim`, `--serial /dev/...`, `--wifi 192.168.1.163`
+- Transport: auto-detected (USB serial → hardware, none → pure-Python sim). Override: `--sim`, `--serial /dev/...`, `--wifi 192.168.1.163`
 
 ## Custom Firmware Protocol (JSON/NDJSON)
 
@@ -83,6 +84,10 @@ Commands (host → firmware):
 - `{"type": "cmd_balance", "enabled": true}`
 - `{"type": "cmd_servo", "index": 0, "pulse_us": 1500}`
 - `{"type": "cmd_led", "led": 1, "r": 0, "g": 15, "b": 0}`
+- `{"type": "cmd_transform", "roll": 0.0, "pitch": 0.0, "yaw": 0.0, "x": 0.0, "y": 0.0, "z": 0.0}`
+- `{"type": "cmd_gait_params", "stride_length": 20, "stride_height": 10, "speed": 1.0}`
+- `{"type": "cmd_test_mode", "enabled": true}`
+- `{"type": "cmd_offset", "index": 0, "offset_us": 0}`
 - `{"type": "ping"}`
 
 Telemetry (firmware → host):
