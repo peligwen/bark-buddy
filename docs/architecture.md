@@ -54,7 +54,7 @@ Python Host  ←Serial REPL / WiFi WebREPL→  Stock MicroPython Firmware
 | Stock Firmware | MicroPython | ESP32-S (D0WD) (stock) | Fallback motion via `_dog.move()`, REPL-accessible sensors |
 | Host | Python 3.11+ | asyncio, pyserial-asyncio, aiohttp, websockets | Behavior layers, transport abstraction, web server, telemetry relay |
 | Web UI | HTML/CSS/JS | Vanilla ES modules, Three.js r128 | D-pad control, 3D dog visualization, 2D scan map, telemetry gauges |
-| Simulation | Python | PyBullet | Physics sim with URDF model, simulated sensors |
+| Simulation | Python | Pure-Python physics engine | Rigid body sim with simulated sensors |
 
 ## Communication
 
@@ -70,7 +70,7 @@ Composable layers, not exclusive modes:
 
 ```
 ┌──────────────────────────────┐
-│  Active Behavior (top layer) │  ← Remote control OR Patrol OR Scan
+│  Active Behavior (top layer) │  ← Remote control OR Scan
 ├──────────────────────────────┤
 │  Balance Layer               │  ← Custom FW: host-side PID; Stock FW: toggle homeostasis
 ├──────────────────────────────┤
@@ -87,9 +87,9 @@ bark-buddy/
 ├── CLAUDE.md                # Claude Code project context
 ├── README.md                # Project overview
 ├── firmware/                # Custom C++ firmware (primary)
-│   ├── src/                 # main.cpp, gait.cpp, imu.cpp, servos.cpp, sonar.cpp
-│   ├── include/             # config.h, protocol.h, gait.h, imu.h, servos.h, sonar.h, poses.h
-│   ├── test/                # kinematics, balance PID, gait, pose tests
+│   ├── src/                 # main.cpp, gait.cpp, imu.cpp, servos.cpp, sonar.cpp, balance.cpp, calibrate.cpp, command_handlers.cpp, offsets.cpp, sensor_task.cpp
+│   ├── include/             # config.h, protocol.h, gait.h, imu.h, servos.h, sonar.h, balance.h, body_transform.h, calibrate.h, cf_filter.h, command_handlers.h, comms.h, gait_math.h, ik.h, offsets.h, sensor_task.h
+│   ├── test/                # IK, transform, balance, offset, gait, servo tests
 │   └── platformio.ini       # ESP32-S (D0WD) PlatformIO config
 ├── host/                    # Python host
 │   ├── server.py            # Web server + WebSocket handler
@@ -98,12 +98,10 @@ bark-buddy/
 │   ├── hw_transport.py      # Stock firmware base (CMD→REPL translation)
 │   ├── repl_transport.py    # Stock firmware: USB serial REPL (debug/fallback)
 │   ├── webrepl_transport.py # Stock firmware: WiFi WebREPL (fallback)
-│   ├── mock_serial.py       # Mock transport for dev
-│   ├── mock_firmware.py     # Mock custom firmware for dev
 │   ├── setup_wifi.py        # WiFi + WebREPL setup
 │   ├── capture_profile.py   # Profile capture + parameter optimizer
-│   ├── behaviors/           # balance, patrol, scan, map_store, wall_fit, wall_mesh, octree
-│   ├── sim/                 # PyBullet sim (sim_transport.py, mechdog.urdf)
+│   ├── behaviors/           # balance, scan, map_store, wall_fit, wall_mesh, octree
+│   ├── sim/                 # Pure-Python physics sim (sim_transport.py, physics.py)
 │   └── requirements.txt
 ├── web/                     # Static web UI (ES modules)
 │   ├── index.html
@@ -115,5 +113,6 @@ bark-buddy/
     ├── architecture.md      # This file
     ├── decisions.md         # Design decisions log
     ├── implementation-plan.md
-    └── protocol.md          # Custom firmware + stock CMD protocol spec
+    ├── protocol.md          # Custom firmware + stock CMD protocol spec
+    └── superpowers/         # Design specs and implementation plans
 ```

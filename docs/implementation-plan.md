@@ -60,17 +60,17 @@ These phases used the stock MicroPython firmware and REPL protocol to bring up t
 
 ## Physics Simulation ✅
 
-### SimTransport + URDF ✅
+### SimTransport + Physics Engine ✅
 
-1. ~~URDF model~~ → `sim/mechdog.urdf` — 8-DOF MechDog from Hiwonder specs (173x73x50mm body, 55mm upper + 60mm lower legs, 4 feet with friction)
-2. ~~SimTransport~~ → `sim/sim_transport.py` — PyBullet transport implementing CMD protocol
+1. ~~Physics engine~~ → `sim/physics.py` — pure-Python rigid body sim (no external deps); velocity-based movement, quaternion orientation, ray-cast ultrasonic
+2. ~~SimTransport~~ → `sim/sim_transport.py` — transport implementing CMD protocol over the physics engine
    - Velocity-based forward/backward movement (0.10 m/s matching stock firmware)
    - Kinematic turning (45°/s matching stock firmware)
    - Body stabilization (pitch/roll correction simulating self-balance)
    - Ultrasonic cone ray casting (5 rays, 30° cone, 3m max range)
    - Simulated IMU from body orientation
    - Room/wall creation for mapping tests (`add_wall`, `add_box_room`)
-   - Fast-forward via `speed_factor` parameter (headless DIRECT mode)
+   - Fast-forward via `speed_factor` parameter (headless mode)
 3. ~~Tests~~ → 12 checks: connect, standing, fwd/back/left/right, IMU, ultrasonic open/wall, battery, room walls, heading-aware forward
 
 ## Wall Mesh & Visualization ✅
@@ -106,33 +106,63 @@ These phases used the stock MicroPython firmware and REPL protocol to bring up t
 1. ~~ES modules~~ → refactored JS monoliths into `web/modules/` (ws, controls, map, panels) + `web/dog3d/`
 2. ~~Server management~~ → restart from UI button and CLI (SIGTERM + subprocess)
 
-## Custom Firmware (Primary) ✅ built, deploying
-
-The custom C++ firmware is implemented and tested but awaiting final hardware deployment (servo pin verification).
+## Custom Firmware (Primary) ✅
 
 ### Firmware Implementation ✅
 
 1. ~~JSON/NDJSON protocol~~ → `protocol.h` — structured message types for commands, telemetry, acks, events
 2. ~~Main loop~~ → `main.cpp` — serial/WiFi RX, heartbeat timeout, telemetry streaming, gait tick
-3. ~~Gait engine~~ → `gait.cpp` — parametric walk (hip/knee amplitude, frequency, phase), PID-ready balance
+3. ~~Gait engine~~ → `gait.cpp` — parametric walk (hip/knee amplitude, frequency, phase)
 4. ~~IMU driver~~ → `imu.cpp` — QMI8658 via I2C, pitch/roll/yaw + accel + gyro
 5. ~~Sonar driver~~ → `sonar.cpp` — I2C ultrasonic + RGB LED control
-6. ~~Servo control~~ → `servos.cpp` — 8-channel PWM, soft-start ramp, idle timeout + detach
-7. ~~Hardware config~~ → `config.h` — pin assignments (I2C verified, servos gated by `PINS_VERIFIED`), timing, gait params
-8. ~~Firmware tests~~ → kinematics, balance PID, gait parameter sweep, pose validation
+6. ~~Servo control~~ → `servos.cpp` — 8-channel LEDC PWM, soft-start ramp, idle timeout + detach
+7. ~~Hardware config~~ → `config.h` — pin assignments (verified), timing, gait params
 
-### WiFi Transport (In Progress)
+### Firmware Foundation Refactor ✅
 
-1. Custom firmware WiFi listener on TCP port 9000
-2. `firmware_transport.py` — Python host transport for JSON/NDJSON over WiFi TCP
-3. Integration test: host connects over WiFi, sends commands, receives telemetry
+1. ~~FreeRTOS sensor task~~ → `sensor_task.cpp/h` — IMU + sonar polled in dedicated task, decoupled from main loop
+2. ~~Command handler dispatch~~ → `command_handlers.cpp/h` — table-driven dispatch, handlers isolated from main loop
+3. ~~Shared declarations~~ → `comms.h` — message structs shared between handler and transport layers
+4. ~~Non-blocking WiFi~~ → WiFi reconnect in background; gait and telemetry continue during reconnect
+5. ~~Host passthrough~~ → `server.py` passes cmd_transform, cmd_gait_params, cmd_test_mode, cmd_servo, cmd_shutdown directly to firmware
 
-### Hardware Deployment (In Progress)
+### WiFi Transport ✅
 
-1. Verify servo GPIO pins via stock firmware REPL introspection
-2. Set `PINS_VERIFIED=1` and flash custom firmware
-3. End-to-end test: WiFi connection → gait → telemetry → web UI
-4. Validate all behaviors (remote, balance, patrol, scan) on custom firmware
+1. ~~Custom firmware WiFi listener~~ on TCP port 9000
+2. ~~`firmware_transport.py`~~ — Python host transport for JSON/NDJSON over WiFi TCP
+3. ~~Integration test~~ — host connects over WiFi, sends commands, receives telemetry
+
+### Hardware Deployment ✅
+
+1. ~~Verify servo GPIO pins~~ via stock firmware REPL introspection — pins confirmed
+2. ~~Set `PINS_VERIFIED=1` and flash custom firmware~~ — custom firmware running
+3. ~~End-to-end test~~ — WiFi connection → gait → telemetry → web UI
+
+## IK Gait Pipeline (In Progress)
+
+Replacing the direct-angle parametric gait with an inverse kinematics foot-position pipeline.
+
+### IK Engine ✅
+
+1. ~~Leg geometry~~ → `ik.h` — 3-DOF IK (hip yaw, hip pitch, knee pitch), calibration table, polarity handling
+2. ~~Body transforms~~ → `body_transform.h` — 6-DOF body pose (roll/pitch/yaw/xyz) applied to foot positions before IK
+3. ~~Gait math~~ → `gait_math.h` — stride trajectory generation in foot-position space
+
+### Balance Controller ✅
+
+1. ~~Host-side balance~~ → `balance.h/cpp` — PID controller mapping IMU pitch/roll to body transform roll/pitch
+2. ~~Active IMU balance~~ — balance layer drives body_transform, IK adjusts all 8 servos per tick
+
+### Servo Offset Calibration ✅
+
+1. ~~Per-servo offset persistence~~ → `offsets.h/cpp` — NVS-backed calibration offsets, applied after IK
+2. ~~Offset commands~~ → `cmd_offset` adjusts per-servo trim at runtime
+
+### Gait Integration (In Progress)
+
+1. ~~Stride parameters~~ → `cmd_gait_params` — configurable stride length/height/speed
+2. Stand-return taper — smooth blend from current positions to stand pose on stop
+3. End-to-end hardware test — IK gait walks reliably on all 4 legs
 
 ## Future (Planned)
 
@@ -171,12 +201,6 @@ Replace dead reckoning with proper position estimation using IMU + sonar scan ma
 - Room labeling based on map geometry and patrol history
 - Local LLM integration for natural language goal-setting ("go check the living room")
 - Goal queue with priority and status reporting
-
-### Advanced Gait
-
-- Profile-based gait optimization from hardware telemetry
-- Custom gaits (trot, gallop) via parametric gait engine
-- On-chip leg contact estimation → model predictive control for balance
 
 ### Multi-Platform Support
 

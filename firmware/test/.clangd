@@ -1,0 +1,6 @@
+CompileFlags:
+  Add:
+    - "-I."
+    - "-I../include"
+    - "-I../src"
+    - "-std=c++17"
