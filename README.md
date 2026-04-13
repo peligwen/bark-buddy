@@ -14,14 +14,13 @@ The stock MicroPython firmware is supported as a fallback for bootstrapping and 
 |---|---|
 | 1 — Remote, Balance, Scan | Web UI D-pad control, IMU-based balance, ultrasonic scan, telemetry dashboard |
 | 2 — Ultrasonic Mapping | 360° scanning, point cloud accumulation, wall detection (chain-based + DBSCAN/PCA), wall mesh generation with corner snapping |
-| 3 — Physics Simulation | PyBullet SimTransport with URDF model, simulated IMU/sonar, room creation for mapping tests |
+| 3 — Physics Simulation | Pure-Python physics engine (rigid body, ground contact, leg kinematics), simulated IMU/sonar, no external dependencies |
 | 4 — Wall Mesh & Visualization | Three.js 3D dog model, gait animation, wall rendering, ES module UI refactor |
 
 ## Current Work
 
-- Custom firmware deployment and WiFi transport integration
-- Servo mapping validation (RR hip servo blown — awaiting replacement part)
-- Hardware testing once servo arrives
+- IK-based gait pipeline (foot-position IK, body transforms, active balance, stride config)
+- Firmware Foundation Refactor complete (FreeRTOS sensor task, command dispatch, WiFi reconnect)
 
 ## Up Next
 
@@ -52,10 +51,10 @@ python host/server.py --wifi 192.168.1.163
 # USB serial (debugging / stock firmware fallback)
 python host/server.py --serial /dev/ttyUSB0
 
-# PyBullet simulation (no hardware needed)
+# Pure-Python simulation (no hardware needed, no extra dependencies)
 python host/server.py --sim
 
-# Mock mode (no hardware, no sim)
+# Sim mode (default, no flags needed)
 python host/server.py
 ```
 

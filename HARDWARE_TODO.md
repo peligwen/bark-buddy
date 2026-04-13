@@ -51,7 +51,7 @@ The servo-to-joint mapping is **untrusted** — prior identification data was co
 - Produce a definitive mapping: servo index → joint name → polarity
 - Update `config.h` SERVO_POLARITY and STANDING_POSE arrays
 
-**Note:** RR hip servo is currently blown — awaiting replacement. Map remaining 7 servos first; validate RR hip after replacement.
+**Note:** RR hip servo was blown and has been replaced. All 8 servos should be functional.
 
 **Safety:** Servos get warm. Take breaks. Use frail mode. Check delta from baseline not absolute tilt.
 
@@ -82,11 +82,11 @@ Use the calibration protocol to sweep each servo and build a response profile.
 
 **Needs:** `host/calibrate_servos.py` (started but not tested on hardware)
 
-## 6. WiFi TCP Testing
+## 6. WiFi TCP Validation
 
-Custom firmware has WiFi TCP listener on port 9000 but hasn't been tested.
+Custom firmware implements WiFi TCP on port 9000 (WIFI_ENABLED build flag, reconnect loop included). Needs end-to-end hardware test.
 
-- Flash custom firmware with `WIFI_ENABLED` and credentials
+- Flash custom firmware with `WIFI_ENABLED=1` and credentials in `config_local.h`
 - Verify TCP connection from host to dog at port 9000
 - Test NDJSON command/telemetry flow over WiFi
 - Measure latency vs serial (expect ~5-10ms additional)

@@ -51,5 +51,5 @@ Captured during project scoping and evolution (April 2026).
 
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
-| Testing strategy | Mock transport + PyBullet sim + real hardware | Mock for unit tests, PyBullet for physics/mapping, serial/WiFi for integration |
+| Testing strategy | Mock transport + pure-Python sim + real hardware | Mock for unit tests, sim for physics/mapping, serial/WiFi for integration |
 | Firmware testing | PlatformIO test suite | Kinematics, balance PID, gait parameter sweep, pose validation — all run on host |

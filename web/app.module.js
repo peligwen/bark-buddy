@@ -12,9 +12,6 @@ var lockHolder = null;
 var operatorName = new URLSearchParams(location.search).get("name") || "Operator";
 
 function canControl() {
-    if (window._appVersion && window._serverVersion && window._appVersion !== window._serverVersion) {
-        location.reload(); return false;
-    }
     return lockHolder === null || hasLock;
 }
 
@@ -159,7 +156,6 @@ function handleMessage(msg) {
     } else if (msg.type === "version") {
         if (window._appVersion && msg.hash !== window._appVersion) location.reload();
         window._appVersion = msg.hash;
-        window._serverVersion = msg.hash;
     }
 }
 

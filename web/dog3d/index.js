@@ -138,16 +138,6 @@ function onResize() {
 var Dog3D = {
     init: init,
 
-    debug: function () {
-        return {
-            targetX: state.targetX, targetZ: state.targetZ, targetYaw: state.targetYaw,
-            currentX: state.currentX, currentZ: state.currentZ, currentYaw: state.currentYaw,
-            headingDeg: state.targetYaw * (180 / Math.PI),
-            motion: state.currentMotion,
-            ultraDistance: state.ultraDistance,
-        };
-    },
-
     updateIMU: function (msg) {
         state.targetPitch = msg.pitch;
         state.targetRoll = msg.roll;
@@ -202,20 +192,12 @@ var Dog3D = {
         }
     },
 
-    clearScanWalls: function () {
-        clearWalls();
-    },
-
     toggleOverlay: function (show) {
         toggleOverlay(show);
     },
 
     setPose: function (name) {
         setPose(name);
-    },
-
-    getPoseNames: function () {
-        return getPoseNames();
     },
 
     setFallen: function (fallen) {
