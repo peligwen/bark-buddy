@@ -5,23 +5,23 @@
 
 // Minimal Preferences stub for native tests (replaces ESP32 <Preferences.h>)
 class Preferences {
-    int16_t store[9] = {};  // 9 slots: off0..off8
+    int16_t store[8] = {};  // off0..off7
     bool opened = false;
 public:
     bool begin(const char*, bool = false) { opened = true; return true; }
     void end() { opened = false; }
     int16_t getShort(const char* key, int16_t def = 0) {
-        // Keys are "off0".."off8"
+        // Keys are "off0".."off7"
         if (key[0]=='o' && key[1]=='f' && key[2]=='f') {
             int idx = key[3] - '0';
-            if (idx >= 0 && idx < 9) return store[idx];
+            if (idx >= 0 && idx < 8) return store[idx];
         }
         return def;
     }
     size_t putShort(const char* key, int16_t val) {
         if (key[0]=='o' && key[1]=='f' && key[2]=='f') {
             int idx = key[3] - '0';
-            if (idx >= 0 && idx < 9) { store[idx] = val; return 2; }
+            if (idx >= 0 && idx < 8) { store[idx] = val; return 2; }
         }
         return 0;
     }

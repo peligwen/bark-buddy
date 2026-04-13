@@ -35,6 +35,10 @@ int16_t offset_get(uint8_t servo_idx) {
 
 void offset_set(uint8_t servo_idx, int16_t offset_us) {
     if (servo_idx >= NUM_SERVOS) return;
+    // Clamp to ±500us — apply_offset already clamps final pulse to [500,2500]
+    // but we prevent extreme stored values causing confusing behaviour
+    if (offset_us >  500) offset_us =  500;
+    if (offset_us < -500) offset_us = -500;
     offsets[servo_idx] = offset_us;
 }
 
@@ -49,6 +53,8 @@ void offsets_save() {
     prefs.end();
 }
 
+// NOTE: prefs.clear() wipes the entire "servo_cal" NVS namespace.
+// Do not add other data to this namespace — it will be destroyed on reset.
 void offsets_reset() {
     for (int i = 0; i < NUM_SERVOS; i++) {
         offsets[i] = 0;
