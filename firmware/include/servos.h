@@ -14,8 +14,6 @@ bool servos_shutdown_to_lying_down();
 // and slew-rate limited to FRAIL_SLEW_RATE_US per tick.
 void servo_write_us(uint8_t index, uint16_t pulse_us);
 
-// Set servo angle (0-180 degrees, mapped to pulse range).
-void servo_write_angle(uint8_t index, float angle_deg);
 
 // Read current pulse width for a servo.
 uint16_t servo_read_us(uint8_t index);

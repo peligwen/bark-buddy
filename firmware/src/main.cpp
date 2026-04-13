@@ -20,8 +20,10 @@
 // --- RX buffers ---
 static char   serial_rx[MAX_MESSAGE_SIZE];
 static size_t serial_rx_pos = 0;
+#if WIFI_ENABLED
 static char   tcp_rx[MAX_MESSAGE_SIZE];
 static size_t tcp_rx_pos = 0;
+#endif
 
 // --- Connection state ---
 static unsigned long last_msg_received = 0;

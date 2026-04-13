@@ -32,16 +32,6 @@ Direction direction_from_string(const char* str) {
     return Direction::STOP;
 }
 
-const char* direction_to_string(Direction dir) {
-    switch (dir) {
-        case Direction::FORWARD:  return "forward";
-        case Direction::BACKWARD: return "backward";
-        case Direction::LEFT:     return "left";
-        case Direction::RIGHT:    return "right";
-        case Direction::STOP:     return "stop";
-    }
-    return "stop";
-}
 
 // --- Handlers ---
 

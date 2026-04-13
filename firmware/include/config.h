@@ -57,18 +57,13 @@ static const uint8_t SERVO_PINS[8] = {
 // --- Standing Pose (servo pulse widths in μs) ---
 // Captured from stock firmware set_default_pose() + offsets
 // Order: FL_hip, FL_knee, FR_hip, FR_knee, RL_hip, RL_knee, RR_hip, RR_knee
-#ifndef IK_STANDING_POSE_DEFINED
-#define IK_STANDING_POSE_DEFINED
+// Verified from stock firmware read_all_servo() at default pose
 static const uint16_t STANDING_POSE[8] = {
     2096, 1621, 2170, 1611, 904, 1379, 830, 1389
-    // FL_hip FL_knee FR_hip FR_knee RL_hip RL_knee RR_hip RR_knee
-    // Verified from stock firmware read_all_servo() at default pose
 };
-#endif
 
 // --- Lying-Down Pose (servo pulse widths in μs) ---
-// PLACEHOLDER: determined experimentally via test mode + frail mode.
-// Center (1500) values are safe — identical to old boot behavior until tuned.
+// Center (1500us) — safe neutral position used on boot and shutdown.
 // Order: FL_hip, FL_knee, FR_hip, FR_knee, RL_hip, RL_knee, RR_hip, RR_knee
 static const uint16_t LYING_DOWN_POSE[8] = {
     1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500
@@ -78,7 +73,6 @@ static const uint16_t LYING_DOWN_POSE[8] = {
 #define BATTERY_ADC_PIN     34
 #define BATTERY_DIVIDER     3.9f    // voltage divider ratio (~1:4 resistor divider)
 #define BATTERY_LOW_MV      6400    // 2S LiPo cutoff (~3.2V/cell)
-#define BATTERY_NOMINAL_MV  7400
 
 // --- WiFi ---
 // Credentials come from config_local.h (gitignored).
@@ -103,15 +97,9 @@ static const uint16_t LYING_DOWN_POSE[8] = {
 #define HEARTBEAT_TIMEOUT_MS 5000
 
 // --- Gait Parameters ---
-#define GAIT_HIP_AMPLITUDE   8.0f    // degrees (conservative — tune up after testing)
-#define GAIT_KNEE_AMPLITUDE  5.0f    // degrees
-#define GAIT_FREQUENCY       1.5f    // Hz (steps per second)
-#define GAIT_PHASE_OFFSET    3.14159f // PI — diagonal pairs antiphase
-
-// --- Gait Parameters (IK-based pipeline) ---
 #define GAIT_STRIDE_HEIGHT_MM   15.0f   // foot lift height mm (matches stock firmware)
 #define GAIT_STRIDE_LENGTH_MM   20.0f   // forward/back foot swing mm
-#define GAIT_FREQUENCY_HZ       1.5f    // steps per second (same as GAIT_FREQUENCY)
+#define GAIT_FREQUENCY_HZ       1.5f    // steps per second
 
 // --- Servo Idle ---
 #define SERVO_IDLE_TIMEOUT_MS   30000   // detach servos after 30s no movement

@@ -6,7 +6,6 @@ constexpr const char* MSG_CMD_STAND     = "cmd_stand";
 constexpr const char* MSG_CMD_BALANCE   = "cmd_balance";   // stores flag; PID not yet wired to servos
 constexpr const char* MSG_CMD_LED       = "cmd_led";
 constexpr const char* MSG_CMD_SERVO     = "cmd_servo";
-constexpr const char* MSG_CMD_CALIBRATE = "cmd_calibrate";
 constexpr const char* MSG_CMD_TEST_MODE = "cmd_test_mode";
 constexpr const char* MSG_CMD_I2C_WRITE = "cmd_i2c_write";   // raw I2C probe — debug only
 constexpr const char* MSG_CMD_OFFSET    = "cmd_offset";
@@ -37,4 +36,3 @@ enum class Direction {
 };
 
 Direction direction_from_string(const char* str);    // defined in command_handlers.cpp
-const char* direction_to_string(Direction dir);       // defined in command_handlers.cpp

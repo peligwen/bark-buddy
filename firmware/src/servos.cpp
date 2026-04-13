@@ -8,7 +8,6 @@
 // 14-bit resolution at 50Hz gives ~1.22us per tick (adequate for all servos).
 
 static uint16_t current_us[8] = {0};
-static uint16_t target_us[8]  = {0};  // kept for servo_read_us compatibility
 static bool attached = false;
 
 // Frail mode state
@@ -44,7 +43,6 @@ bool servos_init() {
     for (int i = 0; i < 8; i++) {
         uint16_t pos = clamp_us(LYING_DOWN_POSE[i]);
         current_us[i] = pos;
-        target_us[i]  = pos;
         ledcWrite(SERVO_PINS[i], us_to_duty(pos));
     }
 
@@ -59,7 +57,6 @@ bool servos_init() {
             uint16_t pos  = (uint16_t)(start + (int16_t)((float)(end - start) * t));
             pos = clamp_us(pos);
             current_us[i] = pos;
-            target_us[i]  = pos;
             ledcWrite(SERVO_PINS[i], us_to_duty(pos));
         }
         delay(SOFTSTART_DURATION_MS / SOFTSTART_STEPS);
@@ -94,16 +91,9 @@ void servo_write_us(uint8_t index, uint16_t pulse_us) {
     }
 
     current_us[index] = pulse_us;
-    target_us[index]  = pulse_us;
     ledcWrite(SERVO_PINS[index], us_to_duty(pulse_us));
 }
 
-void servo_write_angle(uint8_t index, float angle_deg) {
-    if (angle_deg < 0) angle_deg = 0;
-    if (angle_deg > 180) angle_deg = 180;
-    uint16_t us = SERVO_MIN_US + (uint16_t)(angle_deg / 180.0f * (SERVO_MAX_US - SERVO_MIN_US));
-    servo_write_us(index, us);
-}
 
 uint16_t servo_read_us(uint8_t index) {
     if (index >= 8) return 0;
@@ -115,7 +105,6 @@ void servos_detach_all() {
     attached = false;
     for (int i = 0; i < 8; i++) {
         ledcDetach(SERVO_PINS[i]);
-        target_us[i]  = 0;
         current_us[i] = 0;
     }
 }
@@ -142,7 +131,6 @@ bool servos_shutdown_to_lying_down() {
             uint16_t pos = (uint16_t)(s + (int16_t)((float)(e - s) * t));
             pos = clamp_us(pos);
             current_us[i] = pos;
-            target_us[i]  = pos;
             ledcWrite(SERVO_PINS[i], us_to_duty(pos));
         }
         delay(SHUTDOWN_RAMP_MS / SHUTDOWN_RAMP_STEPS);
@@ -199,7 +187,6 @@ bool servos_update_duty(unsigned long now_ms) {
             for (int i = 0; i < 8; i++) {
                 uint16_t standing = STANDING_POSE[i];
                 current_us[i] = standing;
-                target_us[i]  = standing;
                 frail_target_us[i] = standing;
                 ledcWrite(SERVO_PINS[i], us_to_duty(standing));
             }

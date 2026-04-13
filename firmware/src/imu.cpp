@@ -5,7 +5,6 @@
 
 // QMI8658 Registers
 #define QMI_WHO_AM_I    0x00
-#define QMI_REVISION    0x01
 #define QMI_CTRL1       0x02
 #define QMI_CTRL2       0x03
 #define QMI_CTRL3       0x04

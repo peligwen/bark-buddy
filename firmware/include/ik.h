@@ -21,6 +21,7 @@
 
 #include <math.h>
 #include <stdint.h>
+#include "config.h"
 
 // ─── Physical dimensions ────────────────────────────────────────────────────
 
@@ -31,22 +32,6 @@ static constexpr float IK_LOWER_LEN = 60.0f;  // mm
 static constexpr float IK_HIP_ABS_X = 85.0f;  // ±85mm forward/backward
 static constexpr float IK_HIP_ABS_Y = 46.0f;  // ±46mm lateral (from HW calibration)
 static constexpr float IK_HIP_Z     = -25.0f; // -25mm (below body centre)
-
-// ─── Standing pose servo pulses (from config.h / hardware) ──────────────────
-// Order: FL_hip, FL_knee, FR_hip, FR_knee, RL_hip, RL_knee, RR_hip, RR_knee
-
-// Fallback definition — config.h defines the authoritative STANDING_POSE.
-// If config.h is included before ik.h, this static definition will shadow it
-// (both have identical values). Prefer including config.h before ik.h.
-#ifndef IK_STANDING_POSE_DEFINED
-#define IK_STANDING_POSE_DEFINED
-static const uint16_t STANDING_POSE[8] = {
-    2096, 1621,   // FL
-    2170, 1611,   // FR
-     904, 1379,   // RL
-     830, 1389    // RR
-};
-#endif
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
