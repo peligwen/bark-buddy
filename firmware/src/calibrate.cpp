@@ -1,13 +1,10 @@
+#include <Arduino.h>
+#include <ArduinoJson.h>
 #include "calibrate.h"
 #include "config.h"
 #include "servos.h"
-#include "imu.h"
+#include "sensor_task.h"
 #include "protocol.h"
-#include <Arduino.h>
-#include <ArduinoJson.h>
-#include <Wire.h>
-
-extern SemaphoreHandle_t i2c_mutex;
 #include "comms.h"
 
 static bool active = false;
@@ -49,13 +46,10 @@ void calibrate_start(const CalibrateSweep& s) {
     return_to_standing();
     delay(500);
 
-    IMUData imu;
-    if (xSemaphoreTake(i2c_mutex, pdMS_TO_TICKS(50))) {
-        imu_read(imu);
-        xSemaphoreGive(i2c_mutex);
-    }
-    baseline_pitch = imu.pitch;
-    baseline_roll = imu.roll;
+    SensorSnapshot snap;
+    sensor_snapshot_get(snap);
+    baseline_pitch = snap.pitch;
+    baseline_roll  = snap.roll;
 
     // Start sweep
     current_step_us = sweep.from_us;
@@ -77,31 +71,27 @@ bool calibrate_update(unsigned long now_ms) {
     // Check if dwell time elapsed for current step
     if (now_ms - step_start < sweep.dwell_ms) return true;
 
-    // Read IMU at end of dwell
-    IMUData imu;
-    bool imu_ok = false;
-    if (xSemaphoreTake(i2c_mutex, pdMS_TO_TICKS(10))) {
-        imu_ok = imu_read(imu);
-        xSemaphoreGive(i2c_mutex);
-    }
+    // Read IMU at end of dwell — sensor task keeps this fresh at 50Hz
+    SensorSnapshot snap;
+    sensor_snapshot_get(snap);
 
-    if (imu_ok) {
+    if (snap.imu_ok) {
         // Safety check
-        if (fabsf(imu.pitch) > sweep.tilt_limit || fabsf(imu.roll) > sweep.tilt_limit) {
+        if (fabsf(snap.pitch) > sweep.tilt_limit || fabsf(snap.roll) > sweep.tilt_limit) {
             // Abort — tilt exceeded
             return_to_standing();
             JsonDocument doc;
             doc["type"] = "cal_abort";
             doc["servo"] = sweep.servo;
             doc["reason"] = "tilt_limit";
-            doc["pitch"] = round(imu.pitch * 10) / 10.0;
-            doc["roll"] = round(imu.roll * 10) / 10.0;
+            doc["pitch"] = round(snap.pitch * 10) / 10.0;
+            doc["roll"] = round(snap.roll * 10) / 10.0;
             send_json(doc);
             active = false;
             return false;
         }
 
-        send_cal_point(current_step_us, imu.pitch, imu.roll);
+        send_cal_point(current_step_us, snap.pitch, snap.roll);
     }
 
     // Advance to next step
