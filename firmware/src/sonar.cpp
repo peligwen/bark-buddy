@@ -2,7 +2,7 @@
 #include "config.h"
 
 // I2C sonar registers (verified from stock firmware Hiwonder_IIC.I2CSonar source)
-#define SONAR_REG_DISTANCE  0x00  // 2 bytes big-endian, mm
+#define SONAR_REG_DISTANCE  0x00  // 2 bytes little-endian, mm (low byte first)
 #define SONAR_REG_RGB_MODE  0x02  // 0 = manual
 #define SONAR_REG_RGB1_R    0x03
 #define SONAR_REG_RGB1_G    0x04

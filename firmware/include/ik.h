@@ -46,8 +46,9 @@ struct ServoCalEntry {
 
 // ─── Internal helpers ────────────────────────────────────────────────────────
 
-// Leg is "front" (hip_x = +85) for indices 0 (FL) and 2 (RL).
-// Leg is "rear"  (hip_x = -85) for indices 1 (FR) and 3 (RR).
+// IK geometry groups (by hip X offset, not physical front/rear position):
+//   hip_x = +85mm: FL (index 0) and RL (index 2) — "forward-offset" group
+//   hip_x = -85mm: FR (index 1) and RR (index 3) — "rearward-offset" group
 //
 // Standing foot positions (stock firmware ground truth, mm):
 //   Front legs: foot at (59.25, ±46, -80) → lx = 59.25-85 = -25.75, lz = -80-(-25) = -55
@@ -145,13 +146,13 @@ inline float pulse_to_angle(uint8_t idx, uint16_t us) {
     return c.standing_angle + delta_us * c.polarity / c.us_per_rad;
 }
 
-// Joint angle → pulse width (clamped to [500, 2500])
+// Joint angle → pulse width (clamped to servo range)
 inline uint16_t angle_to_pulse(uint8_t idx, float angle_rad) {
     const ServoCalEntry& c = servo_cal(idx);
     float us_f = (float)c.standing_us
                  + (float)c.polarity * c.us_per_rad * (angle_rad - c.standing_angle);
-    if (us_f < 500.0f)  us_f = 500.0f;
-    if (us_f > 2500.0f) us_f = 2500.0f;
+    if (us_f < (float)SERVO_MIN_US) us_f = (float)SERVO_MIN_US;
+    if (us_f > (float)SERVO_MAX_US) us_f = (float)SERVO_MAX_US;
     return (uint16_t)(us_f + 0.5f);
 }
 
@@ -209,7 +210,7 @@ inline bool leg_ik(uint8_t leg, const FootPos& target,
     uint8_t ki = leg * 2 + 1;
     uint16_t hp = angle_to_pulse(hi, hip_out);
     uint16_t kp = angle_to_pulse(ki, knee_out);
-    if (hp < 500 || hp > 2500 || kp < 500 || kp > 2500) return false;
+    if (hp < SERVO_MIN_US || hp > SERVO_MAX_US || kp < SERVO_MIN_US || kp > SERVO_MAX_US) return false;
 
     return true;
 }
