@@ -7,8 +7,7 @@
 #include "sonar.h"
 #include "servos.h"
 #include "gait.h"
-#include "calibrate.h"
-
+#include "offsets.h"
 // WiFi enabled via build flag -DWIFI_ENABLED=1
 #ifndef WIFI_ENABLED
 #define WIFI_ENABLED 0
@@ -45,7 +44,7 @@ static unsigned long last_battery = 0;
 static unsigned long last_status = 0;
 static unsigned long last_gait = 0;
 
-// I2C mutex for shared bus (also used by calibrate.cpp)
+// I2C mutex for shared bus
 SemaphoreHandle_t i2c_mutex;
 
 // WiFi TCP
@@ -94,6 +93,9 @@ void setup() {
         xSemaphoreGive(i2c_mutex);
     }
 
+    // Load servo trim offsets from NVS
+    offsets_init();
+
     // Initialize servos
     bool servos_ok = servos_init();
 
@@ -103,8 +105,8 @@ void setup() {
     // Set LED to indicate boot status
     if (xSemaphoreTake(i2c_mutex, pdMS_TO_TICKS(100))) {
         if (imu_ok && sonar_ok) {
-            sonar_set_rgb(1, 0, 0, LED_BRIGHTNESS);  // blue = ready
-            sonar_set_rgb(2, 0, 0, LED_BRIGHTNESS);
+            sonar_set_rgb(1, LED_R_LAVENDER, LED_G_LAVENDER, LED_B_LAVENDER);  // lavender = ready
+            sonar_set_rgb(2, LED_R_LAVENDER, LED_G_LAVENDER, LED_B_LAVENDER);
         } else {
             sonar_set_rgb(1, LED_BRIGHTNESS, 0, 0);   // red = error
             sonar_set_rgb(2, LED_BRIGHTNESS, 0, 0);
@@ -212,8 +214,8 @@ void loop() {
         connected = false;
         gait_set_state(GaitState::STOP);
         if (xSemaphoreTake(i2c_mutex, pdMS_TO_TICKS(50))) {
-            sonar_set_rgb(1, 0, 0, LED_BRIGHTNESS);  // blue = disconnected
-            sonar_set_rgb(2, 0, 0, LED_BRIGHTNESS);
+            sonar_set_rgb(1, LED_R_LAVENDER, LED_G_LAVENDER, LED_B_LAVENDER);  // lavender = disconnected
+            sonar_set_rgb(2, LED_R_LAVENDER, LED_G_LAVENDER, LED_B_LAVENDER);
             xSemaphoreGive(i2c_mutex);
         }
     }
@@ -317,12 +319,8 @@ void loop() {
         }
     }
 
-    // Calibration mode (mutually exclusive with gait)
-    if (calibrate_active()) {
-        calibrate_update(now);
-    }
-    // Gait engine (skip during calibration or manual servo mode)
-    else if (!manual_servo_mode && now - last_gait >= 1000 / GAIT_UPDATE_HZ) {
+    // Gait engine (skip during manual servo mode)
+    if (!manual_servo_mode && now - last_gait >= 1000 / GAIT_UPDATE_HZ) {
         if (!low_battery) {
             gait_update(now);
         }
@@ -447,27 +445,47 @@ void handle_message(const JsonDocument& doc) {
         resp["servos_active"] = servos_active();
         send_json(resp);
     }
-    else if (strcmp(type, MSG_CMD_CALIBRATE) == 0) {
-        const char* action = doc["action"] | "sweep";
-        if (strcmp(action, "stop") == 0) {
-            calibrate_stop();
-            send_ack(MSG_CMD_CALIBRATE, true);
-        } else {
-            // Ensure servos are awake
-            if (!servos_active()) {
-                servos_init();
-            }
-            gait_set_state(GaitState::STOP);
-            CalibrateSweep sw;
-            sw.servo = doc["servo"] | 0;
-            sw.from_us = doc["from_us"] | (STANDING_POSE[sw.servo] - 100);
-            sw.to_us = doc["to_us"] | (STANDING_POSE[sw.servo] + 100);
-            sw.step_us = doc["step_us"] | 10;
-            sw.dwell_ms = doc["dwell_ms"] | 300;
-            sw.tilt_limit = doc["tilt_limit"] | 8.0f;
-            calibrate_start(sw);
-            send_ack(MSG_CMD_CALIBRATE, true);
+    else if (strcmp(type, MSG_CMD_I2C_WRITE) == 0) {
+        // Raw I2C write for register probing — debug only
+        uint8_t addr = doc["addr"] | 0x77;
+        uint8_t reg  = doc["reg"]  | 0;
+        uint8_t val  = doc["val"]  | 0;
+        bool ok = false;
+        if (xSemaphoreTake(i2c_mutex, pdMS_TO_TICKS(50))) {
+            Wire.beginTransmission(addr);
+            Wire.write(reg);
+            Wire.write(val);
+            ok = (Wire.endTransmission() == 0);
+            xSemaphoreGive(i2c_mutex);
         }
+        JsonDocument resp;
+        resp["type"] = MSG_ACK;
+        resp["ref_type"] = MSG_CMD_I2C_WRITE;
+        resp["ok"] = ok;
+        resp["addr"] = addr;
+        resp["reg"] = reg;
+        resp["val"] = val;
+        send_json(resp);
+    }
+    else if (strcmp(type, MSG_CMD_OFFSET) == 0) {
+        const char* action = doc["action"] | "read";
+        if (strcmp(action, "set") == 0) {
+            uint8_t idx = doc["index"] | 0;
+            int16_t val = doc["value"] | 0;
+            if (idx < 8) offset_set(idx, val);
+        } else if (strcmp(action, "save") == 0) {
+            offsets_save();
+        } else if (strcmp(action, "reset") == 0) {
+            offsets_reset();
+        }
+        // Always respond with current offsets
+        JsonDocument resp;
+        resp["type"] = MSG_ACK;
+        resp["ref_type"] = MSG_CMD_OFFSET;
+        resp["ok"] = true;
+        JsonArray arr = resp["offsets"].to<JsonArray>();
+        for (int i = 0; i < 8; i++) arr.add(offset_get(i));
+        send_json(resp);
     }
     else {
         send_ack(type, false, "unknown_type");
