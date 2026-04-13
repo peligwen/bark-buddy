@@ -164,7 +164,7 @@ static void handle_cmd_test_mode(const JsonDocument& doc) {
 
     JsonDocument resp;
     resp["type"]          = MSG_ACK;
-    resp["ref_type"]      = "cmd_test_mode";
+    resp["ref_type"]      = MSG_CMD_TEST_MODE;
     resp["ok"]            = true;
     resp["test_mode"]     = s_test_mode;
     resp["frail"]         = servos_frail();
