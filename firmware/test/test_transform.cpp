@@ -53,15 +53,43 @@ int main() {
         asym ? pass++ : fail++;
     }
 
-    // Test 4: Saturation — extreme rotation fails gracefully (returns false, no crash)
+    // Test 4: Saturation — output pulses always stay in [SERVO_MIN_US, SERVO_MAX_US]
+    // regardless of whether the pose is reachable, and geometric impossibility is
+    // detected and reported correctly.
     {
-        BodyPose extreme = {0, 0, 0, 30, 0, 0};  // 30 degrees roll
-        uint16_t p[8];
-        bool ok = body_pose_to_pulses(extreme, p);
-        // Either succeeds or fails — just must not crash or produce NaN
-        printf("{\"test\":\"saturation\",\"reachable\":%s,\"pass\":true}\n",
-               ok ? "true" : "false");
-        pass++;
+        // Case A: extreme roll — may or may not be reachable, but output pulses
+        // must always be within the valid servo range.
+        BodyPose extreme_roll = {0, 0, 0, 30, 0, 0};
+        uint16_t p_roll[8] = {};
+        bool ok_roll = body_pose_to_pulses(extreme_roll, p_roll);
+        bool roll_pulses_valid = true;
+        for (int i = 0; i < 8; i++) {
+            if (p_roll[i] < SERVO_MIN_US || p_roll[i] > SERVO_MAX_US)
+                roll_pulses_valid = false;
+        }
+
+        // Case B: body raised so high (dz=+65mm) that the leg reach (115mm max)
+        // cannot span the distance. Must return false and clamp pulses to standing.
+        // (standing foot ~61mm from hip → raising body 65mm → ~117mm > 115mm max)
+        BodyPose out_of_reach = {0, 0, 65, 0, 0, 0};
+        uint16_t p_oor[8] = {};
+        bool must_fail = !body_pose_to_pulses(out_of_reach, p_oor);
+        // On failure, body_pose_to_pulses clamps to STANDING_POSE
+        bool clamped_to_standing = true;
+        for (int i = 0; i < 8; i++) {
+            if (p_oor[i] != STANDING_POSE[i]) clamped_to_standing = false;
+        }
+
+        bool pass4 = roll_pulses_valid && must_fail && clamped_to_standing;
+        printf("{\"test\":\"saturation\",\"roll_reachable\":%s,"
+               "\"roll_pulses_valid\":%s,\"oor_rejected\":%s,"
+               "\"oor_clamped\":%s,\"pass\":%s}\n",
+               ok_roll ? "true" : "false",
+               roll_pulses_valid ? "true" : "false",
+               must_fail ? "true" : "false",
+               clamped_to_standing ? "true" : "false",
+               pass4 ? "true" : "false");
+        pass4 ? pass++ : fail++;
     }
 
     // Test 5: lerp_pose interpolation
