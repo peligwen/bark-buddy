@@ -137,20 +137,16 @@ inline GaitFootOffsets gait_tick_ik(float phase_rad, GaitDir dir,
         float mul = legs[i].mul;
         float s = sinf(ph);
 
-        float dx, dz;
-        if (s >= 0.0f) {
-            // Swing phase: foot sweeps forward, lifts in half-sine arc
-            // Map s from [0,1] to swing progress
-            dz = sh * s;   // lift follows sinusoid — peaks at ph=π/2
-            dx = dir_sign * sl * mul * (1.0f - s);  // sweeping back from peak
-        } else {
-            // Stance phase: foot on ground, pushes backward linearly
-            dz = 0.0f;
-            dx = dir_sign * sl * mul * s;  // s is negative → positive push
-        }
+        // Smooth cosine x-sweep: continuous at all phase transitions.
+        // -cos(ph) maps: ph=0→-1 (back), ph=π/2→0 (center), ph=π→+1 (front)
+        // dir_sign flips for backward motion; mul scales for turning.
+        float dx = dir_sign * sl * mul * (-cosf(ph));
+
+        // Lift only during swing phase (sin > 0), smooth sinusoidal arc.
+        float dz = (s > 0.0f) ? sh * s : 0.0f;
 
         out.feet[i].x = dx;
-        out.feet[i].y = 0.0f;   // no lateral foot movement
+        out.feet[i].y = 0.0f;
         out.feet[i].z = dz;
     }
 

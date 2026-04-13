@@ -21,7 +21,8 @@ static GaitConfig s_config = {
     GAIT_FREQUENCY_HZ
 };
 
-// Body transform — current and target
+// Body transform — start, current and target
+static BodyPose s_start_transform   = {};
 static BodyPose s_current_transform = {};
 static BodyPose s_target_transform  = {};
 static uint16_t s_transform_duration_ms = 100;
@@ -74,6 +75,7 @@ void gait_set_config(const GaitConfig& config) {
 }
 
 void gait_set_body_transform(const BodyPose& pose, uint16_t duration_ms) {
+    s_start_transform = s_current_transform;  // capture current as start
     s_target_transform = pose;
     s_transform_duration_ms = duration_ms;
     s_transform_start = millis();
@@ -108,7 +110,7 @@ void gait_update(unsigned long now_ms) {
     float t = (s_transform_duration_ms > 0)
               ? fminf((float)elapsed / s_transform_duration_ms, 1.0f)
               : 1.0f;
-    s_current_transform = lerp_pose(s_current_transform, s_target_transform, t);
+    s_current_transform = lerp_pose(s_start_transform, s_target_transform, t);
 
     // Balance correction
     BodyPose combined = s_current_transform;
