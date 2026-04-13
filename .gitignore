@@ -7,3 +7,15 @@ sweep_results/
 firmware/include/config_local.h
 stock_firmware_dump/
 .worktrees/
+
+# OS noise
+.DS_Store
+
+# Servo test output logs
+*.ndjson
+
+# Compiled test binaries (firmware/test/)
+firmware/test/test_*
+firmware/test/gait_tests
+firmware/test/pose_generator
+firmware/test/profile_analyzer
