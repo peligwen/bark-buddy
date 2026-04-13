@@ -9,6 +9,7 @@
 #include "gait.h"
 #include "balance.h"
 #include "offsets.h"
+#include "command_handlers.h"
 // WiFi enabled via build flag -DWIFI_ENABLED=1
 #ifndef WIFI_ENABLED
 #define WIFI_ENABLED 0
@@ -19,7 +20,6 @@
 #endif
 
 // --- Forward declarations ---
-void handle_message(const JsonDocument& doc);
 void send_ack(const char* ref_type, bool ok, const char* error = nullptr);
 void send_json(const JsonDocument& doc);
 void process_rx(char* buf, size_t& pos, char c, unsigned long now);
@@ -32,11 +32,8 @@ static size_t tcp_rx_pos = 0;
 
 static unsigned long last_msg_received = 0;
 static bool connected = false;
-static bool balance_enabled = false;
 static bool low_battery = false;
-static bool manual_servo_mode = false;
-static bool test_mode = false;
-static unsigned long last_test_cmd = 0;
+// balance_enabled, manual_servo_mode, test_mode, last_test_cmd owned by command_handlers.cpp
 
 // Telemetry timers
 static unsigned long last_imu = 0;
@@ -56,24 +53,9 @@ static bool wifi_connected = false;
 #endif
 
 // --- Direction helpers ---
-Direction direction_from_string(const char* str) {
-    if (strcmp(str, "forward") == 0)  return Direction::FORWARD;
-    if (strcmp(str, "backward") == 0) return Direction::BACKWARD;
-    if (strcmp(str, "left") == 0)     return Direction::LEFT;
-    if (strcmp(str, "right") == 0)    return Direction::RIGHT;
-    return Direction::STOP;
-}
-
-const char* direction_to_string(Direction dir) {
-    switch (dir) {
-        case Direction::FORWARD:  return "forward";
-        case Direction::BACKWARD: return "backward";
-        case Direction::LEFT:     return "left";
-        case Direction::RIGHT:    return "right";
-        case Direction::STOP:     return "stop";
-    }
-    return "stop";
-}
+// Moved to command_handlers.cpp (Task 4 refactor)
+// Direction direction_from_string(const char* str) { ... }
+// const char* direction_to_string(Direction dir) { ... }
 
 // --- Setup ---
 void setup() {
@@ -102,6 +84,9 @@ void setup() {
 
     // Initialize gait engine
     gait_init();
+
+    // Initialize command handler state
+    handlers_init();
 
     // Set LED to indicate boot status
     if (xSemaphoreTake(i2c_mutex, pdMS_TO_TICKS(100))) {
@@ -287,7 +272,7 @@ void loop() {
         JsonDocument doc;
         doc["type"] = MSG_TELEM_STATUS;
         doc["mode"] = "idle";
-        doc["balance"] = balance_enabled;
+        doc["balance"] = balance_is_enabled();
         doc["servos"] = servos_active();
         doc["low_battery"] = low_battery;
 #if WIFI_ENABLED
@@ -302,11 +287,14 @@ void loop() {
     }
 
     // Test mode heartbeat — exit test mode if host goes quiet
-    if (test_mode && (now - last_test_cmd > TEST_HEARTBEAT_MS)) {
-        test_mode = false;
-        manual_servo_mode = false;
+    // State is owned by command_handlers; check via accessors.
+    // NOTE: actual state reset on timeout is handled inside command_handlers (Task 5).
+    // For now, guard the gait engine using the accessor.
+    if (handlers_test_mode() && (now - handlers_last_test_cmd() > TEST_HEARTBEAT_MS)) {
         servos_set_frail(false);
         gait_set_state(GaitState::STAND);
+        // handlers state (test_mode / manual_servo_mode) will be cleared in Task 5
+        // when the timeout logic moves fully into command_handlers.
     }
 
     // Frail mode duty cycle tracking
@@ -322,7 +310,7 @@ void loop() {
     }
 
     // Gait engine (skip during manual servo mode)
-    if (!manual_servo_mode && now - last_gait >= 1000 / GAIT_UPDATE_HZ) {
+    if (!handlers_manual_servo_mode() && now - last_gait >= 1000 / GAIT_UPDATE_HZ) {
         if (!low_battery) {
             gait_update(now);
         }
@@ -330,191 +318,7 @@ void loop() {
     }
 }
 
-// --- Message handler ---
-void handle_message(const JsonDocument& doc) {
-    const char* type = doc["type"];
-    if (!type) return;
-
-    if (strcmp(type, MSG_PING) == 0) {
-        JsonDocument resp;
-        resp["type"] = MSG_PONG;
-        send_json(resp);
-    }
-    else if (strcmp(type, MSG_CMD_MOVE) == 0) {
-        manual_servo_mode = false;
-        const char* dir_str = doc["direction"] | "stop";
-        float spd = doc["speed"] | 1.0f;
-        Direction dir = direction_from_string(dir_str);
-        switch (dir) {
-            case Direction::FORWARD:  gait_set_state(GaitState::WALK_FORWARD, spd); break;
-            case Direction::BACKWARD: gait_set_state(GaitState::WALK_BACKWARD, spd); break;
-            case Direction::LEFT:     gait_set_state(GaitState::TURN_LEFT, spd); break;
-            case Direction::RIGHT:    gait_set_state(GaitState::TURN_RIGHT, spd); break;
-            case Direction::STOP:     gait_set_state(GaitState::STOP); break;
-        }
-        send_ack(MSG_CMD_MOVE, true);
-    }
-    else if (strcmp(type, MSG_CMD_STAND) == 0) {
-        manual_servo_mode = false;
-        gait_set_state(GaitState::STAND);
-        send_ack(MSG_CMD_STAND, true);
-    }
-    else if (strcmp(type, MSG_CMD_BALANCE) == 0) {
-        balance_enabled = doc["enabled"] | true;
-        balance_enable(balance_enabled);
-        if (!balance_enabled) balance_reset();
-        send_ack(MSG_CMD_BALANCE, true);
-    }
-    else if (strcmp(type, MSG_CMD_TRANSFORM) == 0) {
-        BodyPose pose;
-        pose.dx    = doc["x"]     | 0.0f;
-        pose.dy    = doc["y"]     | 0.0f;
-        pose.dz    = doc["z"]     | 0.0f;
-        pose.roll  = doc["roll"]  | 0.0f;
-        pose.pitch = doc["pitch"] | 0.0f;
-        pose.yaw   = doc["yaw"]   | 0.0f;
-        uint16_t ms = doc["ms"]   | 100;
-        gait_set_body_transform(pose, ms);
-        send_ack(MSG_CMD_TRANSFORM, true);
-    }
-    else if (strcmp(type, MSG_CMD_GAIT_PARAMS) == 0) {
-        GaitConfig cfg;
-        cfg.stride_height_mm = doc["stride_height"] | GAIT_STRIDE_HEIGHT_MM;
-        cfg.stride_length_mm = doc["stride_length"] | GAIT_STRIDE_LENGTH_MM;
-        cfg.frequency_hz     = doc["frequency"]     | GAIT_FREQUENCY_HZ;
-        gait_set_config(cfg);
-        send_ack(MSG_CMD_GAIT_PARAMS, true);
-    }
-    else if (strcmp(type, MSG_CMD_LED) == 0) {
-        uint8_t led = doc["led"] | 1;
-        uint8_t r = doc["r"] | 0;
-        uint8_t g = doc["g"] | 0;
-        uint8_t b = doc["b"] | 0;
-        if (xSemaphoreTake(i2c_mutex, pdMS_TO_TICKS(50))) {
-            sonar_set_rgb(led, r, g, b);
-            xSemaphoreGive(i2c_mutex);
-        }
-        send_ack(MSG_CMD_LED, true);
-    }
-    else if (strcmp(type, MSG_CMD_SERVO) == 0) {
-#if PINS_VERIFIED
-        manual_servo_mode = true;  // disable gait engine
-        if (test_mode) last_test_cmd = millis();  // keep test mode alive
-
-        // Wake servos if detached (fixes idle timeout during testing)
-        if (!servos_active()) {
-            servos_init();
-            if (test_mode) servos_set_frail(true);  // re-enable frail after wake
-        }
-
-        uint8_t idx = doc["index"] | 0;
-        uint16_t us = doc["pulse_us"] | 1500;
-        servo_write_us(idx, us);
-
-        // Ack with readback so host can verify
-        JsonDocument resp;
-        resp["type"] = MSG_ACK;
-        resp["ref_type"] = MSG_CMD_SERVO;
-        resp["ok"] = true;
-        resp["index"] = idx;
-        resp["actual_us"] = servo_read_us(idx);
-        resp["frail"] = servos_frail();
-        send_json(resp);
-#else
-        send_ack(MSG_CMD_SERVO, false, "pins_not_verified");
-#endif
-    }
-    else if (strcmp(type, MSG_CMD_TEST_MODE) == 0) {
-        bool enable = doc["enable"] | true;
-        bool frail = doc["frail"] | true;  // frail on by default
-        if (enable) {
-            test_mode = true;
-            last_test_cmd = millis();
-            manual_servo_mode = true;
-            gait_set_state(GaitState::STOP);
-
-            // Wake servos if detached
-            if (!servos_active()) {
-                servos_init();
-            }
-
-            servos_set_frail(frail);
-
-            // Purple LED = test mode
-            if (xSemaphoreTake(i2c_mutex, pdMS_TO_TICKS(50))) {
-                sonar_set_rgb(1, LED_BRIGHTNESS / 2, 0, LED_BRIGHTNESS);
-                sonar_set_rgb(2, LED_BRIGHTNESS / 2, 0, LED_BRIGHTNESS);
-                xSemaphoreGive(i2c_mutex);
-            }
-        } else {
-            test_mode = false;
-            manual_servo_mode = false;
-            servos_set_frail(false);
-            gait_set_state(GaitState::STAND);
-
-            // Green LED = normal
-            if (xSemaphoreTake(i2c_mutex, pdMS_TO_TICKS(50))) {
-                sonar_set_rgb(1, 0, LED_BRIGHTNESS, 0);
-                sonar_set_rgb(2, 0, LED_BRIGHTNESS, 0);
-                xSemaphoreGive(i2c_mutex);
-            }
-        }
-
-        JsonDocument resp;
-        resp["type"] = MSG_ACK;
-        resp["ref_type"] = "cmd_test_mode";
-        resp["ok"] = true;
-        resp["test_mode"] = test_mode;
-        resp["frail"] = servos_frail();
-        resp["servos_active"] = servos_active();
-        send_json(resp);
-    }
-    else if (strcmp(type, MSG_CMD_I2C_WRITE) == 0) {
-        // Raw I2C write for register probing — debug only
-        uint8_t addr = doc["addr"] | 0x77;
-        uint8_t reg  = doc["reg"]  | 0;
-        uint8_t val  = doc["val"]  | 0;
-        bool ok = false;
-        if (xSemaphoreTake(i2c_mutex, pdMS_TO_TICKS(50))) {
-            Wire.beginTransmission(addr);
-            Wire.write(reg);
-            Wire.write(val);
-            ok = (Wire.endTransmission() == 0);
-            xSemaphoreGive(i2c_mutex);
-        }
-        JsonDocument resp;
-        resp["type"] = MSG_ACK;
-        resp["ref_type"] = MSG_CMD_I2C_WRITE;
-        resp["ok"] = ok;
-        resp["addr"] = addr;
-        resp["reg"] = reg;
-        resp["val"] = val;
-        send_json(resp);
-    }
-    else if (strcmp(type, MSG_CMD_OFFSET) == 0) {
-        const char* action = doc["action"] | "read";
-        if (strcmp(action, "set") == 0) {
-            uint8_t idx = doc["index"] | 0;
-            int16_t val = doc["value"] | 0;
-            if (idx < 8) offset_set(idx, val);
-        } else if (strcmp(action, "save") == 0) {
-            offsets_save();
-        } else if (strcmp(action, "reset") == 0) {
-            offsets_reset();
-        }
-        // Always respond with current offsets
-        JsonDocument resp;
-        resp["type"] = MSG_ACK;
-        resp["ref_type"] = MSG_CMD_OFFSET;
-        resp["ok"] = true;
-        JsonArray arr = resp["offsets"].to<JsonArray>();
-        for (int i = 0; i < 8; i++) arr.add(offset_get(i));
-        send_json(resp);
-    }
-    else {
-        send_ack(type, false, "unknown_type");
-    }
-}
+// handle_message() moved to command_handlers.cpp (Task 4 refactor)
 
 // --- Senders ---
 void send_ack(const char* ref_type, bool ok, const char* error) {
