@@ -242,3 +242,16 @@ void handle_message(const JsonDocument& doc) {
     }
     send_ack(type, false, "unknown_type");
 }
+
+void handlers_check_timeout(unsigned long now_ms) {
+    if (!s_test_mode) return;
+    if (now_ms - s_last_test_cmd <= TEST_HEARTBEAT_MS) return;
+
+    s_test_mode         = false;
+    s_manual_servo_mode = false;
+    servos_set_frail(false);
+    gait_set_state(GaitState::STAND);
+
+    sensor_led_set(1, 0, LED_BRIGHTNESS, 0);  // green
+    sensor_led_set(2, 0, LED_BRIGHTNESS, 0);
+}
