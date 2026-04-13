@@ -8,7 +8,7 @@
 #include <Wire.h>
 
 extern SemaphoreHandle_t i2c_mutex;
-extern void send_json(const JsonDocument& doc);
+#include "comms.h"
 
 static bool active = false;
 static CalibrateSweep sweep;
