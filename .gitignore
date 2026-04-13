@@ -22,6 +22,3 @@ firmware/test/test_balance
 firmware/test/test_offsets
 firmware/test/test_gait_ik
 firmware/test/test_servos
-firmware/test/gait_tests
-firmware/test/pose_generator
-firmware/test/profile_analyzer

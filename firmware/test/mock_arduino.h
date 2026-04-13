@@ -35,10 +35,24 @@ inline void servo_log_reset() { _servo_log_count = 0; memset(_servo_duty, 0, siz
 inline const ServoCapture* servo_log_entries() { return _servo_log; }
 inline int servo_log_count() { return _servo_log_count; }
 
-// LEDC stubs
+// LEDC stubs — supports both new-style (ledcAttach/ledcWrite(pin,...)) and
+// old-style (ledcSetup/ledcAttachPin/ledcWrite(channel,...)) ESP32 Arduino APIs.
+static uint8_t _channel_to_pin[16] = {};  // 0 means unmapped
+
+// New-style API
 inline void ledcAttach(uint8_t pin, uint32_t freq, uint8_t resolution) { (void)pin; (void)freq; (void)resolution; }
 inline void ledcDetach(uint8_t pin) { _servo_duty[pin] = 0; }
-inline void ledcWrite(uint8_t pin, uint32_t duty) {
+
+// Old-style API
+inline void ledcSetup(uint8_t channel, uint32_t freq, uint8_t resolution) { (void)channel; (void)freq; (void)resolution; }
+inline void ledcAttachPin(uint8_t pin, uint8_t channel) { _channel_to_pin[channel] = pin; }
+inline void ledcDetachPin(uint8_t pin) { _servo_duty[pin] = 0; }
+
+// ledcWrite: first arg is channel (old-style) if mapped, else pin (new-style)
+inline void ledcWrite(uint8_t pin_or_channel, uint32_t duty) {
+    uint8_t pin = (pin_or_channel < 16 && _channel_to_pin[pin_or_channel] != 0)
+                  ? _channel_to_pin[pin_or_channel]
+                  : pin_or_channel;
     _servo_duty[pin] = duty;
     if (_servo_log_count < MAX_CAPTURES) {
         _servo_log[_servo_log_count++] = {pin, duty, _mock_millis};
