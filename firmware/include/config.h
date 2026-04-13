@@ -47,10 +47,14 @@ static const uint8_t SERVO_PINS[8] = {
 // --- Standing Pose (servo pulse widths in μs) ---
 // Captured from stock firmware set_default_pose() + offsets
 // Order: FL_hip, FL_knee, FR_hip, FR_knee, RL_hip, RL_knee, RR_hip, RR_knee
+#ifndef IK_STANDING_POSE_DEFINED
+#define IK_STANDING_POSE_DEFINED
 static const uint16_t STANDING_POSE[8] = {
-    2096, 1621, 2170, 1611, 904, 1379, 1389, 830
+    2096, 1621, 2170, 1611, 904, 1379, 830, 1389
     // FL_hip FL_knee FR_hip FR_knee RL_hip RL_knee RR_hip RR_knee
+    // Verified from stock firmware read_all_servo() at default pose
 };
+#endif
 
 // --- Battery ADC (VERIFIED: Hiwonder.__adcp = ADC(Pin(34), atten=3)) ---
 #define BATTERY_ADC_PIN     34
@@ -86,6 +90,11 @@ static const uint16_t STANDING_POSE[8] = {
 #define GAIT_FREQUENCY       1.5f    // Hz (steps per second)
 #define GAIT_PHASE_OFFSET    3.14159f // PI — diagonal pairs antiphase
 
+// --- Gait Parameters (IK-based pipeline) ---
+#define GAIT_STRIDE_HEIGHT_MM   15.0f   // foot lift height mm (matches stock firmware)
+#define GAIT_STRIDE_LENGTH_MM   20.0f   // forward/back foot swing mm
+#define GAIT_FREQUENCY_HZ       1.5f    // steps per second (same as GAIT_FREQUENCY)
+
 // --- Servo Idle ---
 #define SERVO_IDLE_TIMEOUT_MS   30000   // detach servos after 30s no movement
 
@@ -101,4 +110,11 @@ static const uint16_t STANDING_POSE[8] = {
 #define TEST_HEARTBEAT_MS       10000   // exit test mode if no command for 10s
 
 // --- LED Brightness ---
-#define LED_BRIGHTNESS  15  // 0-255, kept dim for subtle indicator
+// Scale is 0-255. Stock firmware uses full 0-255 range.
+#define LED_BRIGHTNESS  40  // dim but clearly visible at ~16% max
+
+// --- LED Colors (0-255 scale) ---
+// Lavender: R=180, G=110, B=255 at full brightness, scaled to LED_BRIGHTNESS
+#define LED_R_LAVENDER  ((180 * LED_BRIGHTNESS) / 255)  // ~28
+#define LED_G_LAVENDER  ((110 * LED_BRIGHTNESS) / 255)  // ~17
+#define LED_B_LAVENDER  LED_BRIGHTNESS                   // 40

@@ -2,120 +2,163 @@
 #include "gait_math.h"
 #include "config.h"
 #include "servos.h"
+#include "balance.h"
+#include "offsets.h"
 #include <Arduino.h>
 #include <math.h>
 
-// Servo index mapping:
-// 0=FL_hip, 1=FL_knee, 2=FR_hip, 3=FR_knee
-// 4=RL_hip, 5=RL_knee, 6=RR_hip, 7=RR_knee
+static GaitState s_state = GaitState::STOP;
+static float s_speed = 1.0f;
+static float s_phase = 0.0f;
+static unsigned long s_last_update = 0;
+static unsigned long s_last_active = 0;
+static bool s_idle_detached = false;
 
-static GaitState state = GaitState::STOP;
-static float speed = 1.0f;
-static unsigned long last_update = 0;
-static unsigned long last_active = 0;  // last time a non-idle state was set
-static bool idle_detached = false;
-static float phase = 0.0f;
+// Gait configuration
+static GaitConfig s_config = {
+    GAIT_STRIDE_LENGTH_MM,
+    GAIT_STRIDE_HEIGHT_MM,
+    GAIT_FREQUENCY_HZ
+};
+
+// Body transform — current and target
+static BodyPose s_current_transform = {};
+static BodyPose s_target_transform  = {};
+static uint16_t s_transform_duration_ms = 100;
+static unsigned long s_transform_start = 0;
+
+// IMU data for balance
+static float s_pitch = 0.0f;
+static float s_roll  = 0.0f;
 
 void gait_init() {
-    state = GaitState::STAND;
-    speed = 0.0f;
-    phase = 0.0f;
-    last_update = millis();
-    last_active = millis();
-    idle_detached = false;
+    s_state = GaitState::STAND;
+    s_speed = 0.0f;
+    s_phase = 0.0f;
+    s_last_update = millis();
+    s_last_active = millis();
+    s_idle_detached = false;
+    s_current_transform = {};
+    s_target_transform  = {};
+
+    // Init balance with default config
+    BalanceConfig bcfg = {
+        0.3f, 0.0f, 0.05f,   // kp, ki, kd pitch
+        0.3f, 0.0f, 0.05f,   // kp, ki, kd roll
+        8.0f,                  // max correction deg
+        0.5f                   // deadband deg
+    };
+    balance_init(bcfg);
 }
 
 void gait_set_state(GaitState new_state, float new_speed) {
-    // Any movement command wakes servos from idle
     if (new_state != GaitState::STOP && new_state != GaitState::STAND) {
-        last_active = millis();
-        if (idle_detached) {
-            servos_init();  // re-attach with soft-start
-            idle_detached = false;
+        s_last_active = millis();
+        if (s_idle_detached) {
+            servos_init();
+            s_idle_detached = false;
         }
     } else if (new_state == GaitState::STAND) {
-        last_active = millis();  // standing is active (hold pose)
+        s_last_active = millis();
     }
-    state = new_state;
-    speed = new_speed;
-    if (new_state == GaitState::STOP || new_state == GaitState::STAND) {
-        speed = 0.0f;
+    // Reset balance integrators on direction change to avoid jerk
+    if (new_state != s_state) {
+        balance_reset();
     }
+    s_state = new_state;
+    s_speed = (new_state == GaitState::STOP || new_state == GaitState::STAND) ? 0.0f : new_speed;
+}
+
+void gait_set_config(const GaitConfig& config) {
+    s_config = config;
+}
+
+void gait_set_body_transform(const BodyPose& pose, uint16_t duration_ms) {
+    s_target_transform = pose;
+    s_transform_duration_ms = duration_ms;
+    s_transform_start = millis();
+}
+
+void gait_update_imu(float pitch_deg, float roll_deg) {
+    s_pitch = pitch_deg;
+    s_roll  = roll_deg;
 }
 
 GaitState gait_current_state() {
-    return state;
-}
-
-// Per-servo polarity: +1 if standing pose > center, -1 if below.
-// Front legs are mounted opposite to rear legs — a positive angle offset
-// must push front servos AWAY from center and rear servos TOWARD center
-// (or vice versa) for the same physical motion direction.
-static const float SERVO_POLARITY[8] = {
-    +1, +1, +1, +1,   // FL_hip, FL_knee, FR_hip, FR_knee (above center)
-    -1, -1, -1, -1,   // RL_hip, RL_knee, RR_hip, RR_knee (below center)
-};
-
-// Convert angle offset (degrees) from neutral to servo pulse
-static uint16_t angle_to_us(uint8_t servo_index, float offset_deg) {
-    float center = (float)STANDING_POSE[servo_index];
-    float us = center + offset_deg * 10.0f * SERVO_POLARITY[servo_index];
-    if (us < SERVO_MIN_US) us = SERVO_MIN_US;
-    if (us > SERVO_MAX_US) us = SERVO_MAX_US;
-    return (uint16_t)us;
+    return s_state;
 }
 
 void gait_update(unsigned long now_ms) {
-    // Idle timeout: detach servos to save power
-    if (!idle_detached && servos_active()
-        && (state == GaitState::STOP)
-        && (now_ms - last_active > SERVO_IDLE_TIMEOUT_MS)) {
+    // Idle timeout
+    if (!s_idle_detached && servos_active()
+        && s_state == GaitState::STOP
+        && (now_ms - s_last_active > SERVO_IDLE_TIMEOUT_MS)) {
         servos_detach_all();
-        idle_detached = true;
+        s_idle_detached = true;
         return;
     }
-
     if (!servos_active()) return;
 
-    float dt = (now_ms - last_update) / 1000.0f;
-    last_update = now_ms;
-    if (dt <= 0 || dt > 0.5f) return;
+    float dt = (now_ms - s_last_update) / 1000.0f;
+    s_last_update = now_ms;
+    if (dt <= 0.0f || dt > 0.5f) return;
 
-    if (state == GaitState::STAND || state == GaitState::STOP) {
-        // Smoothly return to standing pose
-        phase = 0;
-        for (int i = 0; i < 8; i++) {
-            uint16_t current = servo_read_us(i);
-            uint16_t target = STANDING_POSE[i];
-            if (current == 0) current = target;
-            // Blend toward target
-            int16_t diff = (int16_t)target - (int16_t)current;
-            if (abs(diff) > 2) {
-                servo_write_us(i, current + diff / 4);
+    // Interpolate body transform toward target
+    unsigned long elapsed = now_ms - s_transform_start;
+    float t = (s_transform_duration_ms > 0)
+              ? fminf((float)elapsed / s_transform_duration_ms, 1.0f)
+              : 1.0f;
+    s_current_transform = lerp_pose(s_current_transform, s_target_transform, t);
+
+    // Balance correction
+    BodyPose combined = s_current_transform;
+    if (balance_is_enabled()) {
+        BodyPose bal = balance_update(s_pitch, s_roll, dt);
+        combined.pitch += bal.pitch;
+        combined.roll  += bal.roll;
+    }
+
+    if (s_state == GaitState::STAND || s_state == GaitState::STOP) {
+        // Apply body transform at standing pose
+        uint16_t pulses[8];
+        if (body_pose_to_pulses(combined, pulses)) {
+            for (int i = 0; i < 8; i++) {
+                servo_write_us(i, apply_offset(i, pulses[i]));
             }
         }
         return;
     }
 
     // Advance phase
-    phase += 2.0f * M_PI * GAIT_FREQUENCY * speed * dt;
-    if (phase > 2.0f * M_PI) phase -= 2.0f * M_PI;
+    s_phase += 2.0f * (float)M_PI * s_config.frequency_hz * s_speed * dt;
+    if (s_phase > 2.0f * (float)M_PI) s_phase -= 2.0f * (float)M_PI;
 
-    // Map GaitState to GaitDir for the shared math kernel
+    // Map GaitState -> GaitDir
     GaitDir gdir = GaitDir::FORWARD;
-    if (state == GaitState::WALK_BACKWARD) gdir = GaitDir::BACKWARD;
-    else if (state == GaitState::TURN_LEFT)  gdir = GaitDir::TURN_LEFT;
-    else if (state == GaitState::TURN_RIGHT) gdir = GaitDir::TURN_RIGHT;
+    if (s_state == GaitState::WALK_BACKWARD) gdir = GaitDir::BACKWARD;
+    else if (s_state == GaitState::TURN_LEFT)  gdir = GaitDir::TURN_LEFT;
+    else if (s_state == GaitState::TURN_RIGHT) gdir = GaitDir::TURN_RIGHT;
 
-    GaitAngles a = gait_tick(phase, gdir,
-                             GAIT_HIP_AMPLITUDE, GAIT_KNEE_AMPLITUDE, speed);
+    // Get foot offsets from gait
+    GaitFootOffsets gait_feet = gait_tick_ik(s_phase, gdir, s_config, s_speed);
 
-    servo_write_us(0, angle_to_us(0, a.hip[GAIT_FL]));
-    servo_write_us(1, angle_to_us(1, a.knee[GAIT_FL]));
-    servo_write_us(2, angle_to_us(2, a.hip[GAIT_FR]));
-    servo_write_us(3, angle_to_us(3, a.knee[GAIT_FR]));
-    servo_write_us(4, angle_to_us(4, a.hip[GAIT_RL]));
-    servo_write_us(5, angle_to_us(5, a.knee[GAIT_RL]));
-    servo_write_us(6, angle_to_us(6, a.hip[GAIT_RR]));
-    servo_write_us(7, angle_to_us(7, a.knee[GAIT_RR]));
+    // Apply to each leg
+    for (int leg = 0; leg < 4; leg++) {
+        FootPos foot = standing_foot_pos(leg);
+        // Add gait offset
+        foot.x += gait_feet.feet[leg].x;
+        foot.z += gait_feet.feet[leg].z;
+        // Apply inverse body transform
+        foot = rotate_foot(foot, -combined.roll, -combined.pitch, -combined.yaw);
+        foot.x -= combined.dx;
+        foot.y -= combined.dy;
+        foot.z -= combined.dz;
+        // IK solve
+        uint16_t hip_us, knee_us;
+        if (foot_to_pulses(leg, foot, hip_us, knee_us)) {
+            servo_write_us(leg * 2,     apply_offset(leg * 2,     hip_us));
+            servo_write_us(leg * 2 + 1, apply_offset(leg * 2 + 1, knee_us));
+        }
+        // If unreachable: hold last written value (servo_write_us not called)
+    }
 }

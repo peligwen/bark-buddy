@@ -2,6 +2,7 @@
 // No Arduino / hardware includes — compiles on host and firmware alike.
 #include <math.h>
 #include <stdint.h>
+#include "ik.h"
 
 // ============================================================
 // Gait Math — header-only sinusoidal trot kernel
@@ -83,6 +84,75 @@ inline GaitAngles gait_tick(float phase_rad, GaitDir dir,
 
     out.hip[GAIT_RR]  =  dir_sign * ha * sinA * right_mul;
     out.knee[GAIT_RR] = -ka * fmaxf(0.0f, sinA);
+
+    return out;
+}
+
+// ============================================================
+// IK-based gait — foot position offsets from standing pose
+// ============================================================
+
+struct GaitConfig {
+    float stride_length_mm;  // forward/back foot swing (default 20mm)
+    float stride_height_mm;  // foot lift height above standing (default 15mm)
+    float frequency_hz;      // step frequency (default 1.5Hz)
+};
+
+struct GaitFootOffsets {
+    FootPos feet[4];  // FL, FR, RL, RR — offsets from standing_foot_pos()
+};
+
+// Foot-position gait tick: returns foot position OFFSETS from standing positions.
+// Caller adds these to standing_foot_pos(leg) before IK solve.
+//
+// Phase convention: [0, 2π). Diagonal pairs: FL+RR share phase, FR+RL share phase+π.
+// Swing phase (sin > 0): foot sweeps forward + lifts. Stance (sin < 0): foot pushes back.
+// Turning: differential stride length — slow side 0.3×.
+inline GaitFootOffsets gait_tick_ik(float phase_rad, GaitDir dir,
+                                     const GaitConfig& config, float speed)
+{
+    GaitFootOffsets out = {};
+
+    // Phase for each diagonal pair
+    float phA = phase_rad;               // FL + RR
+    float phB = phase_rad + (float)M_PI; // FR + RL
+
+    float dir_sign   = (dir == GaitDir::BACKWARD)   ? -1.0f : 1.0f;
+    float left_mul   = (dir == GaitDir::TURN_LEFT)  ?  0.3f : 1.0f;
+    float right_mul  = (dir == GaitDir::TURN_RIGHT) ?  0.3f : 1.0f;
+
+    float sl = config.stride_length_mm * speed;
+    float sh = config.stride_height_mm;
+
+    // Per-leg phase and multipliers
+    struct LegParams { float ph; float mul; } legs[4] = {
+        {phA, left_mul},   // FL
+        {phB, right_mul},  // FR
+        {phB, left_mul},   // RL
+        {phA, right_mul},  // RR
+    };
+
+    for (int i = 0; i < 4; i++) {
+        float ph = legs[i].ph;
+        float mul = legs[i].mul;
+        float s = sinf(ph);
+
+        float dx, dz;
+        if (s >= 0.0f) {
+            // Swing phase: foot sweeps forward, lifts in half-sine arc
+            // Map s from [0,1] to swing progress
+            dz = sh * s;   // lift follows sinusoid — peaks at ph=π/2
+            dx = dir_sign * sl * mul * (1.0f - s);  // sweeping back from peak
+        } else {
+            // Stance phase: foot on ground, pushes backward linearly
+            dz = 0.0f;
+            dx = dir_sign * sl * mul * s;  // s is negative → positive push
+        }
+
+        out.feet[i].x = dx;
+        out.feet[i].y = 0.0f;   // no lateral foot movement
+        out.feet[i].z = dz;
+    }
 
     return out;
 }

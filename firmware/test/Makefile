@@ -1,6 +1,6 @@
 CXX = clang++
 CXXFLAGS = -std=c++17 -O2 -Wall -Wno-absolute-value -I. -I../include
-TARGETS = gait_tests profile_analyzer pose_generator test_ik test_transform test_balance test_offsets
+TARGETS = gait_tests profile_analyzer pose_generator test_ik test_transform test_balance test_offsets test_gait_ik
 
 all: $(TARGETS)
 
@@ -42,5 +42,8 @@ test_balance: test_balance.cpp mock_arduino.h ../include/ik.h ../include/body_tr
 
 test_offsets: test_offsets.cpp mock_arduino.h mock_preferences.h ../include/offsets.h
 	$(CXX) $(CXXFLAGS) -o $@ test_offsets.cpp
+
+test_gait_ik: test_gait_ik.cpp mock_arduino.h ../include/ik.h ../include/body_transform.h ../include/gait_math.h
+	$(CXX) $(CXXFLAGS) -o $@ test_gait_ik.cpp
 
 .PHONY: all clean run sweep test-profile

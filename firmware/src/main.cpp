@@ -7,6 +7,7 @@
 #include "sonar.h"
 #include "servos.h"
 #include "gait.h"
+#include "balance.h"
 #include "offsets.h"
 // WiFi enabled via build flag -DWIFI_ENABLED=1
 #ifndef WIFI_ENABLED
@@ -250,6 +251,7 @@ void loop() {
             bool ok = imu_read(imu);
             xSemaphoreGive(i2c_mutex);
             if (ok) {
+                gait_update_imu(imu.pitch, imu.roll);
                 JsonDocument doc;
                 doc["type"] = MSG_TELEM_IMU;
                 doc["pitch"] = round(imu.pitch * 10) / 10.0;
@@ -359,7 +361,29 @@ void handle_message(const JsonDocument& doc) {
     }
     else if (strcmp(type, MSG_CMD_BALANCE) == 0) {
         balance_enabled = doc["enabled"] | true;
+        balance_enable(balance_enabled);
+        if (!balance_enabled) balance_reset();
         send_ack(MSG_CMD_BALANCE, true);
+    }
+    else if (strcmp(type, MSG_CMD_TRANSFORM) == 0) {
+        BodyPose pose;
+        pose.dx    = doc["x"]     | 0.0f;
+        pose.dy    = doc["y"]     | 0.0f;
+        pose.dz    = doc["z"]     | 0.0f;
+        pose.roll  = doc["roll"]  | 0.0f;
+        pose.pitch = doc["pitch"] | 0.0f;
+        pose.yaw   = doc["yaw"]   | 0.0f;
+        uint16_t ms = doc["ms"]   | 100;
+        gait_set_body_transform(pose, ms);
+        send_ack(MSG_CMD_TRANSFORM, true);
+    }
+    else if (strcmp(type, MSG_CMD_GAIT_PARAMS) == 0) {
+        GaitConfig cfg;
+        cfg.stride_height_mm = doc["stride_height"] | GAIT_STRIDE_HEIGHT_MM;
+        cfg.stride_length_mm = doc["stride_length"] | GAIT_STRIDE_LENGTH_MM;
+        cfg.frequency_hz     = doc["frequency"]     | GAIT_FREQUENCY_HZ;
+        gait_set_config(cfg);
+        send_ack(MSG_CMD_GAIT_PARAMS, true);
     }
     else if (strcmp(type, MSG_CMD_LED) == 0) {
         uint8_t led = doc["led"] | 1;

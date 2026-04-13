@@ -1,4 +1,7 @@
 #pragma once
+#include "ik.h"
+#include "body_transform.h"
+#include "gait_math.h"
 
 enum class GaitState {
     STOP,           // servos hold current position
@@ -11,5 +14,8 @@ enum class GaitState {
 
 void gait_init();
 void gait_set_state(GaitState state, float speed = 1.0f);
+void gait_set_config(const GaitConfig& config);
+void gait_set_body_transform(const BodyPose& pose, uint16_t duration_ms = 100);
+void gait_update_imu(float pitch_deg, float roll_deg);  // called from main loop after IMU read
 void gait_update(unsigned long now_ms);
 GaitState gait_current_state();

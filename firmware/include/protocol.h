@@ -10,6 +10,8 @@ constexpr const char* MSG_CMD_CALIBRATE = "cmd_calibrate";
 constexpr const char* MSG_CMD_TEST_MODE = "cmd_test_mode";
 constexpr const char* MSG_CMD_I2C_WRITE = "cmd_i2c_write";   // raw I2C probe — debug only
 constexpr const char* MSG_CMD_OFFSET    = "cmd_offset";
+constexpr const char* MSG_CMD_TRANSFORM   = "cmd_transform";
+constexpr const char* MSG_CMD_GAIT_PARAMS = "cmd_gait_params";
 constexpr const char* MSG_PING          = "ping";
 
 // Firmware -> Host telemetry
