@@ -1,0 +1,231 @@
+// test_servos.cpp — Host-side tests for LEDC-based servo control.
+// Validates: duty values, soft-start ramp, write, detach, shutdown ramp, frail mode.
+
+#include "mock_arduino.h"
+#include "mock_preferences.h"
+#include "../include/config.h"
+#include "../include/servos.h"
+#include "../src/servos.cpp"
+
+#include <cstdio>
+#include <cstdlib>
+#include <cmath>
+
+static int g_pass = 0;
+static int g_fail = 0;
+
+static void check(bool cond, const char* label) {
+    if (cond) {
+        printf("  PASS  %s\n", label);
+        g_pass++;
+    } else {
+        printf("  FAIL  %s\n", label);
+        g_fail++;
+    }
+}
+
+// Expected LEDC duty for a given pulse width (mirrors us_to_duty logic)
+static uint32_t expected_duty(uint16_t us) {
+    return (uint32_t)((uint64_t)us * LEDC_MAX_DUTY / (1000000UL / SERVO_FREQ_HZ));
+}
+
+// ------------------------------------------------------------------ //
+// Test 1: servos_init() ends with STANDING_POSE duties on all pins
+// ------------------------------------------------------------------ //
+static void test_init_reaches_standing() {
+    printf("\nTest: init reaches standing pose\n");
+    servo_log_reset();
+    mock_reset_clock();
+
+    servos_init();
+
+    bool all_correct = true;
+    for (int i = 0; i < 8; i++) {
+        uint32_t expected = expected_duty(STANDING_POSE[i]);
+        uint32_t actual   = _servo_duty[SERVO_PINS[i]];
+        if (actual != expected) {
+            printf("  servo %d: expected duty %u got %u\n", i, expected, actual);
+            all_correct = false;
+        }
+    }
+    check(all_correct, "all servos at standing duty after init");
+    check(servos_active(), "servos_active() true after init");
+}
+
+// ------------------------------------------------------------------ //
+// Test 2: Soft-start ramp is monotonic (for each servo from lying-down to standing)
+// ------------------------------------------------------------------ //
+static void test_softstart_monotonic() {
+    printf("\nTest: soft-start ramp is monotonic\n");
+    servo_log_reset();
+    mock_reset_clock();
+
+    servos_init();
+
+    // Build per-pin duty sequences from the log
+    // Focus on servo 0 (FL_hip, pin 25) — representative
+    int pin = SERVO_PINS[0];
+    uint32_t prev = 0;
+    bool monotonic = true;
+    bool saw_start = false;
+
+    for (int i = 0; i < servo_log_count(); i++) {
+        const ServoCapture& c = servo_log_entries()[i];
+        if (c.pin != (uint8_t)pin) continue;
+        if (!saw_start) {
+            saw_start = true;
+            prev = c.duty;
+            continue;
+        }
+        // Allow equal (same step written twice at start/end of ramp)
+        // Direction: LYING_DOWN_POSE[0]=1500 → STANDING_POSE[0]=2096, so duty should be non-decreasing
+        bool going_up = STANDING_POSE[0] >= LYING_DOWN_POSE[0];
+        if (going_up && c.duty < prev) { monotonic = false; break; }
+        if (!going_up && c.duty > prev) { monotonic = false; break; }
+        prev = c.duty;
+    }
+    check(saw_start, "servo log has entries for pin 25");
+    check(monotonic, "FL_hip soft-start ramp is monotonic");
+}
+
+// ------------------------------------------------------------------ //
+// Test 3: servo_write_us() produces correct duty on correct pin
+// ------------------------------------------------------------------ //
+static void test_write_duty() {
+    printf("\nTest: servo_write_us produces correct duty\n");
+    servo_log_reset();
+    mock_reset_clock();
+    servos_init();
+
+    uint16_t test_us = 1800;
+    servo_write_us(0, test_us);
+    uint32_t expected = expected_duty(test_us);
+    uint32_t actual   = _servo_duty[SERVO_PINS[0]];
+    check(actual == expected, "servo 0 write 1800us → correct duty");
+
+    // Verify read-back
+    check(servo_read_us(0) == test_us, "servo_read_us returns written value");
+
+    // Verify clamp: write above max
+    servo_write_us(1, 9999);
+    check(servo_read_us(1) == SERVO_MAX_US, "write above max is clamped to SERVO_MAX_US");
+
+    // Verify clamp: write below min
+    servo_write_us(2, 100);
+    check(servo_read_us(2) == SERVO_MIN_US, "write below min is clamped to SERVO_MIN_US");
+}
+
+// ------------------------------------------------------------------ //
+// Test 4: servos_detach_all() zeros duties and marks inactive
+// ------------------------------------------------------------------ //
+static void test_detach() {
+    printf("\nTest: servos_detach_all zeros duties\n");
+    servo_log_reset();
+    mock_reset_clock();
+    servos_init();
+
+    servos_detach_all();
+
+    check(!servos_active(), "servos_active() false after detach");
+
+    bool all_zero = true;
+    for (int i = 0; i < 8; i++) {
+        if (_servo_duty[SERVO_PINS[i]] != 0) { all_zero = false; break; }
+    }
+    check(all_zero, "all duties zero after detach");
+}
+
+// ------------------------------------------------------------------ //
+// Test 5: servos_shutdown_to_lying_down() ramps and detaches
+// ------------------------------------------------------------------ //
+static void test_shutdown_ramp() {
+    printf("\nTest: shutdown ramp ends at lying-down and detaches\n");
+    servo_log_reset();
+    mock_reset_clock();
+    servos_init();
+
+    // Move servo 0 away from center first
+    servo_write_us(0, 2096);
+
+    bool result = servos_shutdown_to_lying_down();
+    check(result, "shutdown returns true");
+    check(!servos_active(), "servos inactive after shutdown");
+
+    // All duties should be 0 (detached)
+    bool all_zero = true;
+    for (int i = 0; i < 8; i++) {
+        if (_servo_duty[SERVO_PINS[i]] != 0) { all_zero = false; break; }
+    }
+    check(all_zero, "all duties zero after shutdown");
+
+    // Second call returns false (already detached)
+    check(!servos_shutdown_to_lying_down(), "second shutdown call returns false");
+}
+
+// ------------------------------------------------------------------ //
+// Test 6: Frail mode — range clamp and slew rate
+// ------------------------------------------------------------------ //
+static void test_frail_mode() {
+    printf("\nTest: frail mode range clamp and slew rate\n");
+    servo_log_reset();
+    mock_reset_clock();
+    servos_init();
+
+    servos_set_frail(true);
+    check(servos_frail(), "frail mode enabled");
+
+    // Range clamp: servo 0 standing=2096, max offset=200 → max=2296
+    servo_write_us(0, 9999);
+    uint16_t val = servo_read_us(0);
+    uint16_t expected_max = STANDING_POSE[0] + FRAIL_MAX_OFFSET_US;
+    check(val <= expected_max, "frail range clamp: write far above standing clamped");
+
+    // Slew rate: from current position, try to jump by 100us in one write
+    servo_write_us(0, STANDING_POSE[0]);  // reset to standing first
+    uint16_t before = servo_read_us(0);
+    servo_write_us(0, STANDING_POSE[0] + 100);
+    uint16_t after = servo_read_us(0);
+    uint16_t delta = after > before ? after - before : before - after;
+    check(delta <= FRAIL_SLEW_RATE_US, "frail slew rate limits single-step change");
+
+    servos_set_frail(false);
+    check(!servos_frail(), "frail mode disabled");
+}
+
+// ------------------------------------------------------------------ //
+// Test 7: us_to_duty round-trip — well-known values
+// ------------------------------------------------------------------ //
+static void test_duty_values() {
+    printf("\nTest: duty calculation for known pulse widths\n");
+    // period = 20000us, resolution = 14 bits (16383 max)
+    // duty = us * 16383 / 20000
+    uint32_t d_center = expected_duty(1500);
+    uint32_t d_min    = expected_duty(500);
+    uint32_t d_max    = expected_duty(2500);
+
+    check(d_center > d_min && d_center < d_max, "center duty is between min and max");
+    // 500us / 20000us * 16383 = 409.575 → 409
+    check(d_min == 409, "500us duty == 409");
+    // 1500us / 20000us * 16383 = 1228.725 → 1228
+    check(d_center == 1228, "1500us duty == 1228");
+    // 2500us / 20000us * 16383 = 2047.875 → 2047
+    check(d_max == 2047, "2500us duty == 2047");
+}
+
+// ------------------------------------------------------------------ //
+// Main
+// ------------------------------------------------------------------ //
+int main() {
+    printf("=== servo tests ===\n");
+
+    test_duty_values();
+    test_init_reaches_standing();
+    test_softstart_monotonic();
+    test_write_duty();
+    test_detach();
+    test_shutdown_ramp();
+    test_frail_mode();
+
+    printf("\n%d passed, %d failed\n", g_pass, g_fail);
+    return g_fail > 0 ? 1 : 0;
+}

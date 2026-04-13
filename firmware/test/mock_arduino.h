@@ -2,6 +2,9 @@
 // Minimal Arduino stubs for host-side testing.
 // Captures servo PWM output instead of driving real hardware.
 
+// Satisfy any #include <Arduino.h> in firmware source files compiled into tests.
+#define Arduino_h
+
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
