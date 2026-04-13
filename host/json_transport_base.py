@@ -58,6 +58,13 @@ class JsonStreamTransport(DeadReckoningMixin, Transport):
     # --- Transport ABC implementation ---
 
     async def close(self) -> None:
+        # Ask firmware to lie down safely before disconnecting
+        if self._open and self._writer:
+            try:
+                await self._send_json({"type": "cmd_shutdown"})
+                await self.recv_ack("cmd_shutdown", timeout=5.0)
+            except Exception:
+                pass  # best-effort — don't block close on firmware errors
         if self._reader_task:
             self._reader_task.cancel()
             try:
