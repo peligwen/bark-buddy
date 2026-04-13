@@ -42,11 +42,6 @@ INIT_COMMANDS = [
     "_sonar.setRGBMode(0)",  # manual RGB control
 ]
 
-# Extra init for USB REPL only — start WebREPL for WiFi switching
-USB_INIT_COMMANDS = [
-    "exec('try:\\n import webrepl;webrepl.start()\\nexcept:\\n pass')",
-]
-
 # Sonar LED brightness (0-255). Keep low for subtle indicator.
 LED_BRIGHTNESS = 15
 

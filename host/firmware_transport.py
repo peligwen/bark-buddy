@@ -8,8 +8,6 @@ Commands are sent as JSON, responses come as ack messages.
 
 import asyncio
 import logging
-from typing import Optional
-
 from json_transport_base import JsonStreamTransport
 
 logger = logging.getLogger(__name__)

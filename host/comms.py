@@ -1,14 +1,13 @@
 """
-Communication layer for the MechDog stock firmware.
+Communication layer for MechDog — transport-agnostic.
 
-Sends CMD protocol commands over serial and parses responses.
-Abstract Transport base allows mock transport for development.
+Defines the abstract Transport base and DogComms command interface used by
+all transport paths: custom firmware, hybrid/stock firmware, sim, and REPL.
 """
 
 import abc
 import asyncio
 import logging
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -23,8 +22,6 @@ MOTION_FORWARD = 3
 MOTION_BACKWARD = 4
 MOTION_TURN_LEFT = 5
 MOTION_TURN_RIGHT = 6
-MOTION_SHIFT_LEFT = 7
-MOTION_SHIFT_RIGHT = 8
 
 # Direction string to motion sub-code mapping
 DIRECTION_MAP = {
@@ -34,8 +31,6 @@ DIRECTION_MAP = {
     "backward": MOTION_BACKWARD,
     "left": MOTION_TURN_LEFT,
     "right": MOTION_TURN_RIGHT,
-    "shift_left": MOTION_SHIFT_LEFT,
-    "shift_right": MOTION_SHIFT_RIGHT,
 }
 
 # Action group codes

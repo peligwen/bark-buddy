@@ -18,8 +18,6 @@ import json
 import logging
 import os
 import time
-from typing import Optional
-
 from json_transport_base import JsonStreamTransport
 
 logger = logging.getLogger(__name__)

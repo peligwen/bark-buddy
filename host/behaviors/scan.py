@@ -1,16 +1,15 @@
 """
 Ultrasonic scan behavior — rotate in place while continuous mapping captures data.
 
-Performs a 360° sweep by turning in small increments. Unlike the old approach,
-this doesn't read the sensor directly — the telemetry loop's 1Hz ultrasonic
-pings and continuous mapping handle point capture. The scan just orchestrates
-the rotation and tracks progress.
+Performs a 360° sweep by turning in small increments. The telemetry loop's
+ultrasonic pings (20Hz on fast transports) and continuous mapping handle point
+capture. The scan just orchestrates the rotation and tracks progress.
 """
 
 import asyncio
 import logging
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Callable, Optional
 
 from comms import DogComms

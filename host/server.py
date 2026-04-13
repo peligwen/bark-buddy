@@ -49,6 +49,8 @@ class Server:
         self._wifi_password = wifi_password
         self._ws_clients: set[web.WebSocketResponse] = set()
         self._poll_task: asyncio.Task | None = None
+        self._reconnect_task: asyncio.Task | None = None
+        self._detected_wifi: dict | None = None
         self._balance = BalanceLayer(dog)
         self._scan = ScanBehavior(dog)
         self._map = MapStore()
@@ -127,7 +129,7 @@ class Server:
         self._reconnect_task = asyncio.create_task(self._reconnect_loop())
 
     async def _on_shutdown(self, app: web.Application):
-        for task in (self._poll_task, getattr(self, '_reconnect_task', None)):
+        for task in (self._poll_task, self._reconnect_task):
             if task:
                 task.cancel()
                 try:
@@ -228,7 +230,6 @@ class Server:
             self._transport = SimTransport()
             self._dog = DogComms(self._transport)
             self._balance = BalanceLayer(self._dog)
-            self._patrol = PatrolBehavior(self._dog)
             self._scan = ScanBehavior(self._dog)
             await self._dog.connect()
             self._transport_label = "sim"
@@ -539,10 +540,6 @@ class Server:
                 await self._dog.stand()
             self._motion = "stop"
 
-        elif msg_type == "cmd_set_default_pose":
-            self._default_pose = msg.get("pose", "rest")
-            logger.info("Default rest pose set to: %s", self._default_pose)
-
         elif msg_type == "cmd_action":
             code = msg.get("action", 1)
             await self._dog.action(code)
@@ -681,7 +678,6 @@ class Server:
         last_battery = 0.0
         last_wall_regen = 0.0
         last_point_count = 0
-        imu_count = 0
 
         while True:
             try:
@@ -727,7 +723,7 @@ class Server:
                             await self._add_live_point(dist)
                     last_ultra = now
 
-                # Battery polling (0.5 Hz)
+                # Battery polling (0.2 Hz = 5s interval)
                 if now - last_battery >= battery_interval:
                     battery = await self._dog.read_battery()
                     if battery is not None and self._ws_clients:

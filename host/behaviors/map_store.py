@@ -6,8 +6,6 @@ Wall segments are fitted from clustered points for 3D visualization.
 """
 
 import logging
-from typing import Optional
-
 from behaviors.octree import PointCloud
 from behaviors.scan import ScanResult
 from behaviors.wall_fit import fit_walls
