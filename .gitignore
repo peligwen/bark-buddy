@@ -5,3 +5,5 @@ __pycache__/
 sweep_results/
 .claude/
 firmware/include/config_local.h
+stock_firmware_dump/
+.worktrees/
