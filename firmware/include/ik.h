@@ -35,7 +35,11 @@ static constexpr float IK_HIP_Z     = -25.0f; // -25mm (below body centre)
 // ─── Standing pose servo pulses (from config.h / hardware) ──────────────────
 // Order: FL_hip, FL_knee, FR_hip, FR_knee, RL_hip, RL_knee, RR_hip, RR_knee
 
-#ifndef STANDING_POSE
+// Fallback definition — config.h defines the authoritative STANDING_POSE.
+// If config.h is included before ik.h, this static definition will shadow it
+// (both have identical values). Prefer including config.h before ik.h.
+#ifndef IK_STANDING_POSE_DEFINED
+#define IK_STANDING_POSE_DEFINED
 static const uint16_t STANDING_POSE[8] = {
     2096, 1621,   // FL
     2170, 1611,   // FR
@@ -90,13 +94,18 @@ inline void standing_angles(float lx, float lz,
     knee_out = -knee_mag;            // negative: knee folded forward
 
     float sin_k = sinf(knee_mag);    // sin of unsigned knee angle, always ≥ 0
-    float correction = asinf(L2 * sin_k / d);
+    float asin_arg = L2 * sin_k / d;
+    if (asin_arg > 1.0f) asin_arg = 1.0f;
+    if (asin_arg < -1.0f) asin_arg = -1.0f;
+    float correction = asinf(asin_arg);
     hip_out = atan2f(lx, -lz) + correction;
 }
 
 // Build and return the calibration table (lazily initialised).
 inline const ServoCalEntry* cal_table() {
     static ServoCalEntry table[8];
+    // NOTE: Not thread-safe. Call servo_cal() once from setup() before
+    // starting FreeRTOS tasks to ensure the table is built on a single core.
     static bool built = false;
     if (built) return table;
 
@@ -111,6 +120,9 @@ inline const ServoCalEntry* cal_table() {
     // Helper lambda to fill one entry
     auto fill = [&](int idx, float standing_angle) {
         uint16_t su = STANDING_POSE[idx];
+        // Polarity assumption: if standing pulse > 1500 center, increasing angle
+        // increases pulse width. Validated against STANDING_POSE ground truth.
+        // If a servo is mounted in reverse, its polarity must be flipped manually.
         int8_t   pol = (su >= 1500) ? +1 : -1;
         float    dev = (float)((int)su - 1500);
         float    ang_abs = fabsf(standing_angle);
@@ -202,8 +214,10 @@ inline bool leg_ik(uint8_t leg, const FootPos& target,
     knee_out = -knee_mag;             // negative: knee folds forward
 
     float sin_k = sinf(knee_mag);
-    float correction = asinf(L2 * sin_k / d);
-    hip_out = atan2f(lx, -lz) + correction;
+    float asin_arg = L2 * sin_k / d;
+    if (asin_arg > 1.0f) asin_arg = 1.0f;
+    if (asin_arg < -1.0f) asin_arg = -1.0f;
+    hip_out = atan2f(lx, -lz) + asinf(asin_arg);
 
     // Sanity-check: pulse within servo range
     uint8_t hi = leg * 2;
