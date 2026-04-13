@@ -166,6 +166,7 @@ void loop() {
     if (connected && (now - last_msg_received > HEARTBEAT_TIMEOUT_MS)) {
         connected = false;
         gait_set_state(GaitState::STOP);
+        servos_shutdown_to_lying_down();  // lie down safely before going idle
         sensor_led_set(1, LED_R_LAVENDER, LED_G_LAVENDER, LED_B_LAVENDER);
         sensor_led_set(2, LED_R_LAVENDER, LED_G_LAVENDER, LED_B_LAVENDER);
     }

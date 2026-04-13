@@ -1,9 +1,13 @@
 #pragma once
 #include <stdint.h>
 
-// Initialize 8-servo RMT PWM. Returns false if PINS_VERIFIED is 0.
-// Performs soft-start: attaches at center, ramps to standing pose over 2s.
+// Initialize 8-servo LEDC hardware PWM. Returns false if PINS_VERIFIED is 0.
+// Performs soft-start: attaches at lying-down pose, pauses, then ramps to standing over 2s.
 bool servos_init();
+
+// Smoothly transition to lying-down pose, settle, then detach all servos. Blocking (~2s).
+// Returns false if servos were not attached.
+bool servos_shutdown_to_lying_down();
 
 // Set servo pulse width in microseconds (clamped to min/max).
 // In frail mode: also clamped to ±FRAIL_MAX_OFFSET_US from standing,

@@ -1,25 +1,15 @@
 #include "servos.h"
 #include "config.h"
 #include <Arduino.h>
-#include "driver/gpio.h"
-#include "soc/gpio_struct.h"
 
-// Software PWM using a FreeRTOS task — works on ANY GPIO.
-// Uses direct GPIO register writes to toggle pins, bypassing the GPIO
-// driver which blocks SPI flash pins (7, 8).
-//
-// The task runs at high priority and handles the full 20ms servo period:
-// 1. Set all servo pins HIGH
-// 2. delayMicroseconds until each servo's pulse width, then set that pin LOW
-// 3. Sleep until the next period
-
-#define SERVO_PERIOD_US 20000
+// Hardware PWM via ESP32 LEDC peripheral.
+// Each servo gets its own LEDC channel (managed internally by ledcAttach).
+// Zero CPU usage during pulse generation — no FreeRTOS task, no busy-wait.
+// 14-bit resolution at 50Hz gives ~1.22us per tick (adequate for all servos).
 
 static uint16_t current_us[8] = {0};
-static volatile uint16_t target_us[8] = {0};  // written by main, read by task
+static uint16_t target_us[8]  = {0};  // kept for servo_read_us compatibility
 static bool attached = false;
-static TaskHandle_t servo_task_handle = NULL;
-static uint32_t servo_pin_mask[8] = {0};
 
 // Frail mode state
 static bool frail_mode = false;
@@ -28,64 +18,16 @@ static unsigned long duty_start = 0;       // when continuous movement started
 static bool in_cooldown = false;
 static unsigned long cooldown_start = 0;
 
-// Sort servos by pulse width for efficient sequential pin-lowering
-struct ServoOrder {
-    uint8_t index;
-    uint16_t us;
-};
-
-static void servo_pwm_task(void* arg) {
-    ServoOrder order[8];
-
-    while (attached) {
-        // Snapshot target pulse widths and sort by ascending duration
-        for (int i = 0; i < 8; i++) {
-            order[i].index = i;
-            order[i].us = target_us[i];
-        }
-        // Simple insertion sort (8 elements)
-        for (int i = 1; i < 8; i++) {
-            ServoOrder key = order[i];
-            int j = i - 1;
-            while (j >= 0 && order[j].us > key.us) {
-                order[j + 1] = order[j];
-                j--;
-            }
-            order[j + 1] = key;
-        }
-
-        // Set all active servo pins HIGH
-        uint32_t all_mask = 0;
-        for (int i = 0; i < 8; i++) {
-            if (order[i].us > 0) all_mask |= servo_pin_mask[order[i].index];
-        }
-        if (all_mask) GPIO.out_w1ts = all_mask;
-
-        // Walk through sorted list, delay until each threshold, set pin LOW
-        uint16_t elapsed = 0;
-        for (int i = 0; i < 8; i++) {
-            if (order[i].us == 0) continue;
-            uint16_t wait = order[i].us - elapsed;
-            if (wait > 0) delayMicroseconds(wait);
-            elapsed = order[i].us;
-            GPIO.out_w1tc = servo_pin_mask[order[i].index];
-        }
-
-        // Wait for remainder of 20ms period
-        uint16_t remaining = SERVO_PERIOD_US - elapsed;
-        if (remaining > 1000) {
-            vTaskDelay(pdMS_TO_TICKS(remaining / 1000));
-        } else if (remaining > 0) {
-            delayMicroseconds(remaining);
-        }
-    }
-    vTaskDelete(NULL);
-}
-
 static uint16_t clamp_us(uint16_t us) {
     if (us < SERVO_MIN_US) return SERVO_MIN_US;
     if (us > SERVO_MAX_US) return SERVO_MAX_US;
     return us;
+}
+
+// Convert pulse width in microseconds to LEDC duty count.
+// period_us = 1,000,000 / SERVO_FREQ_HZ = 20,000us
+static uint32_t us_to_duty(uint16_t pulse_us) {
+    return (uint32_t)((uint64_t)pulse_us * LEDC_MAX_DUTY / (1000000UL / SERVO_FREQ_HZ));
 }
 
 bool servos_init() {
@@ -93,37 +35,32 @@ bool servos_init() {
     Serial.println("{\"type\":\"error\",\"msg\":\"PINS_VERIFIED=0, servos disabled\"}");
     return false;
 #else
-    // Configure all servo GPIOs as outputs
     for (int i = 0; i < 8; i++) {
-        uint8_t pin = SERVO_PINS[i];
-        servo_pin_mask[i] = (1UL << pin);
-        if (pin == 7 || pin == 8) {
-            // Direct register write — bypass GPIO driver SPI flash protection
-            GPIO.enable_w1ts = (1UL << pin);
-            PIN_FUNC_SELECT(GPIO_PIN_MUX_REG[pin], PIN_FUNC_GPIO);
-        } else {
-            gpio_pad_select_gpio(pin);
-            gpio_set_direction((gpio_num_t)pin, GPIO_MODE_OUTPUT);
-        }
-        GPIO.out_w1tc = (1UL << pin);
-        current_us[i] = SERVO_CENTER_US;
-        target_us[i] = SERVO_CENTER_US;
+        ledcAttach(SERVO_PINS[i], SERVO_FREQ_HZ, LEDC_RESOLUTION);
     }
     attached = true;
 
-    // Start servo PWM task on core 1 (core 0 handles WiFi/BT)
-    xTaskCreatePinnedToCore(servo_pwm_task, "servo_pwm", 2048, NULL,
-                            configMAX_PRIORITIES - 1, &servo_task_handle, 1);
+    // Start at lying-down pose — no snap, servos are already there from last shutdown.
+    for (int i = 0; i < 8; i++) {
+        uint16_t pos = clamp_us(LYING_DOWN_POSE[i]);
+        current_us[i] = pos;
+        target_us[i]  = pos;
+        ledcWrite(SERVO_PINS[i], us_to_duty(pos));
+    }
 
-    // Soft-start: ramp from center to standing pose
+    delay(BOOT_SETTLE_MS);
+
+    // Ramp from lying-down to standing over SOFTSTART_DURATION_MS
     for (int step = 0; step <= SOFTSTART_STEPS; step++) {
         float t = (float)step / (float)SOFTSTART_STEPS;
         for (int i = 0; i < 8; i++) {
-            uint16_t target = STANDING_POSE[i];
-            uint16_t pos = SERVO_CENTER_US + (uint16_t)((float)((int16_t)target - (int16_t)SERVO_CENTER_US) * t);
+            int16_t start = (int16_t)LYING_DOWN_POSE[i];
+            int16_t end   = (int16_t)STANDING_POSE[i];
+            uint16_t pos  = (uint16_t)(start + (int16_t)((float)(end - start) * t));
             pos = clamp_us(pos);
             current_us[i] = pos;
-            target_us[i] = pos;
+            target_us[i]  = pos;
+            ledcWrite(SERVO_PINS[i], us_to_duty(pos));
         }
         delay(SOFTSTART_DURATION_MS / SOFTSTART_STEPS);
     }
@@ -134,7 +71,7 @@ bool servos_init() {
 
 void servo_write_us(uint8_t index, uint16_t pulse_us) {
     if (!attached || index >= 8) return;
-    if (in_cooldown) return;  // blocked during frail cooldown
+    if (in_cooldown) return;
     pulse_us = clamp_us(pulse_us);
 
     if (frail_mode) {
@@ -157,7 +94,8 @@ void servo_write_us(uint8_t index, uint16_t pulse_us) {
     }
 
     current_us[index] = pulse_us;
-    target_us[index] = pulse_us;
+    target_us[index]  = pulse_us;
+    ledcWrite(SERVO_PINS[index], us_to_duty(pulse_us));
 }
 
 void servo_write_angle(uint8_t index, float angle_deg) {
@@ -175,19 +113,44 @@ uint16_t servo_read_us(uint8_t index) {
 void servos_detach_all() {
     if (!attached) return;
     attached = false;
-    if (servo_task_handle) {
-        vTaskDelay(pdMS_TO_TICKS(50));
-        servo_task_handle = NULL;
-    }
     for (int i = 0; i < 8; i++) {
-        GPIO.out_w1tc = servo_pin_mask[i];
-        target_us[i] = 0;
+        ledcDetach(SERVO_PINS[i]);
+        target_us[i]  = 0;
         current_us[i] = 0;
     }
 }
 
 bool servos_active() {
     return attached;
+}
+
+bool servos_shutdown_to_lying_down() {
+    if (!attached) return false;
+
+    // Capture current positions as ramp start
+    uint16_t start_us[8];
+    for (int i = 0; i < 8; i++) {
+        start_us[i] = current_us[i] > 0 ? current_us[i] : STANDING_POSE[i];
+    }
+
+    // Ramp to lying-down over SHUTDOWN_RAMP_MS
+    for (int step = 0; step <= SHUTDOWN_RAMP_STEPS; step++) {
+        float t = (float)step / (float)SHUTDOWN_RAMP_STEPS;
+        for (int i = 0; i < 8; i++) {
+            int16_t s    = (int16_t)start_us[i];
+            int16_t e    = (int16_t)LYING_DOWN_POSE[i];
+            uint16_t pos = (uint16_t)(s + (int16_t)((float)(e - s) * t));
+            pos = clamp_us(pos);
+            current_us[i] = pos;
+            target_us[i]  = pos;
+            ledcWrite(SERVO_PINS[i], us_to_duty(pos));
+        }
+        delay(SHUTDOWN_RAMP_MS / SHUTDOWN_RAMP_STEPS);
+    }
+
+    delay(SHUTDOWN_SETTLE_MS);
+    servos_detach_all();
+    return true;
 }
 
 // --- Frail mode ---
@@ -197,7 +160,6 @@ void servos_set_frail(bool enabled) {
     in_cooldown = false;
     duty_start = 0;
     if (enabled) {
-        // Initialize slew targets to current positions
         for (int i = 0; i < 8; i++) {
             frail_target_us[i] = current_us[i] > 0 ? current_us[i] : STANDING_POSE[i];
         }
@@ -214,7 +176,6 @@ bool servos_update_duty(unsigned long now_ms) {
         return false;
     }
 
-    // Check if in cooldown
     if (in_cooldown) {
         if (now_ms - cooldown_start >= FRAIL_COOLDOWN_MS) {
             in_cooldown = false;
@@ -223,33 +184,30 @@ bool servos_update_duty(unsigned long now_ms) {
         return in_cooldown;
     }
 
-    // Check if any servo is away from standing
     bool any_active = false;
     for (int i = 0; i < 8; i++) {
         if (current_us[i] > 0) {
             int16_t diff = (int16_t)current_us[i] - (int16_t)STANDING_POSE[i];
-            if (abs(diff) > 5) {
-                any_active = true;
-                break;
-            }
+            if (diff < 0) diff = -diff;
+            if (diff > 5) { any_active = true; break; }
         }
     }
 
     if (any_active) {
         if (duty_start == 0) duty_start = now_ms;
         if (now_ms - duty_start >= FRAIL_DUTY_ON_MS) {
-            // Force cooldown — return all servos to standing
             for (int i = 0; i < 8; i++) {
                 uint16_t standing = STANDING_POSE[i];
                 current_us[i] = standing;
-                target_us[i] = standing;
+                target_us[i]  = standing;
                 frail_target_us[i] = standing;
+                ledcWrite(SERVO_PINS[i], us_to_duty(standing));
             }
             in_cooldown = true;
             cooldown_start = now_ms;
         }
     } else {
-        duty_start = 0;  // reset timer when at rest
+        duty_start = 0;
     }
 
     return in_cooldown;

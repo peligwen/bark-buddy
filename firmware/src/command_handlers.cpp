@@ -172,6 +172,15 @@ static void handle_cmd_test_mode(const JsonDocument& doc) {
     send_json(resp);
 }
 
+static void handle_cmd_shutdown(const JsonDocument&) {
+    s_manual_servo_mode = false;
+    s_test_mode = false;
+    servos_set_frail(false);
+    gait_set_state(GaitState::STOP);
+    bool ok = servos_shutdown_to_lying_down();
+    send_ack(MSG_CMD_SHUTDOWN, ok);
+}
+
 static void handle_cmd_i2c_write(const JsonDocument& doc) {
     uint8_t addr = doc["addr"] | 0x77;
     uint8_t reg  = doc["reg"]  | 0;
@@ -225,6 +234,7 @@ static const Handler k_handlers[] = {
     { MSG_CMD_TEST_MODE,    handle_cmd_test_mode    },
     { MSG_CMD_OFFSET,       handle_cmd_offset       },
     { MSG_CMD_I2C_WRITE,    handle_cmd_i2c_write    },
+    { MSG_CMD_SHUTDOWN,     handle_cmd_shutdown     },
 };
 
 void handlers_init() {

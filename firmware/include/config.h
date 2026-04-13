@@ -40,9 +40,19 @@ static const uint8_t SERVO_PINS[8] = {
 #define SERVO_MAX_US        2500
 #define SERVO_CENTER_US     1500
 
+// --- LEDC Hardware PWM ---
+#define LEDC_RESOLUTION     14                              // 14-bit: 16384 ticks per 20ms period
+#define LEDC_MAX_DUTY       ((1 << LEDC_RESOLUTION) - 1)  // 16383
+
 // --- Servo Soft-Start ---
-#define SOFTSTART_DURATION_MS   2000    // ramp from center to standing over 2s
+#define SOFTSTART_DURATION_MS   2000    // ramp from lying-down to standing over 2s
 #define SOFTSTART_STEPS         50      // interpolation steps
+
+// --- Shutdown / Boot Timing ---
+#define SHUTDOWN_RAMP_MS    1500    // ramp to lying-down on shutdown
+#define SHUTDOWN_RAMP_STEPS 40
+#define SHUTDOWN_SETTLE_MS  500     // pause after lying-down before detach
+#define BOOT_SETTLE_MS      500     // pause at lying-down before ramping to standing
 
 // --- Standing Pose (servo pulse widths in μs) ---
 // Captured from stock firmware set_default_pose() + offsets
@@ -55,6 +65,14 @@ static const uint16_t STANDING_POSE[8] = {
     // Verified from stock firmware read_all_servo() at default pose
 };
 #endif
+
+// --- Lying-Down Pose (servo pulse widths in μs) ---
+// PLACEHOLDER: determined experimentally via test mode + frail mode.
+// Center (1500) values are safe — identical to old boot behavior until tuned.
+// Order: FL_hip, FL_knee, FR_hip, FR_knee, RL_hip, RL_knee, RR_hip, RR_knee
+static const uint16_t LYING_DOWN_POSE[8] = {
+    1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500
+};
 
 // --- Battery ADC (VERIFIED: Hiwonder.__adcp = ADC(Pin(34), atten=3)) ---
 #define BATTERY_ADC_PIN     34

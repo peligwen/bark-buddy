@@ -13,6 +13,7 @@ constexpr const char* MSG_CMD_OFFSET    = "cmd_offset";
 constexpr const char* MSG_CMD_TRANSFORM   = "cmd_transform";
 constexpr const char* MSG_CMD_GAIT_PARAMS = "cmd_gait_params";
 constexpr const char* MSG_PING          = "ping";
+constexpr const char* MSG_CMD_SHUTDOWN  = "cmd_shutdown";
 
 // Firmware -> Host telemetry
 constexpr const char* MSG_TELEM_IMU     = "telem_imu";
