@@ -1,161 +1,48 @@
+// firmware/src/main.cpp
 #include <Arduino.h>
 #include <ArduinoJson.h>
-#include <Wire.h>
 #include "config.h"
 #include "protocol.h"
-#include "imu.h"
-#include "sonar.h"
+#include "comms.h"
+#include "sensor_task.h"
+#include "command_handlers.h"
 #include "servos.h"
 #include "gait.h"
 #include "balance.h"
 #include "offsets.h"
-// WiFi enabled via build flag -DWIFI_ENABLED=1
 #ifndef WIFI_ENABLED
 #define WIFI_ENABLED 0
 #endif
-
 #if WIFI_ENABLED
 #include <WiFi.h>
 #endif
 
-// --- Forward declarations ---
-void handle_message(const JsonDocument& doc);
-void send_ack(const char* ref_type, bool ok, const char* error = nullptr);
-void send_json(const JsonDocument& doc);
-void process_rx(char* buf, size_t& pos, char c, unsigned long now);
-
-// --- State ---
-static char serial_rx[MAX_MESSAGE_SIZE];
+// --- RX buffers ---
+static char   serial_rx[MAX_MESSAGE_SIZE];
 static size_t serial_rx_pos = 0;
-static char tcp_rx[MAX_MESSAGE_SIZE];
+static char   tcp_rx[MAX_MESSAGE_SIZE];
 static size_t tcp_rx_pos = 0;
 
+// --- Connection state ---
 static unsigned long last_msg_received = 0;
-static bool connected = false;
-static bool balance_enabled = false;
-static bool low_battery = false;
-static bool manual_servo_mode = false;
-static bool test_mode = false;
-static unsigned long last_test_cmd = 0;
+static bool          connected         = false;
+static bool          low_battery       = false;
 
-// Telemetry timers
-static unsigned long last_imu = 0;
-static unsigned long last_sonar = 0;
+// --- Telemetry timers ---
+static unsigned long last_imu     = 0;
+static unsigned long last_sonar   = 0;
 static unsigned long last_battery = 0;
-static unsigned long last_status = 0;
-static unsigned long last_gait = 0;
+static unsigned long last_status  = 0;
+static unsigned long last_gait    = 0;
 
-// I2C mutex for shared bus
-SemaphoreHandle_t i2c_mutex;
-
-// WiFi TCP
+// --- WiFi / TCP ---
 #if WIFI_ENABLED
 static WiFiServer tcp_server(WIFI_TCP_PORT);
 static WiFiClient tcp_client;
-static bool wifi_connected = false;
+static bool       wifi_connected = false;
 #endif
 
-// --- Direction helpers ---
-Direction direction_from_string(const char* str) {
-    if (strcmp(str, "forward") == 0)  return Direction::FORWARD;
-    if (strcmp(str, "backward") == 0) return Direction::BACKWARD;
-    if (strcmp(str, "left") == 0)     return Direction::LEFT;
-    if (strcmp(str, "right") == 0)    return Direction::RIGHT;
-    return Direction::STOP;
-}
-
-const char* direction_to_string(Direction dir) {
-    switch (dir) {
-        case Direction::FORWARD:  return "forward";
-        case Direction::BACKWARD: return "backward";
-        case Direction::LEFT:     return "left";
-        case Direction::RIGHT:    return "right";
-        case Direction::STOP:     return "stop";
-    }
-    return "stop";
-}
-
-// --- Setup ---
-void setup() {
-    Serial.begin(SERIAL_BAUD);
-    delay(500);  // brief wait for serial — don't block on ESP32
-
-    // I2C mutex
-    i2c_mutex = xSemaphoreCreateMutex();
-
-    // Initialize I2C bus
-    Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN, I2C_FREQ);
-
-    // Initialize sensors
-    bool imu_ok = false, sonar_ok = false;
-    if (xSemaphoreTake(i2c_mutex, pdMS_TO_TICKS(100))) {
-        imu_ok = imu_init(Wire);
-        sonar_ok = sonar_init(Wire);
-        xSemaphoreGive(i2c_mutex);
-    }
-
-    // Load servo trim offsets from NVS
-    offsets_init();
-
-    // Initialize servos
-    bool servos_ok = servos_init();
-
-    // Initialize gait engine
-    gait_init();
-
-    // Set LED to indicate boot status
-    if (xSemaphoreTake(i2c_mutex, pdMS_TO_TICKS(100))) {
-        if (imu_ok && sonar_ok) {
-            sonar_set_rgb(1, LED_R_LAVENDER, LED_G_LAVENDER, LED_B_LAVENDER);  // lavender = ready
-            sonar_set_rgb(2, LED_R_LAVENDER, LED_G_LAVENDER, LED_B_LAVENDER);
-        } else {
-            sonar_set_rgb(1, LED_BRIGHTNESS, 0, 0);   // red = error
-            sonar_set_rgb(2, LED_BRIGHTNESS, 0, 0);
-        }
-        xSemaphoreGive(i2c_mutex);
-    }
-
-    // WiFi setup
-#if WIFI_ENABLED
-    WiFi.mode(WIFI_STA);
-    WiFi.begin(WIFI_SSID, WIFI_PASS);
-    unsigned long wifi_start = millis();
-    while (WiFi.status() != WL_CONNECTED && millis() - wifi_start < 10000) {
-        delay(250);
-    }
-    wifi_connected = (WiFi.status() == WL_CONNECTED);
-    if (wifi_connected) {
-        tcp_server.begin();
-        tcp_server.setNoDelay(true);
-        // Amber LED = WiFi ready, waiting for TCP client
-        if (xSemaphoreTake(i2c_mutex, pdMS_TO_TICKS(50))) {
-            sonar_set_rgb(1, LED_BRIGHTNESS, LED_BRIGHTNESS / 2, 0);
-            sonar_set_rgb(2, LED_BRIGHTNESS, LED_BRIGHTNESS / 2, 0);
-            xSemaphoreGive(i2c_mutex);
-        }
-    }
-#endif
-
-    last_msg_received = millis();
-
-    // Boot status
-    JsonDocument doc;
-    doc["type"] = "boot";
-    doc["imu"] = imu_ok;
-    doc["sonar"] = sonar_ok;
-    doc["servos"] = servos_ok;
-    doc["pins_verified"] = (bool)PINS_VERIFIED;
-#if WIFI_ENABLED
-    doc["wifi"] = wifi_connected;
-    if (wifi_connected) {
-        doc["wifi_ip"] = WiFi.localIP().toString();
-        doc["tcp_port"] = WIFI_TCP_PORT;
-    }
-#endif
-    send_json(doc);
-}
-
-// --- Process a received character into a buffer, dispatch on newline ---
+// --- Process received character; dispatch on newline ---
 void process_rx(char* buf, size_t& pos, char c, unsigned long now) {
     if (c == '\n') {
         buf[pos] = '\0';
@@ -165,11 +52,8 @@ void process_rx(char* buf, size_t& pos, char c, unsigned long now) {
                 last_msg_received = now;
                 if (!connected) {
                     connected = true;
-                    if (xSemaphoreTake(i2c_mutex, pdMS_TO_TICKS(50))) {
-                        sonar_set_rgb(1, 0, LED_BRIGHTNESS, 0);  // green = connected
-                        sonar_set_rgb(2, 0, LED_BRIGHTNESS, 0);
-                        xSemaphoreGive(i2c_mutex);
-                    }
+                    sensor_led_set(1, 0, LED_BRIGHTNESS, 0);  // green = connected
+                    sensor_led_set(2, 0, LED_BRIGHTNESS, 0);
                 }
                 handle_message(doc);
             }
@@ -180,28 +64,96 @@ void process_rx(char* buf, size_t& pos, char c, unsigned long now) {
     }
 }
 
+// --- Send helpers (declared in comms.h) ---
+void send_json(const JsonDocument& doc) {
+    serializeJson(doc, Serial);
+    Serial.println();
+#if WIFI_ENABLED
+    if (tcp_client && tcp_client.connected()) {
+        serializeJson(doc, tcp_client);
+        tcp_client.println();
+    }
+#endif
+}
+
+void send_ack(const char* ref_type, bool ok, const char* error) {
+    JsonDocument doc;
+    doc["type"]     = MSG_ACK;
+    doc["ref_type"] = ref_type;
+    doc["ok"]       = ok;
+    if (error) doc["error"] = error;
+    send_json(doc);
+}
+
+// --- Setup ---
+void setup() {
+    Serial.begin(SERIAL_BAUD);
+    delay(100);
+
+    // Sensor task starts I2C, probes IMU + sonar, sets boot LED.
+    // Blocks until first init pass completes (≤1s).
+    sensor_task_start();
+
+    offsets_init();
+    bool servos_ok = servos_init();
+    gait_init();
+    handlers_init();
+
+#if WIFI_ENABLED
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(WIFI_SSID, WIFI_PASS);
+    // No blocking wait — loop() handles connect and reconnect
+#endif
+
+    last_msg_received = millis();
+
+    // Boot message — sensor init results are ready from the snapshot
+    SensorSnapshot snap;
+    sensor_snapshot_get(snap);
+    JsonDocument doc;
+    doc["type"]          = "boot";
+    doc["imu"]           = snap.imu_ok;
+    doc["sonar"]         = snap.sonar_ok;
+    doc["servos"]        = servos_ok;
+    doc["pins_verified"] = (bool)PINS_VERIFIED;
+    send_json(doc);
+}
+
 // --- Main loop ---
 void loop() {
     unsigned long now = millis();
 
-    // Read incoming serial data (NDJSON)
+    // WiFi connect / reconnect
+#if WIFI_ENABLED
+    {
+        bool now_wifi = (WiFi.status() == WL_CONNECTED);
+        if (now_wifi && !wifi_connected) {
+            wifi_connected = true;
+            tcp_server.begin();
+            tcp_server.setNoDelay(true);
+            sensor_led_set(1, LED_BRIGHTNESS, LED_BRIGHTNESS / 2, 0);  // amber = waiting
+            sensor_led_set(2, LED_BRIGHTNESS, LED_BRIGHTNESS / 2, 0);
+        }
+        if (!now_wifi && wifi_connected) {
+            wifi_connected = false;
+            tcp_client.stop();
+            WiFi.reconnect();
+        }
+    }
+#endif
+
+    // Read serial
     while (Serial.available()) {
         process_rx(serial_rx, serial_rx_pos, Serial.read(), now);
     }
 
-    // Read incoming TCP data
+    // Read TCP
 #if WIFI_ENABLED
     if (wifi_connected) {
-        // Accept new client
         if (!tcp_client || !tcp_client.connected()) {
-            WiFiClient new_client = tcp_server.available();
-            if (new_client) {
-                tcp_client = new_client;
-                tcp_client.setNoDelay(true);
-                tcp_rx_pos = 0;
-            }
+            WiFiClient c = tcp_server.available();
+            if (c) { tcp_client = c; tcp_client.setNoDelay(true); tcp_rx_pos = 0; }
         }
-        // Read from connected client
         if (tcp_client && tcp_client.connected()) {
             while (tcp_client.available()) {
                 process_rx(tcp_rx, tcp_rx_pos, tcp_client.read(), now);
@@ -210,90 +162,80 @@ void loop() {
     }
 #endif
 
-    // Heartbeat timeout
+    // Heartbeat watchdog
     if (connected && (now - last_msg_received > HEARTBEAT_TIMEOUT_MS)) {
         connected = false;
         gait_set_state(GaitState::STOP);
-        if (xSemaphoreTake(i2c_mutex, pdMS_TO_TICKS(50))) {
-            sonar_set_rgb(1, LED_R_LAVENDER, LED_G_LAVENDER, LED_B_LAVENDER);  // lavender = disconnected
-            sonar_set_rgb(2, LED_R_LAVENDER, LED_G_LAVENDER, LED_B_LAVENDER);
-            xSemaphoreGive(i2c_mutex);
-        }
+        sensor_led_set(1, LED_R_LAVENDER, LED_G_LAVENDER, LED_B_LAVENDER);
+        sensor_led_set(2, LED_R_LAVENDER, LED_G_LAVENDER, LED_B_LAVENDER);
     }
 
     // Battery check
     if (now - last_battery >= 1000 / TELEM_BATTERY_HZ) {
-        int raw = analogRead(BATTERY_ADC_PIN);
+        int   raw     = analogRead(BATTERY_ADC_PIN);
         float voltage = (raw / 4095.0f) * 3.3f * BATTERY_DIVIDER;
-        int mv = (int)(voltage * 1000);
-        if (mv < BATTERY_LOW_MV && mv > 1000) {
-            if (!low_battery) {
-                low_battery = true;
-                servos_detach_all();
-                gait_set_state(GaitState::STOP);
-            }
+        int   mv      = (int)(voltage * 1000);
+        if (mv < BATTERY_LOW_MV && mv > 1000 && !low_battery) {
+            low_battery = true;
+            servos_detach_all();
+            gait_set_state(GaitState::STOP);
         }
         if (connected) {
             JsonDocument doc;
-            doc["type"] = MSG_TELEM_BATTERY;
+            doc["type"]       = MSG_TELEM_BATTERY;
             doc["voltage_mv"] = mv;
-            doc["pct"] = constrain((mv - 6000) * 100 / 2400, 0, 100);
-            doc["low"] = low_battery;
+            doc["pct"]        = constrain((mv - 6000) * 100 / 2400, 0, 100);
+            doc["low"]        = low_battery;
             send_json(doc);
         }
         last_battery = now;
     }
 
-    // IMU streaming
+    // Read snapshot once per loop tick — used for IMU telem, sonar telem, and gait
+    SensorSnapshot snap;
+    sensor_snapshot_get(snap);
+
+    // IMU streaming + feed gait balance
     if (connected && now - last_imu >= 1000 / TELEM_IMU_HZ) {
-        IMUData imu;
-        if (xSemaphoreTake(i2c_mutex, pdMS_TO_TICKS(10))) {
-            bool ok = imu_read(imu);
-            xSemaphoreGive(i2c_mutex);
-            if (ok) {
-                gait_update_imu(imu.pitch, imu.roll);
-                JsonDocument doc;
-                doc["type"] = MSG_TELEM_IMU;
-                doc["pitch"] = round(imu.pitch * 10) / 10.0;
-                doc["roll"] = round(imu.roll * 10) / 10.0;
-                doc["yaw"] = round(imu.yaw * 10) / 10.0;
-                doc["ax"] = round(imu.ax * 100) / 100.0;
-                doc["ay"] = round(imu.ay * 100) / 100.0;
-                doc["az"] = round(imu.az * 100) / 100.0;
-                doc["gx"] = round(imu.gx * 10) / 10.0;
-                doc["gy"] = round(imu.gy * 10) / 10.0;
-                doc["gz"] = round(imu.gz * 10) / 10.0;
-                send_json(doc);
-            }
+        if (snap.imu_ok) {
+            gait_update_imu(snap.pitch, snap.roll);
+            JsonDocument doc;
+            doc["type"]  = MSG_TELEM_IMU;
+            doc["pitch"] = round(snap.pitch * 10) / 10.0;
+            doc["roll"]  = round(snap.roll  * 10) / 10.0;
+            doc["yaw"]   = round(snap.yaw   * 10) / 10.0;
+            doc["ax"]    = round(snap.ax * 100) / 100.0;
+            doc["ay"]    = round(snap.ay * 100) / 100.0;
+            doc["az"]    = round(snap.az * 100) / 100.0;
+            doc["gx"]    = round(snap.gx * 10) / 10.0;
+            doc["gy"]    = round(snap.gy * 10) / 10.0;
+            doc["gz"]    = round(snap.gz * 10) / 10.0;
+            send_json(doc);
         }
         last_imu = now;
     }
 
     // Sonar streaming
     if (connected && now - last_sonar >= 1000 / TELEM_SONAR_HZ) {
-        if (xSemaphoreTake(i2c_mutex, pdMS_TO_TICKS(10))) {
-            uint16_t dist = sonar_read_mm();
-            xSemaphoreGive(i2c_mutex);
-            JsonDocument doc;
-            doc["type"] = MSG_TELEM_SONAR;
-            doc["distance_mm"] = dist;
-            send_json(doc);
-        }
+        JsonDocument doc;
+        doc["type"]        = MSG_TELEM_SONAR;
+        doc["distance_mm"] = snap.sonar_mm;
+        send_json(doc);
         last_sonar = now;
     }
 
-    // Status
+    // Status streaming
     if (connected && now - last_status >= 1000 / TELEM_STATUS_HZ) {
         JsonDocument doc;
-        doc["type"] = MSG_TELEM_STATUS;
-        doc["mode"] = "idle";
-        doc["balance"] = balance_enabled;
-        doc["servos"] = servos_active();
+        doc["type"]        = MSG_TELEM_STATUS;
+        doc["mode"]        = "idle";
+        doc["balance"]     = balance_is_enabled();
+        doc["servos"]      = servos_active();
         doc["low_battery"] = low_battery;
 #if WIFI_ENABLED
         doc["wifi"] = wifi_connected;
         if (wifi_connected) {
-            doc["wifi_ip"] = WiFi.localIP().toString();
+            doc["wifi_ip"]  = WiFi.localIP().toString();
             doc["tcp_port"] = WIFI_TCP_PORT;
         }
 #endif
@@ -302,240 +244,19 @@ void loop() {
     }
 
     // Test mode heartbeat — exit test mode if host goes quiet
-    if (test_mode && (now - last_test_cmd > TEST_HEARTBEAT_MS)) {
-        test_mode = false;
-        manual_servo_mode = false;
-        servos_set_frail(false);
-        gait_set_state(GaitState::STAND);
-    }
+    handlers_check_timeout(now);
 
-    // Frail mode duty cycle tracking
+    // Frail mode duty cycle
     if (servos_update_duty(now)) {
-        // In cooldown — LEDs flash amber
         if ((now / 500) % 2 == 0) {
-            if (xSemaphoreTake(i2c_mutex, pdMS_TO_TICKS(10))) {
-                sonar_set_rgb(1, LED_BRIGHTNESS, LED_BRIGHTNESS / 2, 0);
-                sonar_set_rgb(2, LED_BRIGHTNESS, LED_BRIGHTNESS / 2, 0);
-                xSemaphoreGive(i2c_mutex);
-            }
+            sensor_led_set(1, LED_BRIGHTNESS, LED_BRIGHTNESS / 2, 0);  // amber flash
+            sensor_led_set(2, LED_BRIGHTNESS, LED_BRIGHTNESS / 2, 0);
         }
     }
 
-    // Gait engine (skip during manual servo mode)
-    if (!manual_servo_mode && now - last_gait >= 1000 / GAIT_UPDATE_HZ) {
-        if (!low_battery) {
-            gait_update(now);
-        }
+    // Gait tick (skip during manual servo mode)
+    if (!handlers_manual_servo_mode() && now - last_gait >= 1000 / GAIT_UPDATE_HZ) {
+        if (!low_battery) gait_update(now);
         last_gait = now;
     }
-}
-
-// --- Message handler ---
-void handle_message(const JsonDocument& doc) {
-    const char* type = doc["type"];
-    if (!type) return;
-
-    if (strcmp(type, MSG_PING) == 0) {
-        JsonDocument resp;
-        resp["type"] = MSG_PONG;
-        send_json(resp);
-    }
-    else if (strcmp(type, MSG_CMD_MOVE) == 0) {
-        manual_servo_mode = false;
-        const char* dir_str = doc["direction"] | "stop";
-        float spd = doc["speed"] | 1.0f;
-        Direction dir = direction_from_string(dir_str);
-        switch (dir) {
-            case Direction::FORWARD:  gait_set_state(GaitState::WALK_FORWARD, spd); break;
-            case Direction::BACKWARD: gait_set_state(GaitState::WALK_BACKWARD, spd); break;
-            case Direction::LEFT:     gait_set_state(GaitState::TURN_LEFT, spd); break;
-            case Direction::RIGHT:    gait_set_state(GaitState::TURN_RIGHT, spd); break;
-            case Direction::STOP:     gait_set_state(GaitState::STOP); break;
-        }
-        send_ack(MSG_CMD_MOVE, true);
-    }
-    else if (strcmp(type, MSG_CMD_STAND) == 0) {
-        manual_servo_mode = false;
-        gait_set_state(GaitState::STAND);
-        send_ack(MSG_CMD_STAND, true);
-    }
-    else if (strcmp(type, MSG_CMD_BALANCE) == 0) {
-        balance_enabled = doc["enabled"] | true;
-        balance_enable(balance_enabled);
-        if (!balance_enabled) balance_reset();
-        send_ack(MSG_CMD_BALANCE, true);
-    }
-    else if (strcmp(type, MSG_CMD_TRANSFORM) == 0) {
-        BodyPose pose;
-        pose.dx    = doc["x"]     | 0.0f;
-        pose.dy    = doc["y"]     | 0.0f;
-        pose.dz    = doc["z"]     | 0.0f;
-        pose.roll  = doc["roll"]  | 0.0f;
-        pose.pitch = doc["pitch"] | 0.0f;
-        pose.yaw   = doc["yaw"]   | 0.0f;
-        uint16_t ms = doc["ms"]   | 100;
-        gait_set_body_transform(pose, ms);
-        send_ack(MSG_CMD_TRANSFORM, true);
-    }
-    else if (strcmp(type, MSG_CMD_GAIT_PARAMS) == 0) {
-        GaitConfig cfg;
-        cfg.stride_height_mm = doc["stride_height"] | GAIT_STRIDE_HEIGHT_MM;
-        cfg.stride_length_mm = doc["stride_length"] | GAIT_STRIDE_LENGTH_MM;
-        cfg.frequency_hz     = doc["frequency"]     | GAIT_FREQUENCY_HZ;
-        gait_set_config(cfg);
-        send_ack(MSG_CMD_GAIT_PARAMS, true);
-    }
-    else if (strcmp(type, MSG_CMD_LED) == 0) {
-        uint8_t led = doc["led"] | 1;
-        uint8_t r = doc["r"] | 0;
-        uint8_t g = doc["g"] | 0;
-        uint8_t b = doc["b"] | 0;
-        if (xSemaphoreTake(i2c_mutex, pdMS_TO_TICKS(50))) {
-            sonar_set_rgb(led, r, g, b);
-            xSemaphoreGive(i2c_mutex);
-        }
-        send_ack(MSG_CMD_LED, true);
-    }
-    else if (strcmp(type, MSG_CMD_SERVO) == 0) {
-#if PINS_VERIFIED
-        manual_servo_mode = true;  // disable gait engine
-        if (test_mode) last_test_cmd = millis();  // keep test mode alive
-
-        // Wake servos if detached (fixes idle timeout during testing)
-        if (!servos_active()) {
-            servos_init();
-            if (test_mode) servos_set_frail(true);  // re-enable frail after wake
-        }
-
-        uint8_t idx = doc["index"] | 0;
-        uint16_t us = doc["pulse_us"] | 1500;
-        servo_write_us(idx, us);
-
-        // Ack with readback so host can verify
-        JsonDocument resp;
-        resp["type"] = MSG_ACK;
-        resp["ref_type"] = MSG_CMD_SERVO;
-        resp["ok"] = true;
-        resp["index"] = idx;
-        resp["actual_us"] = servo_read_us(idx);
-        resp["frail"] = servos_frail();
-        send_json(resp);
-#else
-        send_ack(MSG_CMD_SERVO, false, "pins_not_verified");
-#endif
-    }
-    else if (strcmp(type, MSG_CMD_TEST_MODE) == 0) {
-        bool enable = doc["enable"] | true;
-        bool frail = doc["frail"] | true;  // frail on by default
-        if (enable) {
-            test_mode = true;
-            last_test_cmd = millis();
-            manual_servo_mode = true;
-            gait_set_state(GaitState::STOP);
-
-            // Wake servos if detached
-            if (!servos_active()) {
-                servos_init();
-            }
-
-            servos_set_frail(frail);
-
-            // Purple LED = test mode
-            if (xSemaphoreTake(i2c_mutex, pdMS_TO_TICKS(50))) {
-                sonar_set_rgb(1, LED_BRIGHTNESS / 2, 0, LED_BRIGHTNESS);
-                sonar_set_rgb(2, LED_BRIGHTNESS / 2, 0, LED_BRIGHTNESS);
-                xSemaphoreGive(i2c_mutex);
-            }
-        } else {
-            test_mode = false;
-            manual_servo_mode = false;
-            servos_set_frail(false);
-            gait_set_state(GaitState::STAND);
-
-            // Green LED = normal
-            if (xSemaphoreTake(i2c_mutex, pdMS_TO_TICKS(50))) {
-                sonar_set_rgb(1, 0, LED_BRIGHTNESS, 0);
-                sonar_set_rgb(2, 0, LED_BRIGHTNESS, 0);
-                xSemaphoreGive(i2c_mutex);
-            }
-        }
-
-        JsonDocument resp;
-        resp["type"] = MSG_ACK;
-        resp["ref_type"] = "cmd_test_mode";
-        resp["ok"] = true;
-        resp["test_mode"] = test_mode;
-        resp["frail"] = servos_frail();
-        resp["servos_active"] = servos_active();
-        send_json(resp);
-    }
-    else if (strcmp(type, MSG_CMD_I2C_WRITE) == 0) {
-        // Raw I2C write for register probing — debug only
-        uint8_t addr = doc["addr"] | 0x77;
-        uint8_t reg  = doc["reg"]  | 0;
-        uint8_t val  = doc["val"]  | 0;
-        bool ok = false;
-        if (xSemaphoreTake(i2c_mutex, pdMS_TO_TICKS(50))) {
-            Wire.beginTransmission(addr);
-            Wire.write(reg);
-            Wire.write(val);
-            ok = (Wire.endTransmission() == 0);
-            xSemaphoreGive(i2c_mutex);
-        }
-        JsonDocument resp;
-        resp["type"] = MSG_ACK;
-        resp["ref_type"] = MSG_CMD_I2C_WRITE;
-        resp["ok"] = ok;
-        resp["addr"] = addr;
-        resp["reg"] = reg;
-        resp["val"] = val;
-        send_json(resp);
-    }
-    else if (strcmp(type, MSG_CMD_OFFSET) == 0) {
-        const char* action = doc["action"] | "read";
-        if (strcmp(action, "set") == 0) {
-            uint8_t idx = doc["index"] | 0;
-            int16_t val = doc["value"] | 0;
-            if (idx < 8) offset_set(idx, val);
-        } else if (strcmp(action, "save") == 0) {
-            offsets_save();
-        } else if (strcmp(action, "reset") == 0) {
-            offsets_reset();
-        }
-        // Always respond with current offsets
-        JsonDocument resp;
-        resp["type"] = MSG_ACK;
-        resp["ref_type"] = MSG_CMD_OFFSET;
-        resp["ok"] = true;
-        JsonArray arr = resp["offsets"].to<JsonArray>();
-        for (int i = 0; i < 8; i++) arr.add(offset_get(i));
-        send_json(resp);
-    }
-    else {
-        send_ack(type, false, "unknown_type");
-    }
-}
-
-// --- Senders ---
-void send_ack(const char* ref_type, bool ok, const char* error) {
-    JsonDocument doc;
-    doc["type"] = MSG_ACK;
-    doc["ref_type"] = ref_type;
-    doc["ok"] = ok;
-    if (error) doc["error"] = error;
-    send_json(doc);
-}
-
-void send_json(const JsonDocument& doc) {
-    // Always send to serial (for USB and debug)
-    serializeJson(doc, Serial);
-    Serial.println();
-
-    // Also send to TCP client if connected
-#if WIFI_ENABLED
-    if (tcp_client && tcp_client.connected()) {
-        serializeJson(doc, tcp_client);
-        tcp_client.println();
-    }
-#endif
 }

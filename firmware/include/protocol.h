@@ -35,5 +35,5 @@ enum class Direction {
     STOP
 };
 
-Direction direction_from_string(const char* str);
-const char* direction_to_string(Direction dir);
+Direction direction_from_string(const char* str);    // defined in command_handlers.cpp
+const char* direction_to_string(Direction dir);       // defined in command_handlers.cpp
