@@ -1,15 +1,15 @@
 #include "sonar.h"
 #include "config.h"
 
-// I2C sonar registers
-#define SONAR_REG_DISTANCE  0x00
-#define SONAR_REG_RGB_MODE  0x04
-#define SONAR_REG_RGB1_R    0x05
-#define SONAR_REG_RGB1_G    0x06
-#define SONAR_REG_RGB1_B    0x07
-#define SONAR_REG_RGB2_R    0x08
-#define SONAR_REG_RGB2_G    0x09
-#define SONAR_REG_RGB2_B    0x0A
+// I2C sonar registers (verified from stock firmware Hiwonder_IIC.I2CSonar source)
+#define SONAR_REG_DISTANCE  0x00  // 2 bytes big-endian, mm
+#define SONAR_REG_RGB_MODE  0x02  // 0 = manual
+#define SONAR_REG_RGB1_R    0x03
+#define SONAR_REG_RGB1_G    0x04
+#define SONAR_REG_RGB1_B    0x05
+#define SONAR_REG_RGB2_R    0x06
+#define SONAR_REG_RGB2_G    0x07
+#define SONAR_REG_RGB2_B    0x08
 
 static TwoWire* _wire = nullptr;
 
@@ -37,9 +37,9 @@ bool sonar_init(TwoWire& wire) {
     // Set RGB mode to manual
     sonar_set_rgb_mode(0);
 
-    // Set both LEDs to dim blue
-    sonar_set_rgb(1, 0, 0, LED_BRIGHTNESS);
-    sonar_set_rgb(2, 0, 0, LED_BRIGHTNESS);
+    // Set both LEDs to lavender (boot state)
+    sonar_set_rgb(1, LED_R_LAVENDER, LED_G_LAVENDER, LED_B_LAVENDER);
+    sonar_set_rgb(2, LED_R_LAVENDER, LED_G_LAVENDER, LED_B_LAVENDER);
 
     return true;
 }
