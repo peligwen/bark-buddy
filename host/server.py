@@ -96,7 +96,7 @@ def find_serial_port() -> str | None:
 class Server:
     def __init__(self, dog: DogComms, web_dir: str, transport=None, transport_label="sim",
                  wifi_host: str | None = None, wifi_password: str | None = None,
-                 no_mdns: bool = False):
+                 no_mdns: bool = False, open_browser: bool = False):
         self._dog = dog
         self._web_dir = web_dir
         self._transport = transport
@@ -127,6 +127,7 @@ class Server:
         self._user_override_transport: bool = False  # True when user manually selected transport
         self._switch_lock = asyncio.Lock()
         self._mdns_browser: "MdnsBrowser | None" = None
+        self._open_browser = open_browser
 
     @web.middleware
     async def _no_cache_middleware(self, request, handler):
@@ -138,10 +139,14 @@ class Server:
     async def _index_handler(self, request):
         return web.FileResponse(os.path.join(self._web_dir, "index.html"))
 
+    async def _tuning_handler(self, request):
+        return web.FileResponse(os.path.join(self._web_dir, "tuning.html"))
+
     async def start(self, host: str = "0.0.0.0", port: int = 8080):
         app = web.Application(middlewares=[self._no_cache_middleware])
         app.router.add_get("/ws", self._ws_handler)
         app.router.add_get("/", self._index_handler)
+        app.router.add_get("/tuning", self._tuning_handler)
         app.router.add_get("/api/firmware/status",  self._handle_firmware_status)
         app.router.add_post("/api/firmware/build",  self._handle_firmware_build)
         app.router.add_get("/api/firmware/binary",  self._handle_firmware_binary)
@@ -155,6 +160,9 @@ class Server:
         site = web.TCPSite(runner, host, port)
         await site.start()
         logger.info("Server running at http://%s:%d", host, port)
+        if self._open_browser:
+            import webbrowser
+            webbrowser.open(f"http://localhost:{port}")
         await asyncio.Event().wait()
 
     async def _on_startup(self, app: web.Application):
@@ -1214,7 +1222,8 @@ async def main(args):
     web_dir = os.path.abspath(web_dir)
     server = Server(dog, web_dir, transport=transport, transport_label=transport_label,
                     wifi_host=wifi_host, wifi_password=wifi_password,
-                    no_mdns=args.no_mdns)
+                    no_mdns=args.no_mdns,
+                    open_browser=getattr(args, 'open_browser', False))
     await server.start(host=args.host, port=args.port)
 
 
@@ -1225,7 +1234,7 @@ if __name__ == "__main__":
     )
     parser = argparse.ArgumentParser(description="Bark-Buddy web server")
     parser.add_argument("--host", default="0.0.0.0")
-    parser.add_argument("--port", type=int, default=8080)
+    parser.add_argument("--port", type=int, default=8456)
     parser.add_argument("--sim", action="store_true",
                         help="Force PyBullet simulation (default if no hardware found)")
     parser.add_argument("--serial", default=None,
