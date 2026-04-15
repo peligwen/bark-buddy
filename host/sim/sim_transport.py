@@ -71,6 +71,13 @@ class SimTransport(Transport):
         # Background task
         self._sim_task: Optional[asyncio.Task] = None
 
+        # Lifecycle state machine
+        self._sim_lifecycle = "booting"
+        self._sim_lifecycle_idle_start = 0.0
+        self._sim_lifecycle_ramp_start = 0.0
+        self._sim_lifecycle_ramp_duration = 0.0
+        self._sim_lifecycle_ramp_target = "standing"  # "standing" or "rest"
+
     # --- Noise ---
 
     def set_noise_params(self, params: dict) -> None:
@@ -98,6 +105,11 @@ class SimTransport(Transport):
             self._physics.step(SIM_TIMESTEP)
 
         self._open = True
+
+        # Boot complete — enter IDLE with 10s countdown (mirrors firmware)
+        self._sim_lifecycle = "idle"
+        self._sim_lifecycle_idle_start = asyncio.get_event_loop().time()
+
         self._sim_task = asyncio.create_task(self._sim_loop())
         logger.info("SimTransport opened (physics engine, speed=%.1fx)",
                      self._speed_factor)
@@ -183,10 +195,14 @@ class SimTransport(Transport):
 
         try:
             while self._open:
+                now_loop = asyncio.get_event_loop().time()
+                self._sim_lifecycle_update(now_loop)
+
                 # Step physics
                 for _ in range(steps_per_tick):
                     self._physics.step(SIM_TIMESTEP)
-                    self._physics.apply_movement_force(self._motion_cmd, SIM_TIMESTEP)
+                    if self._sim_lifecycle == "active":
+                        self._physics.apply_movement_force(self._motion_cmd, SIM_TIMESTEP)
 
                 # Update telemetry caches
                 self._update_imu()
@@ -241,6 +257,8 @@ class SimTransport(Transport):
             return "CMD|2|OK|$"
 
         elif func == "3":
+            if self._sim_lifecycle != "active":
+                return "CMD|3|OK|$"
             self._motion_cmd = int(parts[1]) if len(parts) > 1 else 1
             self._physics.set_motion(self._motion_cmd)
             return "CMD|3|OK|$"
@@ -255,6 +273,76 @@ class SimTransport(Transport):
             return f"CMD|6|{self._battery_mv}|$"
 
         return None
+
+    # --- Lifecycle state machine ---
+
+    async def send_json(self, msg: dict) -> None:
+        msg_type = msg.get("type")
+        now = asyncio.get_event_loop().time()
+        if msg_type == "cmd_wake":
+            self._sim_lifecycle_wake(now)
+        elif msg_type == "cmd_sleep":
+            self._sim_lifecycle_sleep(now)
+
+    def get_lifecycle(self) -> str:
+        return self._sim_lifecycle
+
+    def _sim_lifecycle_wake(self, now: float) -> None:
+        lc = self._sim_lifecycle
+        if lc == "idle":
+            self._sim_lifecycle = "active"
+            self._sim_lifecycle_idle_start = 0.0
+        elif lc == "resting":
+            self._sim_lifecycle_ramp_start = now
+            self._sim_lifecycle_ramp_duration = 2.0
+            self._sim_lifecycle_ramp_target = "standing"
+            self._sim_lifecycle = "waking"
+        elif lc == "sleeping":
+            # Reverse mid-ramp
+            self._sim_lifecycle_ramp_start = now
+            self._sim_lifecycle_ramp_duration = 2.0
+            self._sim_lifecycle_ramp_target = "standing"
+            self._sim_lifecycle = "waking"
+        # active/waking/booting: no-op
+
+    def _sim_lifecycle_sleep(self, now: float) -> None:
+        lc = self._sim_lifecycle
+        if lc == "active":
+            self._sim_lifecycle = "idle"
+            self._sim_lifecycle_idle_start = now
+        elif lc == "waking":
+            self._sim_lifecycle_ramp_start = now
+            self._sim_lifecycle_ramp_duration = 1.5
+            self._sim_lifecycle_ramp_target = "rest"
+            self._sim_lifecycle = "sleeping"
+        # idle/sleeping/resting/booting: no-op
+
+    def _sim_lifecycle_update(self, now: float) -> None:
+        lc = self._sim_lifecycle
+
+        if lc == "waking":
+            elapsed = now - self._sim_lifecycle_ramp_start
+            t = min(elapsed / self._sim_lifecycle_ramp_duration, 1.0) if self._sim_lifecycle_ramp_duration > 0 else 1.0
+            if self._physics is not None and hasattr(self._physics, "set_lifecycle_target"):
+                self._physics.set_lifecycle_target("standing", t)
+            if elapsed >= self._sim_lifecycle_ramp_duration:
+                self._sim_lifecycle = "active"
+
+        elif lc == "idle":
+            elapsed = now - self._sim_lifecycle_idle_start
+            if elapsed >= 10.0:
+                self._sim_lifecycle_ramp_start = now
+                self._sim_lifecycle_ramp_duration = 1.5
+                self._sim_lifecycle_ramp_target = "rest"
+                self._sim_lifecycle = "sleeping"
+
+        elif lc == "sleeping":
+            elapsed = now - self._sim_lifecycle_ramp_start
+            t = min(elapsed / self._sim_lifecycle_ramp_duration, 1.0) if self._sim_lifecycle_ramp_duration > 0 else 1.0
+            if self._physics is not None and hasattr(self._physics, "set_lifecycle_target"):
+                self._physics.set_lifecycle_target("rest", t)
+            if elapsed >= self._sim_lifecycle_ramp_duration + 0.5:
+                self._sim_lifecycle = "resting"
 
     @property
     def sim_time(self) -> float:
