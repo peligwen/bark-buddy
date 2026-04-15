@@ -8,6 +8,7 @@ all transport paths: custom firmware, hybrid/stock firmware, sim, and REPL.
 import abc
 import asyncio
 import logging
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +63,9 @@ class Transport(abc.ABC):
     def reset(self) -> None:
         """Reset internal state (position, heading, etc). Optional override."""
         pass
+
+    async def send_json(self, msg: dict) -> None:
+        """Send a raw JSON message. No-op on transports that don't support JSON."""
 
     # --- Optional capabilities (safe defaults for transports that don't support them) ---
 
@@ -158,6 +162,14 @@ class DogComms:
 
     async def stand(self) -> bool:
         return await self.move("stand")
+
+    async def wake(self) -> None:
+        """Send wake command to firmware (servo power on, stand up)."""
+        await self._transport.send_json({"type": "cmd_wake"})
+
+    async def sleep(self) -> None:
+        """Send sleep command to firmware (lie down, servo power off)."""
+        await self._transport.send_json({"type": "cmd_sleep"})
 
     # --- Balance ---
 
