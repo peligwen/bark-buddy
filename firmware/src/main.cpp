@@ -128,6 +128,14 @@ void send_ack(const char* ref_type, bool ok, const char* error) {
     send_json(doc);
 }
 
+String get_tcp_client_ip() {
+#if WIFI_ENABLED
+    return tcp_client.remoteIP().toString();
+#else
+    return String("");
+#endif
+}
+
 // --- Setup ---
 void setup() {
     Serial.begin(SERIAL_BAUD);

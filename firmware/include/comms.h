@@ -7,3 +7,6 @@ void send_json(const JsonDocument& doc);
 
 // Convenience wrapper: sends {"type":"ack","ref_type":ref_type,"ok":ok[,"error":error]}
 void send_ack(const char* ref_type, bool ok, const char* error = nullptr);
+
+// Returns the remote IP of the currently connected TCP client (empty string if not connected).
+String get_tcp_client_ip();

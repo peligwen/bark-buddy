@@ -250,6 +250,23 @@ static void handle_cmd_ota_update(const JsonDocument& doc) {
         send_ack(MSG_CMD_OTA_UPDATE, false, "missing_url");
         return;
     }
+    // Only allow OTA downloads from the connected TCP client
+    {
+        const char* after_scheme = strstr(url, "://");
+        if (!after_scheme) {
+            send_ack(MSG_CMD_OTA_UPDATE, false, "url_not_allowed");
+            return;
+        }
+        after_scheme += 3; // skip past "://"
+        const char* end = after_scheme;
+        while (*end && *end != ':' && *end != '/') end++;
+        String url_host(after_scheme, (size_t)(end - after_scheme));
+        String client_ip = get_tcp_client_ip();
+        if (url_host != client_ip) {
+            send_ack(MSG_CMD_OTA_UPDATE, false, "url_not_allowed");
+            return;
+        }
+    }
     // Must be IDLE or ACTIVE
     LifecycleState lc = lifecycle_current();
     if (lc != LifecycleState::IDLE && lc != LifecycleState::ACTIVE) {
