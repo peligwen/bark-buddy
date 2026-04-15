@@ -4,7 +4,7 @@ import { state, S, STAND_HIP, STAND_KNEE, UPPER_LEN, LOWER_LEN,
 import { setLeg, setAllLegs } from './model.js';
 
 // Named poses (validated by firmware/test/pose_generator)
-export var POSES = {
+var POSES = {
     stand:    [0.3000, -0.6000, 0.3000, -0.6000, 0.3000, -0.6000, 0.3000, -0.6000],
     tall:     [0.1500, -0.5406, 0.1500, -0.5406, 0.1500, -0.5406, 0.1500, -0.5406],
     crouch:   [0.5000, -0.8000, 0.5000, -0.8000, 0.5000, -0.8000, 0.5000, -0.8000],
@@ -15,17 +15,12 @@ export var POSES = {
     play_bow: [0.7000, -1.0000, 0.7000, -1.0000, 0.1500, -0.5406, 0.1500, -0.5406],
 };
 
-export function getPoseNames() {
-    return Object.keys(POSES);
-}
-
 export function setPose(name) {
     var angles = POSES[name];
     if (!angles) return;
     state.currentPoseName = name;
     state.targetPose = angles.slice();
     state.activePose = angles.slice();
-    state.currentAction = null;
     state.currentMotion = "stop";
 }
 
@@ -96,15 +91,7 @@ function animateAction() {
         return;
     }
 
-    var a = state.currentAction;
-    if (a === 1) {
-        setLeg("fl", -0.8, -1.2);
-        setLeg("fr", STAND_HIP, STAND_KNEE);
-        setLeg("rl", STAND_HIP * 1.3, STAND_KNEE * 0.8);
-        setLeg("rr", STAND_HIP * 1.3, STAND_KNEE * 0.8);
-    } else {
-        setAllLegs(STAND_HIP, STAND_KNEE);
-    }
+    setAllLegs(STAND_HIP, STAND_KNEE);
 }
 
 export function animateGait(dt) {
@@ -116,8 +103,7 @@ export function animateGait(dt) {
     if (speed === 0) {
         state.walkPhase = 0;
         state.bodyBounce = 0;
-        // Pose interpolation or action takes priority over standing reset
-        if (state.targetPose || state.currentAction != null) {
+        if (state.targetPose) {
             animateAction();
             return;
         }
@@ -125,7 +111,7 @@ export function animateGait(dt) {
         return;
     }
 
-    if (state.currentAction != null || state.targetPose) {
+    if (state.targetPose) {
         animateAction();
         state.bodyBounce = 0;
         return;
