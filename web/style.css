@@ -446,9 +446,6 @@ header h1 {
 }
 .pose-select:focus { outline: 1px solid var(--accent); }
 
-#patrol-status { font-size: 0.65rem; font-family: monospace; color: var(--accent); margin-top: 6px; }
-#patrol-status.hidden { display: none; }
-
 /* Sim noise panel */
 #sim-panel.hidden { display: none; }
 .noise-grid {

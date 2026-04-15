@@ -43,7 +43,7 @@ function updateUltrasonic(mm) {
     else el.className = "status-value";
 }
 
-// --- Gauge (hidden elements for compat) ---
+// IMU pitch/roll text display
 function updateGauge(name, value) {
     var val = document.getElementById(name + "-val");
     val.textContent = value.toFixed(1) + "\u00B0";
@@ -66,7 +66,7 @@ function updateStatus(msg) {
     if (msg.fallen != null) showFallAlert(msg.fallen);
     if (msg.transport != null) {
         var badge = document.getElementById("transport-badge");
-        var isSim = msg.transport === "sim" || msg.transport === "sim+";
+        var isSim = msg.transport === "sim";
         badge.textContent = isSim ? msg.transport.toUpperCase() : msg.transport;
         badge.className = "transport-badge " + (isSim ? "sim" : "live");
         var simPanel = document.getElementById("sim-panel");
@@ -159,19 +159,6 @@ function handleMessage(msg) {
     }
 }
 
-// --- Patrol ---
-function setupPatrol() {
-    var btnDemo = document.getElementById("btn-patrol-demo");
-    var btnStop = document.getElementById("btn-patrol-stop");
-    btnDemo.addEventListener("click", function () {
-        send({ type: "cmd_patrol", action: "start", waypoints: [
-            { x: 0.5, y: 0, heading: 0 }, { x: 0.5, y: 0.5, heading: 90 },
-            { x: 0, y: 0.5, heading: 180 }, { x: 0, y: 0, heading: 270 },
-        ]});
-    });
-    btnStop.addEventListener("click", function () { send({ type: "cmd_patrol", action: "stop" }); });
-}
-
 function setupLock() {
     document.getElementById("btn-lock").addEventListener("click", function () {
         if (hasLock) send({ type: "cmd_unlock" });
@@ -193,7 +180,6 @@ setMessageHandler(handleMessage);
 actionsCtrl = setupActions(Dog3D);
 setupDpad();
 setupKeyboard();
-setupPatrol();
 var scanCtrl = setupScan();
 scanCtrl.init(send);
 setupLock();
