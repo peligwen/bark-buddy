@@ -3,7 +3,7 @@ import { state, S, COL, BODY_L, BODY_H, standingHeight } from './state.js';
 import { buildDog } from './model.js';
 import { animateGait, setPose, clearPose, applySimJoints } from './gait.js';
 import { initUltraHit, updateUltraBeam } from './sonar.js';
-import { clearWalls, buildWallsFromSegments, buildWallsFromChains } from './walls.js';
+import { clearWalls, buildWallsFromChains } from './walls.js';
 import { toggleOverlay, updateOverlay } from './overlay.js';
 import { updateCameraPosition, setupControls } from './camera.js';
 
@@ -85,7 +85,7 @@ function init(containerId) {
 }
 
 function animate(time) {
-    state.animationId = requestAnimationFrame(animate);
+    requestAnimationFrame(animate);
     var dt = lastTime ? Math.min((time - lastTime) / 1000, 0.1) : 0.016;
     lastTime = time;
 
@@ -174,7 +174,6 @@ var Dog3D = {
         state.currentX = state.currentZ = state.currentYaw = 0;
         state.camTargetX = state.camTargetZ = 0;
         state.currentMotion = "stop";
-        state.currentAction = null;
         state.walkPhase = 0;
         state.simJoints = null;
         clearWalls();
@@ -187,8 +186,6 @@ var Dog3D = {
     setMapData: function (data) {
         if (data && data.chains && data.chains.length > 0) {
             buildWallsFromChains(data.chains);
-        } else if (data && data.walls) {
-            buildWallsFromSegments(data.walls);
         }
     },
 
@@ -201,7 +198,6 @@ var Dog3D = {
     },
 
     setFallen: function (fallen) {
-        state.isFallen = fallen;
         if (!state.dogGroup) return;
         state.dogGroup.traverse(function (child) {
             if (child.isMesh && child.material.emissive) {
