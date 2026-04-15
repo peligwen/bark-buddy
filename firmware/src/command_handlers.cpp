@@ -78,6 +78,10 @@ static void handle_cmd_balance(const JsonDocument& doc) {
 }
 
 static void handle_cmd_transform(const JsonDocument& doc) {
+    if (!lifecycle_can_command()) {
+        send_ack(MSG_CMD_TRANSFORM, false, "not_active");
+        return;
+    }
     BodyPose pose;
     pose.dx    = doc["x"]     | 0.0f;
     pose.dy    = doc["y"]     | 0.0f;
@@ -91,6 +95,10 @@ static void handle_cmd_transform(const JsonDocument& doc) {
 }
 
 static void handle_cmd_gait_params(const JsonDocument& doc) {
+    if (!lifecycle_can_command()) {
+        send_ack(MSG_CMD_GAIT_PARAMS, false, "not_active");
+        return;
+    }
     GaitConfig cfg;
     cfg.stride_height_mm = doc["stride_height"] | GAIT_STRIDE_HEIGHT_MM;
     cfg.stride_length_mm = doc["stride_length"] | GAIT_STRIDE_LENGTH_MM;
@@ -181,12 +189,8 @@ static void handle_cmd_sleep(const JsonDocument&) {
 }
 
 static void handle_cmd_shutdown(const JsonDocument&) {
-    s_manual_servo_mode = false;
-    s_test_mode = false;
-    servos_set_frail(false);
-    gait_set_state(GaitState::STOP);
-    bool ok = servos_shutdown_to_rest();
-    send_ack(MSG_CMD_SHUTDOWN, ok);
+    lifecycle_cmd_shutdown(millis());
+    send_ack(MSG_CMD_SHUTDOWN, true);
 }
 
 static void handle_cmd_i2c_write(const JsonDocument& doc) {

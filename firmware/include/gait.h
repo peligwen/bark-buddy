@@ -38,3 +38,4 @@ void lifecycle_heartbeat_lost(unsigned long now_ms);
 LifecycleState lifecycle_current();
 const char* lifecycle_state_name();
 bool lifecycle_can_command();  // true only when ACTIVE
+void lifecycle_cmd_shutdown(unsigned long now_ms);

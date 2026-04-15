@@ -386,3 +386,17 @@ const char* lifecycle_state_name() {
 bool lifecycle_can_command() {
     return s_lifecycle == LifecycleState::ACTIVE;
 }
+
+void lifecycle_cmd_shutdown(unsigned long now_ms) {
+    // Immediate transition to SLEEPING — no IDLE grace period
+    if (s_lifecycle == LifecycleState::SLEEPING ||
+        s_lifecycle == LifecycleState::RESTING) return;
+    for (int i = 0; i < 8; i++) {
+        uint16_t cur = servo_read_us(i);
+        s_lifecycle_ramp_from[i] = (cur > 0) ? cur : STANDING_POSE[i];
+        s_lifecycle_ramp_target[i] = REST_POSE[i];
+    }
+    s_lifecycle_ramp_start = now_ms;
+    s_lifecycle_ramp_ms = SHUTDOWN_RAMP_MS;
+    s_lifecycle = LifecycleState::SLEEPING;
+}
