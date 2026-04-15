@@ -44,6 +44,7 @@ class JsonStreamTransport(DeadReckoningMixin, Transport):
         self._sonar_mm = 0
         self._battery_mv = 7400
         self._firmware_info = {}
+        self._lifecycle = "unknown"
 
         # Ack queue for tools that need to wait on specific ack messages
         self._ack_queue: asyncio.Queue = asyncio.Queue()
@@ -125,6 +126,10 @@ class JsonStreamTransport(DeadReckoningMixin, Transport):
     def get_battery_mv(self) -> int:
         """Current battery voltage from telemetry cache."""
         return self._battery_mv
+
+    def get_lifecycle(self) -> str:
+        """Current firmware lifecycle state from telemetry cache."""
+        return self._lifecycle
 
     async def send_json(self, msg: dict) -> None:
         """Send a raw JSON message to firmware. For tools that speak JSON directly."""
@@ -219,6 +224,7 @@ class JsonStreamTransport(DeadReckoningMixin, Transport):
         elif msg_type == "telem_battery":
             self._battery_mv = msg.get("voltage_mv", 7400)
         elif msg_type == "telem_status":
+            self._lifecycle = msg.get("lifecycle", self._lifecycle)
             if msg.get("wifi") and msg.get("wifi_ip"):
                 self._firmware_info["wifi_ip"] = msg["wifi_ip"]
                 self._firmware_info["tcp_port"] = msg.get("tcp_port", 9000)
