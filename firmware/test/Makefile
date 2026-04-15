@@ -1,6 +1,6 @@
 CXX = clang++
 CXXFLAGS = -std=c++17 -O2 -Wall -Wno-absolute-value -I. -I../include
-TARGETS = test_ik test_transform test_balance test_offsets test_gait_ik test_servos
+TARGETS = test_ik test_transform test_balance test_offsets test_gait_ik test_servos test_lifecycle
 
 all: $(TARGETS)
 
@@ -24,5 +24,8 @@ test_gait_ik: test_gait_ik.cpp mock_arduino.h ../include/ik.h ../include/body_tr
 
 test_servos: test_servos.cpp mock_arduino.h mock_preferences.h ../include/servos.h ../include/config.h
 	$(CXX) $(CXXFLAGS) -o $@ test_servos.cpp
+
+test_lifecycle: test_lifecycle.cpp mock_arduino.h mock_preferences.h ../include/gait.h ../include/config.h ../src/servos.cpp ../src/offsets.cpp ../src/balance.cpp ../src/gait.cpp
+	$(CXX) $(CXXFLAGS) -o $@ test_lifecycle.cpp
 
 .PHONY: all clean

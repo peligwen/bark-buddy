@@ -12,7 +12,15 @@ static float s_speed = 1.0f;
 static float s_phase = 0.0f;
 static unsigned long s_last_update = 0;
 static unsigned long s_last_active = 0;
-static bool s_idle_detached = false;
+
+// Lifecycle state machine
+static LifecycleState s_lifecycle = LifecycleState::BOOTING;
+static unsigned long s_lifecycle_idle_start = 0;   // when IDLE countdown started
+static unsigned long s_lifecycle_ramp_start = 0;   // when current ramp started
+static uint16_t s_lifecycle_ramp_from[8] = {};     // servo positions at ramp start
+static uint16_t s_lifecycle_ramp_target[8] = {};   // ramp destination
+static uint16_t s_lifecycle_ramp_ms = 0;           // ramp duration
+static uint8_t  s_lifecycle_ramp_steps = 0;        // ramp step count
 
 // Gait configuration
 static GaitConfig s_config = {
@@ -36,13 +44,12 @@ static uint16_t s_stand_ramp_from[8] = {};
 static float s_pitch = 0.0f;
 static float s_roll  = 0.0f;
 
-void gait_init() {
-    s_state = GaitState::STAND;
+void gait_init(unsigned long now_ms) {
+    s_state = GaitState::STOP;
     s_speed = 0.0f;
     s_phase = 0.0f;
     s_last_update = millis();
     s_last_active = millis();
-    s_idle_detached = false;
     s_current_transform = {};
     s_target_transform  = {};
 
@@ -54,6 +61,7 @@ void gait_init() {
         0.5f                   // deadband deg
     };
     balance_init(bcfg);
+    lifecycle_init(now_ms);
 }
 
 void gait_set_state(GaitState new_state, float new_speed) {
@@ -67,10 +75,6 @@ void gait_set_state(GaitState new_state, float new_speed) {
     if (new_state != GaitState::STOP && new_state != GaitState::STAND) {
         s_last_active = millis();
         s_stand_ramp_start = 0;  // clear taper when resuming gait
-        if (s_idle_detached) {
-            servos_init();
-            s_idle_detached = false;
-        }
     } else if (new_state == GaitState::STAND) {
         s_last_active = millis();
     }
@@ -112,14 +116,6 @@ GaitState gait_current_state() {
 }
 
 void gait_update(unsigned long now_ms) {
-    // Idle timeout
-    if (!s_idle_detached && servos_active()
-        && s_state == GaitState::STOP
-        && (now_ms - s_last_active > SERVO_IDLE_TIMEOUT_MS)) {
-        servos_detach_all();
-        s_idle_detached = true;
-        return;
-    }
     if (!servos_active()) return;
 
     float dt = (now_ms - s_last_update) / 1000.0f;
@@ -197,4 +193,199 @@ void gait_update(unsigned long now_ms) {
         }
         // If unreachable: hold last written value (servo_write_us not called)
     }
+}
+
+// ============================================================
+// Lifecycle state machine
+// ============================================================
+
+void lifecycle_init(unsigned long now_ms) {
+    s_lifecycle = LifecycleState::BOOTING;
+    s_lifecycle_idle_start = 0;
+    s_lifecycle_ramp_start = 0;
+    s_lifecycle_ramp_ms = 0;
+    s_lifecycle_ramp_steps = 0;
+}
+
+void lifecycle_update(unsigned long now_ms) {
+    switch (s_lifecycle) {
+        case LifecycleState::BOOTING:
+            // Nothing to do — main.cpp drives the BOOTING→WAKING transition by calling
+            // servos_attach_at + servos_ramp_to (blocking) then setting lifecycle to IDLE
+            break;
+
+        case LifecycleState::WAKING: {
+            unsigned long elapsed = now_ms - s_lifecycle_ramp_start;
+            if (elapsed >= s_lifecycle_ramp_ms) {
+                // Ramp complete — write final positions
+                for (int i = 0; i < 8; i++) {
+                    servo_write_us(i, s_lifecycle_ramp_target[i]);
+                }
+                s_lifecycle = LifecycleState::ACTIVE;
+            } else {
+                // Interpolate
+                float t = (float)elapsed / (float)s_lifecycle_ramp_ms;
+                for (int i = 0; i < 8; i++) {
+                    int16_t s = (int16_t)s_lifecycle_ramp_from[i];
+                    int16_t e = (int16_t)s_lifecycle_ramp_target[i];
+                    uint16_t pos = (uint16_t)(s + (int16_t)((float)(e - s) * t));
+                    servo_write_us(i, pos);
+                }
+            }
+            break;
+        }
+
+        case LifecycleState::IDLE: {
+            unsigned long elapsed = now_ms - s_lifecycle_idle_start;
+            if (elapsed >= IDLE_TIMEOUT_MS) {
+                // Begin sleep ramp
+                for (int i = 0; i < 8; i++) {
+                    s_lifecycle_ramp_from[i] = servo_read_us(i);
+                    if (s_lifecycle_ramp_from[i] == 0) s_lifecycle_ramp_from[i] = STANDING_POSE[i];
+                    s_lifecycle_ramp_target[i] = REST_POSE[i];
+                }
+                s_lifecycle_ramp_start = now_ms;
+                s_lifecycle_ramp_ms = SHUTDOWN_RAMP_MS;
+                s_lifecycle_ramp_steps = SHUTDOWN_RAMP_STEPS;
+                s_lifecycle = LifecycleState::SLEEPING;
+            }
+            break;
+        }
+
+        case LifecycleState::ACTIVE:
+            // Nothing to tick — commands drive transitions
+            break;
+
+        case LifecycleState::SLEEPING: {
+            unsigned long elapsed = now_ms - s_lifecycle_ramp_start;
+            unsigned long total = (unsigned long)s_lifecycle_ramp_ms + REST_SETTLE_MS;
+            if (elapsed >= total) {
+                // Ramp + settle complete, detach
+                servos_detach_all();
+                s_lifecycle = LifecycleState::RESTING;
+            } else if (elapsed < s_lifecycle_ramp_ms) {
+                // Still ramping
+                float t = (float)elapsed / (float)s_lifecycle_ramp_ms;
+                for (int i = 0; i < 8; i++) {
+                    int16_t s = (int16_t)s_lifecycle_ramp_from[i];
+                    int16_t e = (int16_t)s_lifecycle_ramp_target[i];
+                    uint16_t pos = (uint16_t)(s + (int16_t)((float)(e - s) * t));
+                    servo_write_us(i, pos);
+                }
+            }
+            // else: in settle period, do nothing (servos hold last position)
+            break;
+        }
+
+        case LifecycleState::RESTING:
+            // Nothing to tick — waiting for cmd_wake
+            break;
+    }
+}
+
+void lifecycle_cmd_wake(unsigned long now_ms) {
+    switch (s_lifecycle) {
+        case LifecycleState::IDLE:
+            // Already standing, just go active
+            s_lifecycle_idle_start = 0;
+            s_lifecycle = LifecycleState::ACTIVE;
+            break;
+
+        case LifecycleState::RESTING:
+            // Re-attach servos at rest pose, start ramp to standing
+            servos_attach_at(REST_POSE);
+            for (int i = 0; i < 8; i++) {
+                s_lifecycle_ramp_from[i] = REST_POSE[i];
+                s_lifecycle_ramp_target[i] = STANDING_POSE[i];
+            }
+            s_lifecycle_ramp_start = now_ms;
+            s_lifecycle_ramp_ms = SOFTSTART_DURATION_MS;
+            s_lifecycle = LifecycleState::WAKING;
+            break;
+
+        case LifecycleState::SLEEPING: {
+            // Mid-ramp going down — reverse toward standing
+            // Capture current interpolated positions
+            for (int i = 0; i < 8; i++) {
+                uint16_t cur = servo_read_us(i);
+                s_lifecycle_ramp_from[i] = (cur > 0) ? cur : s_lifecycle_ramp_target[i];
+                s_lifecycle_ramp_target[i] = STANDING_POSE[i];
+            }
+            s_lifecycle_ramp_start = now_ms;
+            s_lifecycle_ramp_ms = SOFTSTART_DURATION_MS;
+            s_lifecycle = LifecycleState::WAKING;
+            break;
+        }
+
+        case LifecycleState::ACTIVE:
+        case LifecycleState::WAKING:
+        case LifecycleState::BOOTING:
+            // Already awake or in progress — ignore
+            break;
+    }
+}
+
+void lifecycle_cmd_sleep(unsigned long now_ms) {
+    switch (s_lifecycle) {
+        case LifecycleState::ACTIVE:
+            // Enter IDLE first (grace period before full sleep)
+            s_lifecycle_idle_start = now_ms;
+            s_lifecycle = LifecycleState::IDLE;
+            break;
+
+        case LifecycleState::WAKING: {
+            // Mid-ramp going up — reverse toward rest
+            for (int i = 0; i < 8; i++) {
+                uint16_t cur = servo_read_us(i);
+                s_lifecycle_ramp_from[i] = (cur > 0) ? cur : s_lifecycle_ramp_target[i];
+                s_lifecycle_ramp_target[i] = REST_POSE[i];
+            }
+            s_lifecycle_ramp_start = now_ms;
+            s_lifecycle_ramp_ms = SHUTDOWN_RAMP_MS;
+            s_lifecycle = LifecycleState::SLEEPING;
+            break;
+        }
+
+        case LifecycleState::IDLE:
+        case LifecycleState::SLEEPING:
+        case LifecycleState::RESTING:
+        case LifecycleState::BOOTING:
+            // Already sleeping or going to sleep — ignore
+            break;
+    }
+}
+
+void lifecycle_heartbeat_lost(unsigned long now_ms) {
+    // Safety fallback — force SLEEPING regardless of state
+    if (s_lifecycle == LifecycleState::SLEEPING ||
+        s_lifecycle == LifecycleState::RESTING) return;
+
+    for (int i = 0; i < 8; i++) {
+        uint16_t cur = servo_read_us(i);
+        s_lifecycle_ramp_from[i] = (cur > 0) ? cur : STANDING_POSE[i];
+        s_lifecycle_ramp_target[i] = REST_POSE[i];
+    }
+    s_lifecycle_ramp_start = now_ms;
+    s_lifecycle_ramp_ms = SHUTDOWN_RAMP_MS;
+    s_lifecycle = LifecycleState::SLEEPING;
+}
+
+LifecycleState lifecycle_current() {
+    return s_lifecycle;
+}
+
+const char* lifecycle_state_name() {
+    switch (s_lifecycle) {
+        case LifecycleState::BOOTING:  return "booting";
+        case LifecycleState::WAKING:   return "waking";
+        case LifecycleState::IDLE:     return "idle";
+        case LifecycleState::ACTIVE:   return "active";
+        case LifecycleState::SLEEPING: return "sleeping";
+        case LifecycleState::RESTING:  return "resting";
+        default:                       return "unknown";
+    }
+}
+
+bool lifecycle_can_command() {
+    return s_lifecycle == LifecycleState::ACTIVE;
 }
