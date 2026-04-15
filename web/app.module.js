@@ -31,7 +31,7 @@ function updateMotionIndicator(motion) {
 
 function showFallAlert(fallen) {
     var el = document.getElementById("fall-alert");
-    if (fallen) el.classList.remove("hidden"); else el.classList.add("hidden");
+    if (fallen) { el.textContent = "FALL DETECTED"; el.classList.remove("hidden"); } else el.classList.add("hidden");
 }
 
 function updateUltrasonic(mm) {
