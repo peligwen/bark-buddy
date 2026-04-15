@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Servo Tuning — Bark-Buddy</title>
+<style>
+  :root {
+    --bg: #111318;
+    --bg-panel: #181b22;
+    --bg-card: #1e222b;
+    --text: #e0e0e0;
+    --text-muted: #6b7280;
+    --text-dim: #4b5160;
+    --accent: #d4880e;
+    --accent-dark: #b8720a;
+    --border: #2a2f3a;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 14px;
+    padding: 24px;
+    max-width: 720px;
+    margin: 0 auto;
+  }
+  h1 {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--accent);
+    margin-bottom: 4px;
+  }
+  .subtitle { font-size: 0.75rem; color: var(--text-muted); margin-bottom: 20px; }
+  code { font-family: "SF Mono", "Fira Code", monospace; }
+
+  /* Status bar */
+  .status-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 14px;
+    margin-bottom: 20px;
+  }
+  .dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--text-dim);
+    flex-shrink: 0;
+  }
+  .dot.connected { background: #4ade80; }
+  .dot.test-mode { background: var(--accent); }
+  #status-text { font-size: 0.75rem; color: var(--text-muted); flex: 1; }
+  .test-btn {
+    font-size: 0.75rem;
+    padding: 5px 12px;
+    border-radius: 5px;
+    border: 1px solid var(--border);
+    background: var(--bg-card);
+    color: var(--text);
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .test-btn:hover { background: var(--border); }
+  .test-btn.active { background: var(--accent); color: #fff; border-color: var(--accent-dark); }
+
+  /* Presets */
+  .presets {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .preset-btn {
+    font-size: 0.75rem;
+    padding: 6px 14px;
+    border-radius: 5px;
+    border: 1px solid var(--border);
+    background: var(--bg-card);
+    color: var(--text);
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .preset-btn:hover { background: var(--border); }
+  .copy-btn {
+    margin-left: auto;
+    background: var(--bg-panel);
+    border-color: var(--accent-dark);
+    color: var(--accent);
+  }
+  .copy-btn:hover { background: var(--accent); color: #fff; }
+  #copy-feedback {
+    font-size: 0.7rem;
+    color: #4ade80;
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+  #copy-feedback.show { opacity: 1; }
+
+  /* Servo grid */
+  .servo-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .servo-row {
+    display: grid;
+    grid-template-columns: 100px 1fr 70px;
+    align-items: center;
+    gap: 12px;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 14px;
+  }
+  .servo-label { display: flex; flex-direction: column; gap: 2px; }
+  .servo-name {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text);
+    font-family: "SF Mono", "Fira Code", monospace;
+  }
+  .servo-idx {
+    font-size: 0.7rem;
+    color: var(--text-dim);
+    font-family: "SF Mono", "Fira Code", monospace;
+  }
+  input[type=range] {
+    width: 100%;
+    accent-color: var(--accent);
+    cursor: pointer;
+  }
+  input[type=number] {
+    width: 100%;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    color: var(--text);
+    font-family: "SF Mono", "Fira Code", monospace;
+    font-size: 0.8rem;
+    padding: 4px 6px;
+    text-align: right;
+  }
+  input[type=number]:focus {
+    outline: 1px solid var(--accent);
+    border-color: var(--accent);
+  }
+  input[type=number]::-webkit-inner-spin-button,
+  input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+  input[type=number] { -moz-appearance: textfield; }
+</style>
+</head>
+<body>
+
+<h1>Servo Tuning</h1>
+<p class="subtitle">Send <code>cmd_servo</code> to individual servos. Enable test mode first — it activates frail protection (±200us from standing, slew rate limiting).</p>
+
+<div class="status-bar">
+  <div class="dot" id="ws-dot"></div>
+  <span id="status-text">Connecting…</span>
+  <button class="test-btn" id="test-btn" onclick="toggleTestMode()">Enable Test Mode</button>
+</div>
+
+<div class="presets">
+  <button class="preset-btn" onclick="loadPreset(STANDING_POSE)">Standing</button>
+  <button class="preset-btn" onclick="loadPreset(REST_POSE)">Rest</button>
+  <button class="preset-btn" onclick="loadPreset(CENTER_POSE)">Center</button>
+  <button class="preset-btn copy-btn" onclick="copyValues()">Copy C Array</button>
+  <span id="copy-feedback">Copied!</span>
+</div>
+
+<div class="servo-grid" id="servo-grid"></div>
+
+<script>
+  // ── Servo config (mirrors config.h) ──────────────────────────
+  const SERVO_NAMES   = ['FL_hip','FL_knee','FR_hip','FR_knee','RL_hip','RL_knee','RR_hip','RR_knee'];
+  const STANDING_POSE = [2096, 1621, 2170, 1611,  904, 1379,  830, 1389];
+  const REST_POSE     = [1800, 1500, 1870, 1500, 1202, 1500, 1165, 1500];
+  const CENTER_POSE   = [1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500];
+  const SERVO_MIN = 500;
+  const SERVO_MAX = 2500;
+
+  // ── State ─────────────────────────────────────────────────────
+  let ws = null;
+  let testMode = false;
+  const values = [...STANDING_POSE];
+
+  // ── WebSocket ─────────────────────────────────────────────────
+  function connect() {
+    ws = new WebSocket('ws://' + location.host + '/ws');
+    ws.onopen  = () => setStatus('connected', 'Connected');
+    ws.onclose = () => { setStatus('off', 'Disconnected — retrying…'); setTimeout(connect, 2000); };
+    ws.onerror = () => setStatus('off', 'Connection error');
+    ws.onmessage = () => {};
+  }
+
+  function send(msg) {
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
+  }
+
+  function setStatus(state, text) {
+    const dot = document.getElementById('ws-dot');
+    dot.className = 'dot';
+    if (state === 'connected') dot.classList.add(testMode ? 'test-mode' : 'connected');
+    document.getElementById('status-text').textContent = text;
+  }
+
+  // ── Test mode ─────────────────────────────────────────────────
+  function toggleTestMode() {
+    testMode = !testMode;
+    send({ type: 'cmd_test_mode', enabled: testMode });
+    const btn = document.getElementById('test-btn');
+    btn.textContent = testMode ? 'Disable Test Mode' : 'Enable Test Mode';
+    btn.classList.toggle('active', testMode);
+    const dot = document.getElementById('ws-dot');
+    dot.className = 'dot';
+    if (ws && ws.readyState === WebSocket.OPEN) dot.classList.add(testMode ? 'test-mode' : 'connected');
+    document.getElementById('status-text').textContent =
+      testMode ? 'Test mode active — frail protection on' : 'Connected';
+  }
+
+  // ── Send single servo ─────────────────────────────────────────
+  function sendServo(index, value) {
+    values[index] = value;
+    send({ type: 'cmd_servo', index, pulse_us: value });
+  }
+
+  // ── Build slider grid ─────────────────────────────────────────
+  function buildGrid() {
+    const grid = document.getElementById('servo-grid');
+    SERVO_NAMES.forEach((name, i) => {
+      const row = document.createElement('div');
+      row.className = 'servo-row';
+
+      const label = document.createElement('div');
+      label.className = 'servo-label';
+      const nameEl = document.createElement('span');
+      nameEl.className = 'servo-name';
+      nameEl.textContent = name;
+      const idxEl = document.createElement('span');
+      idxEl.className = 'servo-idx';
+      idxEl.textContent = 'idx ' + i;
+      label.appendChild(nameEl);
+      label.appendChild(idxEl);
+
+      const slider = document.createElement('input');
+      slider.type = 'range';
+      slider.min = SERVO_MIN;
+      slider.max = SERVO_MAX;
+      slider.step = 1;
+      slider.value = values[i];
+      slider.id = 'slider-' + i;
+
+      const numInput = document.createElement('input');
+      numInput.type = 'number';
+      numInput.min = SERVO_MIN;
+      numInput.max = SERVO_MAX;
+      numInput.value = values[i];
+      numInput.id = 'num-' + i;
+
+      slider.oninput = () => {
+        const v = parseInt(slider.value, 10);
+        numInput.value = v;
+        sendServo(i, v);
+      };
+
+      numInput.onchange = () => {
+        let v = parseInt(numInput.value, 10);
+        if (isNaN(v)) v = values[i];
+        v = Math.max(SERVO_MIN, Math.min(SERVO_MAX, v));
+        numInput.value = v;
+        slider.value = v;
+        sendServo(i, v);
+      };
+
+      row.appendChild(label);
+      row.appendChild(slider);
+      row.appendChild(numInput);
+      grid.appendChild(row);
+    });
+  }
+
+  // ── Presets ───────────────────────────────────────────────────
+  function loadPreset(pose) {
+    pose.forEach((v, i) => {
+      values[i] = v;
+      const s = document.getElementById('slider-' + i);
+      const n = document.getElementById('num-' + i);
+      if (s) s.value = v;
+      if (n) n.value = v;
+      send({ type: 'cmd_servo', index: i, pulse_us: v });
+    });
+  }
+
+  // ── Copy C array ──────────────────────────────────────────────
+  function copyValues() {
+    const arr = values.map(v => String(v).padStart(4)).join(', ');
+    const comment = '// Order: ' + SERVO_NAMES.join(', ');
+    const text = 'static const uint16_t MY_POSE[8] = {\n    ' + arr + '\n};\n' + comment;
+    navigator.clipboard.writeText(text).then(() => {
+      const fb = document.getElementById('copy-feedback');
+      fb.classList.add('show');
+      setTimeout(() => fb.classList.remove('show'), 1500);
+    });
+  }
+
+  // ── Init ──────────────────────────────────────────────────────
+  buildGrid();
+  connect();
+</script>
+</body>
+</html>
