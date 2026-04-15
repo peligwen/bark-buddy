@@ -130,10 +130,11 @@ void send_ack(const char* ref_type, bool ok, const char* error) {
 
 String get_tcp_client_ip() {
 #if WIFI_ENABLED
-    return tcp_client.remoteIP().toString();
-#else
-    return String("");
+    if (tcp_client && tcp_client.connected()) {
+        return tcp_client.remoteIP().toString();
+    }
 #endif
+    return String();
 }
 
 // --- Setup ---
