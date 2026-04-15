@@ -1,4 +1,4 @@
-// Sim noise panel, battery graph, transport switcher
+// Battery graph, sim noise panel, OTA panel
 import { send } from './ws.js';
 
 // --- Battery Graph ---
@@ -100,109 +100,6 @@ export function syncNoiseSliders(params) {
             var valEl = document.getElementById(noiseValueIds[key]);
             if (valEl) valEl.textContent = Math.round(params[key] * 10) / 10;
         }
-    }
-}
-
-// --- Transport Switcher ---
-export function setupTransport() {
-    var badge = document.getElementById("transport-badge");
-    var menu = document.getElementById("transport-menu");
-    var modal = document.getElementById("wifi-modal");
-    var passInput = document.getElementById("wifi-pass");
-
-    badge.addEventListener("click", function (e) {
-        e.stopPropagation();
-        menu.classList.toggle("hidden");
-    });
-    document.addEventListener("click", function () { menu.classList.add("hidden"); });
-
-    menu.addEventListener("click", function (e) {
-        var btn = e.target.closest("[data-transport]");
-        if (!btn) return;
-        var mode = btn.dataset.transport;
-        menu.classList.add("hidden");
-
-        if (mode === "wifi" || mode === "wifi-fw") {
-            var host = prompt("MechDog WiFi IP:", "192.168.1.163");
-            if (!host) return;
-            send({ type: "cmd_transport", mode: mode, wifi_host: host });
-        } else if (mode === "wifi-setup") {
-            showWifiModal();
-            return;
-        } else {
-            send({ type: "cmd_transport", mode: mode });
-        }
-        badge.textContent = "..."; badge.className = "transport-badge switching";
-    });
-
-    // One-time modal listeners — registered here, not inside showWifiModal
-    document.getElementById("wifi-modal-cancel").addEventListener("click", function () {
-        modal.classList.add("hidden");
-    });
-    passInput.addEventListener("keydown", function (e) {
-        if (e.key === "Enter") document.getElementById("wifi-modal-connect").click();
-    });
-    modal.addEventListener("click", function (e) {
-        if (e.target === modal) modal.classList.add("hidden");
-    });
-}
-
-export function updateTransportUI(msg) {
-    var badge = document.getElementById("transport-badge");
-    if (msg.ok) {
-        document.getElementById("wifi-banner").classList.add("hidden");
-    } else {
-        badge.textContent = msg.error || "Failed";
-        badge.className = "transport-badge sim";
-    }
-}
-
-export function showWifiBanner(ip, ssid) {
-    var banner = document.getElementById("wifi-banner");
-    document.getElementById("wifi-banner-text").textContent = "WiFi detected: " + (ssid || ip) + " (" + ip + ")";
-    banner.classList.remove("hidden");
-    document.getElementById("wifi-banner-switch").onclick = function () {
-        send({ type: "cmd_transport", mode: "wifi", wifi_host: ip });
-        banner.classList.add("hidden");
-        var badge = document.getElementById("transport-badge");
-        badge.textContent = "..."; badge.className = "transport-badge switching";
-    };
-    document.getElementById("wifi-banner-dismiss").onclick = function () { banner.classList.add("hidden"); };
-}
-
-function showWifiModal() {
-    var modal = document.getElementById("wifi-modal");
-    var ssidInput = document.getElementById("wifi-ssid");
-    var passInput = document.getElementById("wifi-pass");
-    var status = document.getElementById("wifi-modal-status");
-    ssidInput.value = "";
-    passInput.value = "";
-    status.className = "hidden";
-    status.textContent = "";
-    modal.classList.remove("hidden");
-    ssidInput.focus();
-
-    document.getElementById("wifi-modal-connect").onclick = function () {
-        var ssid = ssidInput.value.trim();
-        if (!ssid) { ssidInput.focus(); return; }
-        status.textContent = "Connecting...";
-        status.className = "pending";
-        send({ type: "cmd_wifi_setup", ssid: ssid, password: passInput.value });
-        var badge = document.getElementById("transport-badge");
-        badge.textContent = "SETUP..."; badge.className = "transport-badge switching";
-    };
-}
-
-export function handleWifiSetupResult(msg) {
-    var modal = document.getElementById("wifi-modal");
-    var status = document.getElementById("wifi-modal-status");
-    if (msg.ok) {
-        status.textContent = "Connected: " + msg.ip;
-        status.className = "success";
-        setTimeout(function () { modal.classList.add("hidden"); }, 1500);
-    } else {
-        status.textContent = msg.error || "Connection failed";
-        status.className = "error";
     }
 }
 
