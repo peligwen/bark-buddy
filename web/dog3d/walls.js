@@ -3,7 +3,6 @@ import { state, S } from './state.js';
 
 var wallMeshes = [];
 var wallTexture = null;
-var WALL_THICKNESS = 0.08 * S;
 
 function createWallTexture() {
     var size = 256;
@@ -130,43 +129,5 @@ export function buildWallsFromChains(chains) {
         var edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo), edgeMat);
         state.scene.add(edges);
         wallMeshes.push(edges);
-    }
-}
-
-// Legacy: build from line segments (fallback)
-export function buildWallsFromSegments(walls) {
-    clearWalls();
-    if (!walls || walls.length < 1) return;
-    if (!wallTexture) wallTexture = createWallTexture();
-
-    var wallMat = new THREE.MeshStandardMaterial({
-        map: wallTexture, roughness: 0.85, metalness: 0.05, side: THREE.DoubleSide,
-    });
-    var edgeMat = new THREE.LineBasicMaterial({
-        color: 0x555555, transparent: true, opacity: 0.4,
-    });
-
-    for (var i = 0; i < walls.length; i++) {
-        var w = walls[i];
-        var sx1 = w.x1 * S, sz1 = w.y1 * S;
-        var sx2 = w.x2 * S, sz2 = w.y2 * S;
-        var dx = sx2 - sx1, dz = sz2 - sz1;
-        var len = Math.sqrt(dx * dx + dz * dz);
-        if (len < 0.01) continue;
-
-        var cx = (sx1 + sx2) / 2, cz = (sz1 + sz2) / 2;
-        var angle = Math.atan2(dz, dx);
-        var height = (w.height || 0.2) * S;
-
-        var geo = new THREE.BoxGeometry(len, height, WALL_THICKNESS);
-        var mesh = new THREE.Mesh(geo, wallMat);
-        mesh.position.set(cx, height / 2, cz);
-        mesh.rotation.y = -angle;
-        mesh.castShadow = true; mesh.receiveShadow = true;
-        state.scene.add(mesh); wallMeshes.push(mesh);
-
-        var edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo), edgeMat);
-        edges.position.copy(mesh.position); edges.rotation.copy(mesh.rotation);
-        state.scene.add(edges); wallMeshes.push(edges);
     }
 }
