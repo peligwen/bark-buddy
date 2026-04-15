@@ -39,3 +39,4 @@ LifecycleState lifecycle_current();
 const char* lifecycle_state_name();
 bool lifecycle_can_command();  // true only when ACTIVE
 void lifecycle_cmd_shutdown(unsigned long now_ms);
+void lifecycle_boot_complete(unsigned long now_ms);  // called by main.cpp after blocking servo init ramp

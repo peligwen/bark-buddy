@@ -97,8 +97,11 @@ void setup() {
     sensor_task_start();
 
     offsets_init();
-    bool servos_ok = servos_init();
-    gait_init();
+    bool servos_ok = servos_attach_at(REST_POSE);
+    delay(BOOT_SETTLE_MS);
+    servos_ramp_to(STANDING_POSE, SOFTSTART_DURATION_MS, SOFTSTART_STEPS);
+    gait_init(millis());
+    lifecycle_boot_complete(millis());
     handlers_init();
 
 #if WIFI_ENABLED
@@ -167,8 +170,7 @@ void loop() {
     // Heartbeat watchdog
     if (connected && (now - last_msg_received > HEARTBEAT_TIMEOUT_MS)) {
         connected = false;
-        gait_set_state(GaitState::STOP);
-        servos_shutdown_to_lying_down();  // lie down safely before going idle
+        lifecycle_heartbeat_lost(now);
         sensor_led_set(1, LED_R_LAVENDER, LED_G_LAVENDER, LED_B_LAVENDER);
         sensor_led_set(2, LED_R_LAVENDER, LED_G_LAVENDER, LED_B_LAVENDER);
     }
@@ -232,6 +234,7 @@ void loop() {
         JsonDocument doc;
         doc["type"]        = MSG_TELEM_STATUS;
         doc["mode"]        = "idle";
+        doc["lifecycle"]   = lifecycle_state_name();
         doc["balance"]     = balance_is_enabled();
         doc["servos"]      = servos_active();
         doc["low_battery"] = low_battery;
@@ -259,7 +262,11 @@ void loop() {
 
     // Gait tick (skip during manual servo mode)
     if (!handlers_manual_servo_mode() && now - last_gait >= 1000 / GAIT_UPDATE_HZ) {
-        if (!low_battery) gait_update(now);
+        lifecycle_update(now);
+        LifecycleState lc = lifecycle_current();
+        if (!low_battery && (lc == LifecycleState::ACTIVE || lc == LifecycleState::IDLE)) {
+            gait_update(now);
+        }
         last_gait = now;
     }
 }

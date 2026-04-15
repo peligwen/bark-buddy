@@ -387,6 +387,13 @@ bool lifecycle_can_command() {
     return s_lifecycle == LifecycleState::ACTIVE;
 }
 
+void lifecycle_boot_complete(unsigned long now_ms) {
+    // Called by main.cpp after the blocking servo init ramp completes.
+    // Transitions from BOOTING to IDLE and starts the idle countdown.
+    s_lifecycle = LifecycleState::IDLE;
+    s_lifecycle_idle_start = now_ms;
+}
+
 void lifecycle_cmd_shutdown(unsigned long now_ms) {
     // Immediate transition to SLEEPING — no IDLE grace period
     if (s_lifecycle == LifecycleState::SLEEPING ||
