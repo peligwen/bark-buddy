@@ -64,16 +64,23 @@ def cmd_test(args):
         "test_offsets", "test_gait_ik", "test_servos", "test_lifecycle",
     ]
     failed = []
+    ran = 0
     for name in targets:
         binary = test_dir / name
         if binary.exists():
+            ran += 1
             r = subprocess.run([str(binary)], cwd=test_dir)
             if r.returncode != 0:
                 failed.append(name)
+        else:
+            print(f"WARNING: {name} binary not found, skipping")
     if failed:
         print(f"\n{len(failed)} test(s) FAILED: {', '.join(failed)}")
         sys.exit(1)
-    print(f"\nAll {len(targets)} test(s) passed.")
+    if ran < len(targets):
+        print(f"\nWARNING: only {ran}/{len(targets)} test(s) ran (some binaries missing)")
+        sys.exit(1)
+    print(f"\nAll {ran} test(s) passed.")
 
 
 def cmd_wifi_setup(args):
