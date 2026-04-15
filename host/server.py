@@ -75,6 +75,15 @@ def _firmware_binary_path() -> str:
     ))
 
 
+def _compute_sha256(path: str) -> str:
+    """Return lowercase hex SHA-256 digest of the file at path."""
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
 def find_serial_port() -> str | None:
     """Auto-detect a USB serial port for MechDog."""
     import glob
@@ -765,13 +774,19 @@ class Server:
         current = getattr(transport, 'get_fw_version', lambda: '')()
         available = self._available_fw_version
         is_wifi = 'fw:' in self._transport_label and '/dev/' not in self._transport_label
+        binary_path = _firmware_binary_path()
+        binary_exists = os.path.exists(binary_path)
+        sha256_hex = None
+        if binary_exists:
+            sha256_hex = _compute_sha256(binary_path)
         return web.json_response({
             "current_version": current,
             "available_version": available,
             "update_available": bool(current and available and current != available),
             "transport": self._transport_label,
             "can_ota": is_wifi,
-            "binary_ready": os.path.exists(_firmware_binary_path()),
+            "binary_ready": binary_exists,
+            "sha256": sha256_hex,
         })
 
     async def _do_firmware_build(self) -> dict:
@@ -829,18 +844,25 @@ class Server:
         host_ip = host_parts[0]
         host_port = host_parts[1] if len(host_parts) > 1 else "8080"
         binary_url = f"http://{host_ip}:{host_port}/api/firmware/binary"
-        # 3. Send OTA command
+        # 3. Compute SHA-256 of the freshly built binary
+        sha256_hex = _compute_sha256(_firmware_binary_path())
+        # 4. Send OTA command
         transport = getattr(self._dog, '_transport', None)
         if not transport or not hasattr(transport, 'send_json'):
             return web.json_response({"ok": False, "error": "No firmware transport"}, status=400)
         try:
-            await transport.send_json({"type": "cmd_ota_update", "url": binary_url})
+            await transport.send_json({
+                "type": "cmd_ota_update",
+                "url": binary_url,
+                "sha256": sha256_hex,
+            })
         except Exception as e:
             return web.json_response({"ok": False, "error": f"Failed to send OTA command: {e}"}, status=500)
         return web.json_response({
             "ok": True,
             "binary_url": binary_url,
             "new_version": self._available_fw_version,
+            "sha256": sha256_hex,
         })
 
     async def _broadcast_status(self, battery_mv=None):

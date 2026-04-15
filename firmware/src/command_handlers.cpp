@@ -15,6 +15,7 @@
 #if WIFI_ENABLED
 #include <HTTPClient.h>
 #include <Update.h>
+#include <mbedtls/sha256.h>
 #endif
 
 // --- Handler-owned state ---
@@ -243,7 +244,8 @@ static void handle_cmd_ota_update(const JsonDocument& doc) {
     send_ack(MSG_CMD_OTA_UPDATE, false, "wifi_disabled");
     return;
 #else
-    const char* url = doc["url"] | "";
+    const char* url      = doc["url"]    | "";
+    const char* expected_sha256 = doc["sha256"] | "";
     if (!url || url[0] == '\0') {
         send_ack(MSG_CMD_OTA_UPDATE, false, "missing_url");
         return;
@@ -303,8 +305,60 @@ static void handle_cmd_ota_update(const JsonDocument& doc) {
 
     send_status("flashing");
 
-    Update.writeStream(*stream);
+    // Chunk loop: feed Update and SHA-256 simultaneously
+    uint8_t buf[4096];
+    mbedtls_sha256_context sha_ctx;
+    mbedtls_sha256_init(&sha_ctx);
+    mbedtls_sha256_starts_ret(&sha_ctx, 0);  // 0 = SHA-256 (not SHA-224)
+
+    bool write_error = false;
+    while (http.connected()) {
+        int avail = stream->available();
+        if (avail <= 0) {
+            // No data yet — yield briefly and retry
+            delay(1);
+            continue;
+        }
+        int n = stream->readBytes(buf, sizeof(buf));
+        if (n <= 0) {
+            delay(1);
+            continue;
+        }
+        size_t written = Update.write(buf, n);
+        if (written != (size_t)n) {
+            write_error = true;
+            break;
+        }
+        mbedtls_sha256_update_ret(&sha_ctx, buf, n);
+    }
+
+    uint8_t hash[32];
+    mbedtls_sha256_finish_ret(&sha_ctx, hash);
+    mbedtls_sha256_free(&sha_ctx);
+
     http.end();
+
+    if (write_error) {
+        Update.abort();
+        send_status("failed", "flash_error");
+        ota_cleanup();
+        return;
+    }
+
+    // Optional SHA-256 verification — skip if field was absent
+    if (expected_sha256 && expected_sha256[0] != '\0') {
+        char actual_hex[65];
+        for (int i = 0; i < 32; i++) {
+            snprintf(actual_hex + i * 2, 3, "%02x", hash[i]);
+        }
+        actual_hex[64] = '\0';
+        if (strncmp(actual_hex, expected_sha256, 64) != 0) {
+            Update.abort();
+            send_status("failed", "hash_mismatch");
+            ota_cleanup();
+            return;
+        }
+    }
 
     if (Update.end() && Update.isFinished()) {
         send_status("complete");
