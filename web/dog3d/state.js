@@ -27,7 +27,6 @@ export const state = {
     renderer: null,
     dogGroup: null,
     container: null,
-    animationId: null,
     legs: {},
 
     // Camera
@@ -44,10 +43,8 @@ export const state = {
     targetX: 0, targetZ: 0, targetYaw: 0,
     currentX: 0, currentZ: 0, currentYaw: 0,
     currentMotion: "stop",
-    currentAction: null,
     ultraDistance: null,
     walkPhase: 0,
-    isFallen: false,
 
     // Gait
     bodyBounce: 0,
