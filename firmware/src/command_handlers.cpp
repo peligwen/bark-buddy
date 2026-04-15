@@ -71,6 +71,10 @@ static void handle_cmd_stand(const JsonDocument&) {
 }
 
 static void handle_cmd_balance(const JsonDocument& doc) {
+    if (!lifecycle_can_command()) {
+        send_ack(MSG_CMD_BALANCE, false, "not_active");
+        return;
+    }
     s_balance_enabled = doc["enabled"] | true;
     balance_enable(s_balance_enabled);
     if (!s_balance_enabled) balance_reset();
