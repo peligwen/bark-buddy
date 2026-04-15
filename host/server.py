@@ -120,6 +120,7 @@ class Server:
         self._lock_timeout: float = 30.0  # seconds of inactivity before auto-release
         self._client_names: dict[web.WebSocketResponse, str] = {}
         self._available_fw_version = _read_available_fw_version()
+        self._binary_sha256: str | None = None
         self._device_monitor: "DeviceMonitor | None" = None
         self._user_override_transport: bool = False  # True when user manually selected transport
         self._switch_lock = asyncio.Lock()
@@ -776,9 +777,7 @@ class Server:
         is_wifi = 'fw:' in self._transport_label and '/dev/' not in self._transport_label
         binary_path = _firmware_binary_path()
         binary_exists = os.path.exists(binary_path)
-        sha256_hex = None
-        if binary_exists:
-            sha256_hex = _compute_sha256(binary_path)
+        sha256_hex = self._binary_sha256 if binary_exists else None
         return web.json_response({
             "current_version": current,
             "available_version": available,
@@ -811,10 +810,14 @@ class Server:
                 return {"ok": False, "error": "Build timed out after 180s", "output": ""}
         except FileNotFoundError:
             return {"ok": False, "error": "pio not found in PATH", "output": ""}
+        binary_path = _firmware_binary_path()
+        binary_ready = ok and os.path.exists(binary_path)
+        if binary_ready:
+            self._binary_sha256 = _compute_sha256(binary_path)
         return {
             "ok": ok,
             "output": output[-3000:],
-            "binary_ready": ok and os.path.exists(_firmware_binary_path()),
+            "binary_ready": binary_ready,
         }
 
     async def _handle_firmware_build(self, request: web.Request) -> web.Response:
@@ -846,6 +849,7 @@ class Server:
         binary_url = f"http://{host_ip}:{host_port}/api/firmware/binary"
         # 3. Compute SHA-256 of the freshly built binary
         sha256_hex = _compute_sha256(_firmware_binary_path())
+        self._binary_sha256 = sha256_hex
         # 4. Send OTA command
         transport = getattr(self._dog, '_transport', None)
         if not transport or not hasattr(transport, 'send_json'):

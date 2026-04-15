@@ -268,7 +268,7 @@ static void handle_cmd_ota_update(const JsonDocument& doc) {
     // by this handler. Detached is the same end-state as end-of-ramp anyway.
     servos_detach_all();
 
-    auto ota_cleanup = [&]() {
+    auto ota_cleanup = []() {
         s_ota_led_active = false;
         sensor_led_set(1, 0, LED_BRIGHTNESS, 0);
         sensor_led_set(2, 0, LED_BRIGHTNESS, 0);
@@ -312,10 +312,17 @@ static void handle_cmd_ota_update(const JsonDocument& doc) {
     mbedtls_sha256_starts_ret(&sha_ctx, 0);  // 0 = SHA-256 (not SHA-224)
 
     bool write_error = false;
+    bool timeout_error = false;
+    size_t total_received = 0;
+    unsigned long last_data = millis();
     while (http.connected()) {
         int avail = stream->available();
         if (avail <= 0) {
-            // No data yet — yield briefly and retry
+            // No data yet — check idle timeout then yield briefly and retry
+            if (millis() - last_data > 10000UL) {
+                timeout_error = true;
+                break;
+            }
             delay(1);
             continue;
         }
@@ -324,6 +331,8 @@ static void handle_cmd_ota_update(const JsonDocument& doc) {
             delay(1);
             continue;
         }
+        last_data = millis();
+        total_received += n;
         size_t written = Update.write(buf, n);
         if (written != (size_t)n) {
             write_error = true;
@@ -333,7 +342,7 @@ static void handle_cmd_ota_update(const JsonDocument& doc) {
     }
 
     uint8_t hash[32];
-    mbedtls_sha256_finish_ret(&sha_ctx, hash);
+    int mret = mbedtls_sha256_finish_ret(&sha_ctx, hash);
     mbedtls_sha256_free(&sha_ctx);
 
     http.end();
@@ -341,6 +350,27 @@ static void handle_cmd_ota_update(const JsonDocument& doc) {
     if (write_error) {
         Update.abort();
         send_status("failed", "flash_error");
+        ota_cleanup();
+        return;
+    }
+
+    if (timeout_error) {
+        Update.abort();
+        send_status("failed", "download_timeout");
+        ota_cleanup();
+        return;
+    }
+
+    if (len > 0 && total_received != (size_t)len) {
+        Update.abort();
+        send_status("failed", "incomplete_download");
+        ota_cleanup();
+        return;
+    }
+
+    if (mret != 0) {
+        Update.abort();
+        send_status("failed", "hash_compute_error");
         ota_cleanup();
         return;
     }
