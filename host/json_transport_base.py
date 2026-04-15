@@ -131,6 +131,10 @@ class JsonStreamTransport(DeadReckoningMixin, Transport):
         """Current firmware lifecycle state from telemetry cache."""
         return self._lifecycle
 
+    def get_fw_version(self) -> str:
+        """Current firmware version string, or '' if unknown."""
+        return self._firmware_info.get("fw_version", "")
+
     async def send_json(self, msg: dict) -> None:
         """Send a raw JSON message to firmware. For tools that speak JSON directly."""
         if not self._open:

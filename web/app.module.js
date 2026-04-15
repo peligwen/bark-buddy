@@ -80,6 +80,22 @@ function updateStatus(msg) {
     }
     if (msg.wifi_available && msg.wifi_ip) showWifiBanner(msg.wifi_ip, msg.wifi_ssid);
     if (msg.noise_params) syncNoiseSliders(msg.noise_params);
+    // Update firmware version badge
+    var fwBadge = document.getElementById('fw-badge');
+    if (fwBadge && msg.fw_version != null) {
+        fwBadge.textContent = 'FW ' + (msg.fw_version || '--');
+        if (msg.fw_version && msg.available_fw_version &&
+            msg.fw_version !== msg.available_fw_version) {
+            fwBadge.className = 'fw-badge outdated';
+            fwBadge.title = 'Update available: ' + msg.available_fw_version;
+        } else if (msg.fw_version) {
+            fwBadge.className = 'fw-badge current';
+            fwBadge.title = 'Firmware up to date (' + msg.fw_version + ')';
+        } else {
+            fwBadge.className = 'fw-badge unknown';
+            fwBadge.title = 'Firmware version unknown';
+        }
+    }
     if (msg.scan_progress != null) {
         document.getElementById("scan-progress-fill").style.width = msg.scan_progress + "%";
         document.getElementById("scan-progress-text").textContent = msg.scan_progress + "%";

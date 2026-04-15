@@ -117,6 +117,31 @@ header h1 {
 .transport-badge.live { background: var(--green-muted); color: var(--green); }
 .transport-badge.switching { background: var(--accent-dark); color: #fff; }
 
+.fw-badge {
+    font-size: 0.6rem;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 4px;
+    cursor: default;
+    user-select: none;
+    margin-right: 6px;
+    transition: background 0.3s, color 0.3s;
+}
+.fw-badge.unknown  { background: #333; color: #888; }
+.fw-badge.current  { background: #0e2a0e; color: #66bb6a; }
+.fw-badge.outdated { background: #2a1e0a; color: #ffa726; }
+.fw-badge.outdated::before {
+    content: "";
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #ffa726;
+    margin-right: 4px;
+    animation: pulse-updating 1.5s infinite;
+}
+@keyframes pulse-updating { from { opacity: 1; } to { opacity: 0.3; } }
+
 .transport-menu {
     position: absolute;
     top: calc(100% + 6px);

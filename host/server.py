@@ -31,6 +31,18 @@ ULTRASONIC_POLL_HZ = 2
 BATTERY_POLL_HZ = 0.2
 
 
+def _read_available_fw_version() -> str:
+    """Parse FW_VERSION from firmware/include/config.h source."""
+    import re
+    config_path = os.path.join(os.path.dirname(__file__), "..", "firmware", "include", "config.h")
+    try:
+        with open(config_path) as f:
+            m = re.search(r'#define\s+FW_VERSION\s+"([^"]+)"', f.read())
+            return m.group(1) if m else ""
+    except FileNotFoundError:
+        return ""
+
+
 def find_serial_port() -> str | None:
     """Auto-detect a USB serial port for MechDog."""
     import glob
@@ -406,6 +418,9 @@ class Server:
             "transport": self._transport_label,
             "lifecycle": lifecycle,
         }
+        fw_version_ws = getattr(transport, 'get_fw_version', lambda: '')()
+        status["fw_version"] = fw_version_ws
+        status["available_fw_version"] = _read_available_fw_version()
         wifi_info = getattr(self, '_detected_wifi', None)
         if wifi_info and wifi_info.get("connected"):
             status["wifi_available"] = True
@@ -675,6 +690,9 @@ class Server:
         }
         if self._scan.running:
             status["scan_progress"] = self._scan.progress
+        fw_version = getattr(transport, 'get_fw_version', lambda: '')()
+        status["fw_version"] = fw_version
+        status["available_fw_version"] = _read_available_fw_version()
         await self._broadcast(status)
 
     async def _broadcast(self, msg: dict):

@@ -124,6 +124,8 @@ void setup() {
     doc["sonar"]         = snap.sonar_ok;
     doc["servos"]        = servos_ok;
     doc["pins_verified"] = (bool)PINS_VERIFIED;
+    doc["fw_version"]   = FW_VERSION;
+    doc["fw_build"]     = FW_BUILD_TIMESTAMP;
     send_json(doc);
 }
 

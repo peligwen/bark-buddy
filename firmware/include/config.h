@@ -1,4 +1,11 @@
 #pragma once
+
+#define FW_VERSION_MAJOR 1
+#define FW_VERSION_MINOR 0
+#define FW_VERSION_PATCH 0
+#define FW_VERSION "1.0.0"
+#define FW_BUILD_TIMESTAMP (__DATE__ " " __TIME__)
+
 #include <stdint.h>
 
 // ============================================================
