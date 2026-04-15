@@ -31,6 +31,19 @@ IMU_POLL_HZ = 2
 ULTRASONIC_POLL_HZ = 2
 BATTERY_POLL_HZ = 0.2
 
+# Transport priority — higher number = higher priority for auto-switching
+_TRANSPORT_PRIORITY: dict[str, int] = {
+    "sim":    0,
+    "wifi":   1,   # WebREPL WiFi (stock firmware)
+    "hybrid": 2,   # USB stock firmware
+    "fw":     3,   # USB or WiFi custom firmware
+}
+
+def _transport_priority(label: str) -> int:
+    """Return priority for a transport label like 'fw:/dev/cu.usbserial-10'."""
+    prefix = label.split(":")[0] if ":" in label else label
+    return _TRANSPORT_PRIORITY.get(prefix, 0)
+
 
 def _read_available_fw_version() -> str:
     """Parse FW_VERSION from firmware/include/config.h source."""
@@ -77,6 +90,8 @@ class Server:
         self._lock_timeout: float = 30.0  # seconds of inactivity before auto-release
         self._client_names: dict[web.WebSocketResponse, str] = {}
         self._available_fw_version = _read_available_fw_version()
+        self._device_monitor: "DeviceMonitor | None" = None
+        self._user_override_transport: bool = False  # True when user manually selected transport
 
     @web.middleware
     async def _no_cache_middleware(self, request, handler):
@@ -137,8 +152,16 @@ class Server:
 
         self._poll_task = asyncio.create_task(self._telemetry_loop())
         self._reconnect_task = asyncio.create_task(self._reconnect_loop())
+        from device_monitor import DeviceMonitor
+        self._device_monitor = DeviceMonitor(
+            on_added=self._on_device_added,
+            on_removed=self._on_device_removed,
+        )
+        await self._device_monitor.start()
 
     async def _on_shutdown(self, app: web.Application):
+        if self._device_monitor:
+            await self._device_monitor.stop()
         for task in (self._poll_task, self._reconnect_task):
             if task:
                 task.cancel()
@@ -155,6 +178,7 @@ class Server:
 
     async def _switch_transport(self, mode: str) -> dict:
         """Switch between transport modes: 'usb', 'wifi', 'sim'. Returns status dict."""
+        self._user_override_transport = (mode != "sim")
         # Signal shutdown on current transport LED
         if self._transport.is_open():
             try:
@@ -818,6 +842,89 @@ class Server:
                     backoff = 1
             except asyncio.CancelledError:
                 break
+
+
+    async def _on_device_added(self, port: str):
+        """Called when a USB serial device is plugged in."""
+        if self._user_override_transport:
+            logger.info("Hot-plug: ignoring %s (user override active)", port)
+            return
+        current_priority = _transport_priority(self._transport_label)
+        # Probe what's on the port
+        try:
+            transport, label = await _detect_serial_transport(port)
+        except Exception as e:
+            logger.warning("Hot-plug: probe failed for %s: %s", port, e)
+            return
+        new_priority = _transport_priority(label)
+        if new_priority > current_priority:
+            logger.info("Hot-plug: auto-switching to %s (priority %d > %d)",
+                        label, new_priority, current_priority)
+            await self._auto_switch(transport, label)
+        else:
+            logger.info("Hot-plug: ignoring %s (priority %d <= current %d)",
+                        label, new_priority, current_priority)
+
+    async def _on_device_removed(self, port: str):
+        """Called when a USB serial device is unplugged."""
+        # Only act if the removed port matches the active transport
+        if port not in self._transport_label:
+            return
+        logger.warning("Hot-plug: active device removed: %s — falling back", port)
+        # Fall back: mDNS-discovered WiFi (if available), else sim
+        if self._detected_wifi and self._detected_wifi.get("ip"):
+            ip = self._detected_wifi["ip"]
+            tcp_port = self._detected_wifi.get("port", 9000)
+            try:
+                from firmware_transport import FirmwareTransport
+                transport = FirmwareTransport(host=ip, tcp_port=tcp_port)
+                await self._auto_switch(transport, f"fw:{ip}")
+                return
+            except Exception as e:
+                logger.warning("Hot-plug: WiFi fallback failed: %s", e)
+        from sim.sim_transport import SimTransport
+        await self._auto_switch(SimTransport(), "sim")
+
+    async def _auto_switch(self, new_transport, new_label: str):
+        """Switch to a new transport programmatically (not user-triggered)."""
+        # Cancel telemetry loop (it holds a reference to the old transport)
+        if self._poll_task:
+            self._poll_task.cancel()
+            try:
+                await self._poll_task
+            except asyncio.CancelledError:
+                pass
+            self._poll_task = None
+        # Disconnect old transport gracefully
+        try:
+            if self._transport and self._transport.is_open():
+                await self._transport.set_led_status("shutdown")
+        except Exception:
+            pass
+        try:
+            await self._dog.disconnect()
+        except Exception:
+            pass
+        # Swap in new transport
+        from comms import DogComms
+        from behaviors.balance import BalanceLayer
+        from behaviors.scan import ScanBehavior
+        self._transport = new_transport
+        self._dog = DogComms(new_transport)
+        self._balance = BalanceLayer(self._dog)
+        self._balance.on_fall(self._on_fall)
+        self._balance.on_recovered(self._on_recovered)
+        self._scan = ScanBehavior(self._dog)
+        self._scan.on_point(self._on_scan_point)
+        self._scan.on_complete(self._on_scan_complete)
+        self._transport_label = new_label
+        # Connect and restart telemetry
+        try:
+            await self._dog.connect()
+        except Exception as e:
+            logger.warning("Auto-switch connect failed: %s — staying on %s", e, new_label)
+        self._poll_task = asyncio.create_task(self._telemetry_loop())
+        await self._broadcast_status()
 
 
 def _restart_server():
