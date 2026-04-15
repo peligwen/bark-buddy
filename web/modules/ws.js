@@ -3,17 +3,19 @@ var ws = null;
 var reconnectTimer = null;
 var WS_URL = "ws://" + location.host + "/ws";
 var messageHandler = null;
+var savedOnOpen = null;
 
 export function setMessageHandler(fn) { messageHandler = fn; }
 
 export function connect(onOpen) {
+    if (onOpen) savedOnOpen = onOpen;
     if (ws && ws.readyState <= WebSocket.OPEN) return;
     ws = new WebSocket(WS_URL);
 
     ws.onopen = function () {
         setConnected(true);
         if (reconnectTimer) { clearInterval(reconnectTimer); reconnectTimer = null; }
-        if (onOpen) onOpen();
+        if (savedOnOpen) savedOnOpen();
     };
     ws.onclose = function () { setConnected(false); scheduleReconnect(); };
     ws.onerror = function () { ws.close(); };
