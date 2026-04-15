@@ -50,7 +50,7 @@ static const uint8_t SERVO_PINS[8] = {
 
 // --- Shutdown / Boot Timing ---
 #define SHUTDOWN_RAMP_MS    1500    // ramp to lying-down on shutdown
-#define SHUTDOWN_RAMP_STEPS 40
+#define SHUTDOWN_RAMP_STEPS 40      // used only by the blocking servos_ramp_to() call; not used by the lifecycle state machine's millis-based interpolation
 #define SHUTDOWN_SETTLE_MS  500     // pause after lying-down before detach
 #define BOOT_SETTLE_MS      500     // pause at lying-down before ramping to standing
 

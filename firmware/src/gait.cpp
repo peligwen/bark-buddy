@@ -20,7 +20,6 @@ static unsigned long s_lifecycle_ramp_start = 0;   // when current ramp started
 static uint16_t s_lifecycle_ramp_from[8] = {};     // servo positions at ramp start
 static uint16_t s_lifecycle_ramp_target[8] = {};   // ramp destination
 static uint16_t s_lifecycle_ramp_ms = 0;           // ramp duration
-static uint8_t  s_lifecycle_ramp_steps = 0;        // ramp step count
 
 // Gait configuration
 static GaitConfig s_config = {
@@ -204,7 +203,6 @@ void lifecycle_init(unsigned long now_ms) {
     s_lifecycle_idle_start = 0;
     s_lifecycle_ramp_start = 0;
     s_lifecycle_ramp_ms = 0;
-    s_lifecycle_ramp_steps = 0;
 }
 
 void lifecycle_update(unsigned long now_ms) {
@@ -246,7 +244,6 @@ void lifecycle_update(unsigned long now_ms) {
                 }
                 s_lifecycle_ramp_start = now_ms;
                 s_lifecycle_ramp_ms = SHUTDOWN_RAMP_MS;
-                s_lifecycle_ramp_steps = SHUTDOWN_RAMP_STEPS;
                 s_lifecycle = LifecycleState::SLEEPING;
             }
             break;
