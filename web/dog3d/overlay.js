@@ -3,7 +3,6 @@ import { state, S, BODY_L, BODY_H, BODY_W, UPPER_LEN, LOWER_LEN } from './state.
 
 var overlayVisible = false;
 var overlayParts = [];  // all overlay objects to toggle visibility
-var jointMarkers = {};
 
 function makeArrow(x1, y1, z1, x2, y2, z2, color) {
     var group = new THREE.Group();
@@ -114,8 +113,6 @@ function buildOverlay() {
 
         addOverlay(makeLegLink(0, 0, 0, 0, -UPPER_LEN, 0, 0x00ffff), leg.hipPivot);
         addOverlay(makeLegLink(0, 0, 0, 0, -LOWER_LEN, 0, 0x00cccc), leg.kneePivot);
-
-        jointMarkers[name] = { hip: hipMarker, knee: kneeMarker, foot: footMarker };
     });
 }
 
