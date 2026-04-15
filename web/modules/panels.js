@@ -107,6 +107,8 @@ export function syncNoiseSliders(params) {
 export function setupTransport() {
     var badge = document.getElementById("transport-badge");
     var menu = document.getElementById("transport-menu");
+    var modal = document.getElementById("wifi-modal");
+    var passInput = document.getElementById("wifi-pass");
 
     badge.addEventListener("click", function (e) {
         e.stopPropagation();
@@ -131,6 +133,17 @@ export function setupTransport() {
             send({ type: "cmd_transport", mode: mode });
         }
         badge.textContent = "..."; badge.className = "transport-badge switching";
+    });
+
+    // One-time modal listeners — registered here, not inside showWifiModal
+    document.getElementById("wifi-modal-cancel").addEventListener("click", function () {
+        modal.classList.add("hidden");
+    });
+    passInput.addEventListener("keydown", function (e) {
+        if (e.key === "Enter") document.getElementById("wifi-modal-connect").click();
+    });
+    modal.addEventListener("click", function (e) {
+        if (e.target === modal) modal.classList.add("hidden");
     });
 }
 
@@ -169,10 +182,6 @@ function showWifiModal() {
     modal.classList.remove("hidden");
     ssidInput.focus();
 
-    document.getElementById("wifi-modal-cancel").onclick = function () {
-        modal.classList.add("hidden");
-    };
-
     document.getElementById("wifi-modal-connect").onclick = function () {
         var ssid = ssidInput.value.trim();
         if (!ssid) { ssidInput.focus(); return; }
@@ -181,14 +190,6 @@ function showWifiModal() {
         send({ type: "cmd_wifi_setup", ssid: ssid, password: passInput.value });
         var badge = document.getElementById("transport-badge");
         badge.textContent = "SETUP..."; badge.className = "transport-badge switching";
-    };
-
-    passInput.addEventListener("keydown", function (e) {
-        if (e.key === "Enter") document.getElementById("wifi-modal-connect").click();
-    });
-
-    modal.onclick = function (e) {
-        if (e.target === modal) modal.classList.add("hidden");
     };
 }
 
