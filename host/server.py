@@ -57,9 +57,6 @@ class Server:
         self._mode = "remote"  # remote | scan
         self._motion = "stop"  # last motion direction
         self._action = None    # last action code or None
-        self._last_motion_time = 0.0   # for servo idle timeout
-        self._servos_idle = False
-        self._servo_idle_timeout = 30.0  # seconds
         self._web_hash = self._compute_web_hash(web_dir)
         # Control lock
         self._lock_holder: web.WebSocketResponse | None = None
@@ -67,6 +64,7 @@ class Server:
         self._lock_time: float = 0.0
         self._lock_timeout: float = 30.0  # seconds of inactivity before auto-release
         self._client_names: dict[web.WebSocketResponse, str] = {}
+        self._lifecycle = "unknown"
 
     @web.middleware
     async def _no_cache_middleware(self, request, handler):
@@ -329,6 +327,10 @@ class Server:
             if time.monotonic() - self._lock_time > self._lock_timeout:
                 self._lock_holder = None
                 self._lock_name = ""
+                # Fire-and-forget: put the dog to sleep after lock auto-expires
+                asyncio.get_event_loop().call_soon(
+                    lambda: asyncio.ensure_future(self._dog.sleep())
+                )
 
     def _is_locked_by(self, ws: web.WebSocketResponse) -> bool:
         """Check if the given client holds the lock."""
@@ -354,6 +356,20 @@ class Server:
             "is_you": False,  # overridden per-client
         }
 
+    async def _acquire_lock(self, ws: web.WebSocketResponse, name: str) -> None:
+        """Acquire the control lock for a client and wake the dog."""
+        import time as _t
+        self._lock_holder = ws
+        self._lock_name = name
+        self._lock_time = _t.monotonic()
+        await self._dog.wake()
+
+    async def _release_lock(self) -> None:
+        """Release the control lock and put the dog to sleep."""
+        self._lock_holder = None
+        self._lock_name = ""
+        await self._dog.sleep()
+
     async def _broadcast_lock_status(self) -> None:
         msg = self._lock_status_msg()
         dead = set()
@@ -374,6 +390,8 @@ class Server:
         logger.info("WebSocket client connected (%d total)", len(self._ws_clients))
 
         # Send initial state
+        transport = getattr(self._dog, '_transport', None)
+        lifecycle = getattr(transport, 'get_lifecycle', lambda: 'unknown')()
         status = {
             "type": "telem_status",
             "mode": self._mode,
@@ -382,6 +400,7 @@ class Server:
             "connected": self._dog.connected,
             "scanning": self._scan.running,
             "transport": self._transport_label,
+            "lifecycle": lifecycle,
         }
         wifi_info = getattr(self, '_detected_wifi', None)
         if wifi_info and wifi_info.get("connected"):
@@ -414,8 +433,7 @@ class Server:
             self._client_names.pop(ws, None)
             # Release lock if this client held it
             if self._lock_holder is ws:
-                self._lock_holder = None
-                self._lock_name = ""
+                await self._release_lock()
                 await self._broadcast_lock_status()
             logger.info("WebSocket client disconnected (%d remaining)", len(self._ws_clients))
 
@@ -441,9 +459,7 @@ class Server:
         if msg_type == "cmd_lock":
             name = msg.get("name", "Anonymous")
             if self._can_control(ws):
-                self._lock_holder = ws
-                self._lock_name = name
-                self._lock_time = _time.monotonic()
+                await self._acquire_lock(ws, name)
                 await self._broadcast_lock_status()
             elif self._lock_holder is not None:
                 # Send challenge to current holder
@@ -460,16 +476,14 @@ class Server:
 
         if msg_type == "cmd_unlock":
             if self._lock_holder is ws:
-                self._lock_holder = None
-                self._lock_name = ""
+                await self._release_lock()
                 await self._broadcast_lock_status()
             return
 
         if msg_type == "cmd_lock_yield":
             # Current holder yields to a challenger
             if self._lock_holder is ws:
-                self._lock_holder = None
-                self._lock_name = ""
+                await self._release_lock()
                 await self._broadcast_lock_status()
             return
 
@@ -484,9 +498,7 @@ class Server:
                 return
             # Auto-acquire lock on first control if no one holds it
             if self._lock_holder is None:
-                self._lock_holder = ws
-                self._lock_name = self._client_names.get(ws, "Operator")
-                self._lock_time = _time.monotonic()
+                await self._acquire_lock(ws, self._client_names.get(ws, "Operator"))
                 await self._broadcast_lock_status()
             # Refresh lock timeout on any control action
             if self._lock_holder is ws:
@@ -497,17 +509,9 @@ class Server:
                 return
             direction = msg.get("direction", "stop")
             if direction in DIRECTION_MAP:
-                # Wake servos if idle
-                if self._servos_idle and direction != "stop":
-                    try:
-                        await self._transport.exec_repl("_dog.set_default_pose()")
-                    except Exception:
-                        pass
-                    self._servos_idle = False
                 await self._dog.move(direction)
                 self._motion = direction
                 self._action = None
-                self._last_motion_time = asyncio.get_running_loop().time()
             else:
                 logger.warning("Unknown direction: %s", direction)
 
@@ -651,6 +655,8 @@ class Server:
 
     async def _broadcast_status(self, battery_mv=None):
         """Broadcast current status to all clients."""
+        transport = getattr(self._dog, '_transport', None)
+        lifecycle = getattr(transport, 'get_lifecycle', lambda: 'unknown')()
         status = {
             "type": "telem_status",
             "mode": self._mode,
@@ -659,6 +665,7 @@ class Server:
             "connected": self._dog.connected,
             "scanning": self._scan.running,
             "battery_mv": battery_mv,
+            "lifecycle": lifecycle,
         }
         if self._scan.running:
             status["scan_progress"] = self._scan.progress
@@ -745,22 +752,6 @@ class Server:
                 if not self._scan.running:
                     self._map.consolidate()
                     self._map.decay_tick()
-
-                # Servo idle timeout — lie down to rest (PWM stays alive for wake-up)
-                if (self._last_motion_time > 0
-                        and not self._servos_idle
-                        and self._motion == "stop"
-                        and now - self._last_motion_time > self._servo_idle_timeout):
-                    self._servos_idle = True  # Set first — prevents rapid retry on non-REPL transports
-                    try:
-                        for _ in range(5):
-                            await self._transport.exec_repl(
-                                "_dog.transform([0, 0, -1], [0, 0, 0], 80)")
-                        logger.info("Servo idle timeout — resting")
-                    except NotImplementedError:
-                        pass  # Not supported on this transport (e.g. custom firmware)
-                    except Exception:
-                        pass
 
                 # Regenerate walls every second
                 if now - last_wall_regen >= wall_regen_interval and self._ws_clients:
