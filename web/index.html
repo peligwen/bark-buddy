@@ -22,7 +22,6 @@
                         <button data-transport="wifi">WiFi (stock)</button>
                         <button data-transport="wifi-fw">WiFi (firmware)</button>
                         <button data-transport="wifi-setup">Setup WiFi...</button>
-                        <button data-transport="sim+">Sim+</button>
                         <button data-transport="sim">Sim (classic)</button>
                     </div>
                 </div>
@@ -121,7 +120,6 @@
                         <option value="play_bow">Play Bow</option>
                     </select>
                     <button class="action-btn" id="btn-pose-go">Pose</button>
-                    <button class="action-btn" id="btn-pose-default">Set Default</button>
                     <button class="action-btn" id="btn-balance" data-action="balance-toggle">Balance: OFF</button>
                     <button class="action-btn" data-action="wave">Wave</button>
                 </div>
@@ -130,17 +128,11 @@
             <div class="ctrl-section">
                 <h2>Operations</h2>
                 <div class="action-bar">
-                    <button class="action-btn" id="btn-patrol-demo">Patrol Demo</button>
-                    <button class="action-btn" id="btn-patrol-stop" disabled>Stop Patrol</button>
                     <button class="action-btn" id="btn-scan-start">Scan Area</button>
                     <button class="action-btn" id="btn-scan-stop" disabled>Stop Scan</button>
                     <button class="action-btn" id="btn-map-clear">Clear Map</button>
                     <button class="action-btn" id="btn-reset">Reset</button>
                     <button class="action-btn" id="btn-restart" style="color:var(--red)">Restart Server</button>
-                </div>
-                <div id="patrol-status" class="hidden">
-                    <span id="patrol-pos"></span>
-                    <span id="patrol-wp"></span>
                 </div>
             </div>
 
