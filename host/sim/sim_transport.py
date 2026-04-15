@@ -108,7 +108,7 @@ class SimTransport(Transport):
 
         # Boot complete — enter IDLE with 10s countdown (mirrors firmware)
         self._sim_lifecycle = "idle"
-        self._sim_lifecycle_idle_start = asyncio.get_event_loop().time()
+        self._sim_lifecycle_idle_start = asyncio.get_running_loop().time()
 
         self._sim_task = asyncio.create_task(self._sim_loop())
         logger.info("SimTransport opened (physics engine, speed=%.1fx)",
@@ -195,7 +195,7 @@ class SimTransport(Transport):
 
         try:
             while self._open:
-                now_loop = asyncio.get_event_loop().time()
+                now_loop = asyncio.get_running_loop().time()
                 self._sim_lifecycle_update(now_loop)
 
                 # Step physics
@@ -258,7 +258,7 @@ class SimTransport(Transport):
 
         elif func == "3":
             if self._sim_lifecycle != "active":
-                return "CMD|3|OK|$"
+                return "CMD|3|NOT_ACTIVE|$"
             self._motion_cmd = int(parts[1]) if len(parts) > 1 else 1
             self._physics.set_motion(self._motion_cmd)
             return "CMD|3|OK|$"
@@ -278,7 +278,7 @@ class SimTransport(Transport):
 
     async def send_json(self, msg: dict) -> None:
         msg_type = msg.get("type")
-        now = asyncio.get_event_loop().time()
+        now = asyncio.get_running_loop().time()
         if msg_type == "cmd_wake":
             self._sim_lifecycle_wake(now)
         elif msg_type == "cmd_sleep":
