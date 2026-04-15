@@ -1,6 +1,7 @@
 """USB serial device hot-plug monitor."""
 import asyncio
 import logging
+from collections.abc import Awaitable
 from typing import Callable, Optional
 import serial.tools.list_ports
 
@@ -13,8 +14,8 @@ class DeviceMonitor:
     """Polls serial ports every interval_s seconds, fires callbacks on change."""
 
     def __init__(self,
-                 on_added: Callable[[str], None],
-                 on_removed: Callable[[str], None],
+                 on_added: Callable[[str], Awaitable[None]],
+                 on_removed: Callable[[str], Awaitable[None]],
                  interval_s: float = 2.0):
         self._on_added = on_added
         self._on_removed = on_removed

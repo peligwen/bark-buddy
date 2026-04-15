@@ -92,6 +92,7 @@ class Server:
         self._available_fw_version = _read_available_fw_version()
         self._device_monitor: "DeviceMonitor | None" = None
         self._user_override_transport: bool = False  # True when user manually selected transport
+        self._switch_lock = asyncio.Lock()
 
     @web.middleware
     async def _no_cache_middleware(self, request, handler):
@@ -139,7 +140,11 @@ class Server:
             fw = self._transport.firmware_info
             if fw.get("wifi") and fw.get("wifi_ip"):
                 self._wifi_host = fw["wifi_ip"]
-                self._detected_wifi = {"connected": True, "ip": fw["wifi_ip"]}
+                self._detected_wifi = {
+                    "connected": True,
+                    "ip": fw["wifi_ip"],
+                    "port": fw.get("tcp_port", 9000),
+                }
                 logger.info("Firmware WiFi detected: %s (TCP port %s)", fw["wifi_ip"], fw.get("tcp_port", 9000))
 
         # Register balance event callbacks
@@ -176,28 +181,68 @@ class Server:
             await ws.close()
         await self._dog.disconnect()
 
+    async def _replace_transport(self, new_transport, new_label: str):
+        """Teardown current transport and swap in a new one.
+
+        Cancels both poll_task and reconnect_task before touching the transport,
+        then reconnects and restarts both tasks. Serialized by _switch_lock.
+        """
+        async with self._switch_lock:
+            # Cancel telemetry loop
+            if self._poll_task:
+                self._poll_task.cancel()
+                try:
+                    await self._poll_task
+                except asyncio.CancelledError:
+                    pass
+                self._poll_task = None
+            # Cancel reconnect loop — prevents racing against _dog.connect()
+            if self._reconnect_task:
+                self._reconnect_task.cancel()
+                try:
+                    await self._reconnect_task
+                except asyncio.CancelledError:
+                    pass
+                self._reconnect_task = None
+            # Graceful LED shutdown on old transport
+            try:
+                if self._transport and self._transport.is_open():
+                    await self._transport.set_led_status("shutdown")
+            except Exception:
+                pass
+            # Disconnect old dog
+            try:
+                await self._dog.disconnect()
+            except Exception:
+                pass
+            # Swap in new transport, dog, balance, scan
+            from comms import DogComms
+            from behaviors.balance import BalanceLayer
+            from behaviors.scan import ScanBehavior
+            self._transport = new_transport
+            self._dog = DogComms(new_transport)
+            self._balance = BalanceLayer(self._dog)
+            self._balance.on_fall(self._on_fall)
+            self._balance.on_recovered(self._on_recovered)
+            self._scan = ScanBehavior(self._dog)
+            self._scan.on_point(self._on_scan_point)
+            self._scan.on_complete(self._on_scan_complete)
+            self._transport_label = new_label
+            # Connect new dog
+            try:
+                await self._dog.connect()
+            except Exception as e:
+                logger.warning("_replace_transport connect failed: %s — staying on %s", e, new_label)
+            # Restart tasks
+            self._poll_task = asyncio.create_task(self._telemetry_loop())
+            self._reconnect_task = asyncio.create_task(self._reconnect_loop())
+            await self._broadcast_status()
+
     async def _switch_transport(self, mode: str) -> dict:
         """Switch between transport modes: 'usb', 'wifi', 'sim'. Returns status dict."""
         self._user_override_transport = (mode != "sim")
-        # Signal shutdown on current transport LED
-        if self._transport.is_open():
-            try:
-                await self._transport.set_led_status("shutdown")
-            except Exception:
-                pass
-        # Stop telemetry and disconnect
-        if self._poll_task:
-            self._poll_task.cancel()
-            try:
-                await self._poll_task
-            except asyncio.CancelledError:
-                pass
-        try:
-            await self._dog.disconnect()
-        except Exception:
-            pass
 
-        # Create new transport
+        # Build the new transport object
         try:
             if mode == "usb":
                 from repl_transport import ReplTransport
@@ -240,35 +285,14 @@ class Server:
             else:
                 return {"ok": False, "error": f"Unknown mode: {mode}"}
 
-            # Connect new transport
-            self._transport = transport
-            self._dog = DogComms(transport)
-            self._balance = BalanceLayer(self._dog)
-            self._scan = ScanBehavior(self._dog)
-            self._scan.on_point(self._on_scan_point)
-            self._scan.on_complete(self._on_scan_complete)
-            self._balance.on_fall(self._on_fall)
-            self._balance.on_recovered(self._on_recovered)
-
-            await self._dog.connect()
-            self._transport_label = label
-            self._poll_task = asyncio.create_task(self._telemetry_loop())
-
+            await self._replace_transport(transport, label)
             logger.info("Switched transport to %s", label)
-            await self._broadcast_status()
             return {"ok": True, "transport": label}
 
         except Exception as e:
             logger.exception("Failed to switch transport to %s", mode)
             # Fall back to sim
-            self._transport = SimTransport()
-            self._dog = DogComms(self._transport)
-            self._balance = BalanceLayer(self._dog)
-            self._scan = ScanBehavior(self._dog)
-            await self._dog.connect()
-            self._transport_label = "sim"
-            self._poll_task = asyncio.create_task(self._telemetry_loop())
-            await self._broadcast_status()
+            await self._replace_transport(SimTransport(), "sim")
             return {"ok": False, "error": str(e), "transport": "sim"}
 
     async def _add_live_point(self, distance_mm: int) -> None:
@@ -846,48 +870,60 @@ class Server:
 
     async def _on_device_added(self, port: str):
         """Called when a USB serial device is plugged in."""
-        if self._user_override_transport:
-            logger.info("Hot-plug: ignoring %s (user override active)", port)
-            return
-        current_priority = _transport_priority(self._transport_label)
-        # Probe what's on the port
-        try:
-            transport, label = await _detect_serial_transport(port)
-        except Exception as e:
-            logger.warning("Hot-plug: probe failed for %s: %s", port, e)
-            return
-        new_priority = _transport_priority(label)
-        if new_priority > current_priority:
-            logger.info("Hot-plug: auto-switching to %s (priority %d > %d)",
-                        label, new_priority, current_priority)
-            await self._auto_switch(transport, label)
-        else:
-            logger.info("Hot-plug: ignoring %s (priority %d <= current %d)",
-                        label, new_priority, current_priority)
+        async with self._switch_lock:
+            if self._user_override_transport:
+                logger.info("Hot-plug: ignoring %s (user override active)", port)
+                return
+            current_priority = _transport_priority(self._transport_label)
+            # Probe what's on the port
+            try:
+                transport, label = await _detect_serial_transport(port)
+            except Exception as e:
+                logger.warning("Hot-plug: probe failed for %s: %s", port, e)
+                return
+            new_priority = _transport_priority(label)
+            if new_priority > current_priority:
+                logger.info("Hot-plug: auto-switching to %s (priority %d > %d)",
+                            label, new_priority, current_priority)
+                await self._auto_switch(transport, label)
+            else:
+                logger.info("Hot-plug: ignoring %s (priority %d <= current %d)",
+                            label, new_priority, current_priority)
 
     async def _on_device_removed(self, port: str):
         """Called when a USB serial device is unplugged."""
-        # Only act if the removed port matches the active transport
-        if port not in self._transport_label:
-            return
-        logger.warning("Hot-plug: active device removed: %s — falling back", port)
-        # Fall back: mDNS-discovered WiFi (if available), else sim
-        if self._detected_wifi and self._detected_wifi.get("ip"):
-            ip = self._detected_wifi["ip"]
-            tcp_port = self._detected_wifi.get("port", 9000)
-            try:
-                from firmware_transport import FirmwareTransport
-                transport = FirmwareTransport(host=ip, tcp_port=tcp_port)
-                await self._auto_switch(transport, f"fw:{ip}")
+        async with self._switch_lock:
+            # Only act if the removed port matches the active transport
+            if port not in self._transport_label:
                 return
-            except Exception as e:
-                logger.warning("Hot-plug: WiFi fallback failed: %s", e)
-        from sim.sim_transport import SimTransport
-        await self._auto_switch(SimTransport(), "sim")
+            logger.warning("Hot-plug: active device removed: %s — falling back", port)
+            # User's chosen device is gone — clear the override
+            self._user_override_transport = False
+            # Fall back: mDNS-discovered WiFi (if available), else sim
+            if self._detected_wifi and self._detected_wifi.get("ip"):
+                ip = self._detected_wifi["ip"]
+                tcp_port = self._detected_wifi.get("port", 9000)
+                try:
+                    from firmware_transport import FirmwareTransport
+                    transport = FirmwareTransport(host=ip, tcp_port=tcp_port)
+                    await self._auto_switch(transport, f"fw:{ip}")
+                    return
+                except Exception as e:
+                    logger.warning("Hot-plug: WiFi fallback failed: %s", e)
+            from sim.sim_transport import SimTransport
+            await self._auto_switch(SimTransport(), "sim")
 
     async def _auto_switch(self, new_transport, new_label: str):
-        """Switch to a new transport programmatically (not user-triggered)."""
-        # Cancel telemetry loop (it holds a reference to the old transport)
+        """Switch to a new transport programmatically (not user-triggered).
+
+        Delegates to _replace_transport. Callers must already hold _switch_lock
+        (e.g. _on_device_added / _on_device_removed), so _replace_transport must
+        NOT try to re-acquire it — we call the inner logic directly here to avoid
+        a deadlock. Since the lock is already held, we replicate the teardown inline.
+        """
+        # NOTE: _switch_lock is already held by the caller (_on_device_added /
+        # _on_device_removed). We cannot call _replace_transport (which re-acquires
+        # the lock). Perform the swap directly.
         if self._poll_task:
             self._poll_task.cancel()
             try:
@@ -895,7 +931,13 @@ class Server:
             except asyncio.CancelledError:
                 pass
             self._poll_task = None
-        # Disconnect old transport gracefully
+        if self._reconnect_task:
+            self._reconnect_task.cancel()
+            try:
+                await self._reconnect_task
+            except asyncio.CancelledError:
+                pass
+            self._reconnect_task = None
         try:
             if self._transport and self._transport.is_open():
                 await self._transport.set_led_status("shutdown")
@@ -905,7 +947,6 @@ class Server:
             await self._dog.disconnect()
         except Exception:
             pass
-        # Swap in new transport
         from comms import DogComms
         from behaviors.balance import BalanceLayer
         from behaviors.scan import ScanBehavior
@@ -918,12 +959,12 @@ class Server:
         self._scan.on_point(self._on_scan_point)
         self._scan.on_complete(self._on_scan_complete)
         self._transport_label = new_label
-        # Connect and restart telemetry
         try:
             await self._dog.connect()
         except Exception as e:
             logger.warning("Auto-switch connect failed: %s — staying on %s", e, new_label)
         self._poll_task = asyncio.create_task(self._telemetry_loop())
+        self._reconnect_task = asyncio.create_task(self._reconnect_loop())
         await self._broadcast_status()
 
 
@@ -936,19 +977,15 @@ def _restart_server():
     os.kill(os.getpid(), signal.SIGTERM)
 
 
-async def _detect_serial_transport(port: str):
-    """Auto-detect firmware type on a serial port.
+def _probe_serial_sync(port: str) -> str:
+    """Blocking serial probe — runs in a thread via asyncio.to_thread.
 
-    Detection order:
-    1. JSON ping → custom firmware (FirmwareTransport)
-    2. Ctrl+C → MicroPython → hybrid mode (HybridTransport)
-    3. Fallback → hybrid mode (best-effort)
+    Returns 'fw', 'hybrid', or 'fallback'.
     """
     import serial
-    logger.info("Auto-detecting firmware on %s...", port)
+    import time
     try:
         ser = serial.Serial(port, 115200, timeout=2)
-        import time
         # Custom firmware takes up to 2.5s to boot (500ms settle + 2000ms softstart).
         # Wait long enough to catch a response even after DTR reset.
         time.sleep(3.0)
@@ -963,11 +1000,7 @@ async def _detect_serial_transport(port: str):
                 break
         if '"pong"' in resp:
             ser.close()
-            from firmware_transport import FirmwareTransport
-            transport = FirmwareTransport(port=port)
-            label = f"fw:{port.split('/')[-1]}"
-            logger.info("Detected custom firmware on %s", port)
-            return transport, label
+            return "fw"
 
         # Try Ctrl+C for MicroPython REPL → use hybrid mode
         ser.write(b'\x03\x03\r\n')
@@ -976,14 +1009,40 @@ async def _detect_serial_transport(port: str):
         ser.close()
 
         if ">>>" in resp or "MicroPython" in resp:
-            from hybrid_transport import HybridTransport
-            transport = HybridTransport(port=port)
-            label = f"hybrid:{port.split('/')[-1]}"
-            logger.info("Detected MicroPython on %s, using hybrid mode", port)
-            return transport, label
+            return "hybrid"
 
     except Exception as e:
         logger.warning("Detection failed: %s", e)
+
+    return "fallback"
+
+
+async def _detect_serial_transport(port: str):
+    """Auto-detect firmware type on a serial port.
+
+    Detection order:
+    1. JSON ping → custom firmware (FirmwareTransport)
+    2. Ctrl+C → MicroPython → hybrid mode (HybridTransport)
+    3. Fallback → hybrid mode (best-effort)
+
+    The blocking serial I/O is run off the event loop via asyncio.to_thread.
+    """
+    logger.info("Auto-detecting firmware on %s...", port)
+    result = await asyncio.to_thread(_probe_serial_sync, port)
+
+    if result == "fw":
+        from firmware_transport import FirmwareTransport
+        transport = FirmwareTransport(port=port)
+        label = f"fw:{port.split('/')[-1]}"
+        logger.info("Detected custom firmware on %s", port)
+        return transport, label
+
+    if result == "hybrid":
+        from hybrid_transport import HybridTransport
+        transport = HybridTransport(port=port)
+        label = f"hybrid:{port.split('/')[-1]}"
+        logger.info("Detected MicroPython on %s, using hybrid mode", port)
+        return transport, label
 
     # Fallback to hybrid (most likely stock firmware)
     from hybrid_transport import HybridTransport
