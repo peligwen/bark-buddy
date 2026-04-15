@@ -67,6 +67,17 @@ def _read_available_fw_version() -> str:
         return ""
 
 
+def _read_config_local_value(key: str, default: str) -> str:
+    """Read a #define string value from firmware/include/config_local.h."""
+    config_path = os.path.join(os.path.dirname(__file__), "..", "firmware", "include", "config_local.h")
+    try:
+        with open(config_path) as f:
+            m = re.search(r'#define\s+' + re.escape(key) + r'\s+"([^"]+)"', f.read())
+            return m.group(1) if m else default
+    except FileNotFoundError:
+        return default
+
+
 def _firmware_binary_path() -> str:
     """Path to the built firmware binary."""
     return os.path.abspath(os.path.join(
@@ -93,14 +104,14 @@ def find_serial_port() -> str | None:
 
 class Server:
     def __init__(self, dog: DogComms, web_dir: str, transport=None, transport_label="sim",
-                 wifi_host: str | None = None, wifi_password: str = "bark",
+                 wifi_host: str | None = None, wifi_password: str | None = None,
                  no_mdns: bool = False):
         self._dog = dog
         self._web_dir = web_dir
         self._transport = transport
         self._transport_label = transport_label
         self._wifi_host = wifi_host
-        self._wifi_password = wifi_password
+        self._wifi_password = wifi_password or _read_config_local_value("WEBREPL_PASS", "bark")
         self._no_mdns = no_mdns
         self._ws_clients: set[web.WebSocketResponse] = set()
         self._poll_task: asyncio.Task | None = None
@@ -1191,7 +1202,7 @@ async def main(args):
         host_port = args.wifi.split(":")
         wifi_host = host_port[0]
         port = int(host_port[1]) if len(host_port) > 1 else 8266
-        password = args.wifi_password or "bark"
+        password = args.wifi_password or _read_config_local_value("WEBREPL_PASS", "bark")
         from webrepl_transport import WebReplTransport
         transport = WebReplTransport(host=wifi_host, port=port, password=password)
         transport_label = f"wifi:{wifi_host}"
@@ -1211,7 +1222,7 @@ async def main(args):
     web_dir = os.path.join(os.path.dirname(__file__), "..", "web")
     web_dir = os.path.abspath(web_dir)
     server = Server(dog, web_dir, transport=transport, transport_label=transport_label,
-                    wifi_host=wifi_host, wifi_password=args.wifi_password or "bark",
+                    wifi_host=wifi_host, wifi_password=args.wifi_password or _read_config_local_value("WEBREPL_PASS", "bark"),
                     no_mdns=args.no_mdns)
     await server.start(host=args.host, port=args.port)
 
@@ -1230,8 +1241,8 @@ if __name__ == "__main__":
                         help="Serial port (e.g. /dev/cu.usbserial-10). Auto-detected if omitted.")
     parser.add_argument("--wifi", default=None,
                         help="WiFi address (e.g. 192.168.1.163)")
-    parser.add_argument("--wifi-password", default="bark",
-                        help="WebREPL password (default: bark)")
+    parser.add_argument("--wifi-password", default=None,
+                        help="WebREPL password (default: WEBREPL_PASS from config_local.h, or 'bark')")
     parser.add_argument("--no-mdns", action="store_true",
                         help="Disable mDNS auto-discovery")
     parser.add_argument("--restart", action="store_true",

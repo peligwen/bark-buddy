@@ -108,6 +108,9 @@ static const uint16_t REST_POSE[8] = {
 #ifndef WIFI_PASS
 #define WIFI_PASS ""
 #endif
+#ifndef WEBREPL_PASS
+#define WEBREPL_PASS "bark"
+#endif
 #define WIFI_TCP_PORT   9000
 
 // --- Timing ---
