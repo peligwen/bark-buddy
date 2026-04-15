@@ -141,6 +141,11 @@ function handleMessage(msg) {
         if (confirm(msg.challenger + " wants control. Yield?")) {
             send({ type: "cmd_lock_yield" });
         }
+    } else if (msg.type === "lock_denied") {
+        var el = document.getElementById("fall-alert");
+        el.textContent = msg.operator ? "Control held by " + msg.operator : "Control request denied";
+        el.classList.remove("hidden");
+        setTimeout(function() { el.classList.add("hidden"); }, 3000);
     } else if (msg.type === "reset") {
         Dog3D.reset(); scanCtrl.setScanRunning(false);
     } else if (msg.type === "transport_result") {
