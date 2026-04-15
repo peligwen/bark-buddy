@@ -5,7 +5,6 @@ import { connect, send, setMessageHandler } from './modules/ws.js';
 import { setupDpad, setupKeyboard, setupActions, setCanControl, setLifecycle } from './modules/controls.js';
 import { dogMapState, addScanPoint, renderFullMap, drawMap, setupScan } from './modules/map.js';
 import { setupBatteryGraph, recordBattery, setupNoisePanel, syncNoiseSliders,
-         setupTransport, updateTransportUI, showWifiBanner, handleWifiSetupResult,
          setupOtaPanel, updateOtaStatus } from './modules/panels.js';
 
 // --- State ---
@@ -73,13 +72,12 @@ function updateStatus(msg) {
     if (msg.transport != null) {
         var badge = document.getElementById("transport-badge");
         var isSim = msg.transport === "sim";
-        badge.textContent = isSim ? msg.transport.toUpperCase() : msg.transport;
+        badge.textContent = isSim ? "SIM" : msg.transport;
         badge.className = "transport-badge " + (isSim ? "sim" : "live");
         var simPanel = document.getElementById("sim-panel");
         if (isSim) simPanel.classList.remove("hidden");
         else simPanel.classList.add("hidden");
     }
-    if (msg.wifi_available && msg.wifi_ip) showWifiBanner(msg.wifi_ip, msg.wifi_ssid);
     if (msg.noise_params) syncNoiseSliders(msg.noise_params);
     // Update firmware version badge
     var fwBadge = document.getElementById('fw-badge');
@@ -171,16 +169,6 @@ function handleMessage(msg) {
         setTimeout(function() { el.classList.add("hidden"); }, 3000);
     } else if (msg.type === "reset") {
         Dog3D.reset(); scanCtrl.setScanRunning(false);
-    } else if (msg.type === "transport_result") {
-        updateTransportUI(msg);
-    } else if (msg.type === "wifi_setup_result") {
-        handleWifiSetupResult(msg);
-        var badge = document.getElementById("transport-badge");
-        if (msg.ok) {
-            badge.className = "transport-badge live";
-            badge.textContent = "wifi:" + msg.ip;
-            showWifiBanner(msg.ip, "");
-        }
     } else if (msg.type === "version") {
         if (window._appVersion && msg.hash !== window._appVersion) location.reload();
         window._appVersion = msg.hash;
@@ -212,7 +200,6 @@ setupKeyboard();
 var scanCtrl = setupScan(send);
 setupLock();
 setupReset();
-setupTransport();
 setupNoisePanel();
 setupBatteryGraph();
 setupOtaPanel();
