@@ -17,7 +17,9 @@ logger = logging.getLogger(__name__)
 class WebReplTransport(HardwareTransport):
     """MechDog transport over WiFi WebREPL (WebSocket)."""
 
-    def __init__(self, host: str, port: int = 8266, password: str = "bark"):
+    def __init__(self, host: str, port: int = 8266, password: str | None = None):
+        if password is None:
+            raise ValueError("WebReplTransport requires a password — pass password= explicitly")
         super().__init__()
         self._host = host
         self._port = port

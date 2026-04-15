@@ -21,7 +21,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 logger = logging.getLogger(__name__)
 
 
-async def capture(transport_type, address, output_file, duration, gait_sequence):
+async def capture(transport_type, address, output_file, duration, gait_sequence, password=None):
     """Connect to dog, run gait sequence, capture telemetry."""
 
     # Create transport
@@ -30,7 +30,9 @@ async def capture(transport_type, address, output_file, duration, gait_sequence)
         transport = ReplTransport(port=address)
     elif transport_type == "wifi":
         from webrepl_transport import WebReplTransport
-        transport = WebReplTransport(host=address)
+        if password is None:
+            raise ValueError("--password is required when using --wifi")
+        transport = WebReplTransport(host=address, password=password)
     else:
         print("Unknown transport type")
         return
@@ -131,6 +133,7 @@ def main():
     parser = argparse.ArgumentParser(description="Capture MechDog IMU profile")
     parser.add_argument("--serial", help="USB serial port")
     parser.add_argument("--wifi", help="WiFi IP address")
+    parser.add_argument("--password", help="WebREPL password (required with --wifi)")
     parser.add_argument("-o", "--output", default="profile.json",
                         help="Output file (default: profile.json)")
     parser.add_argument("-d", "--duration", type=float, default=None,
@@ -156,7 +159,7 @@ def main():
     else:
         sequence = DEFAULT_SEQUENCE
 
-    asyncio.run(capture(transport_type, address, args.output, args.duration, sequence))
+    asyncio.run(capture(transport_type, address, args.output, args.duration, sequence, password=args.password))
 
 
 if __name__ == "__main__":
