@@ -325,6 +325,7 @@ void lifecycle_cmd_wake(unsigned long now_ms) {
 void lifecycle_cmd_sleep(unsigned long now_ms) {
     switch (s_lifecycle) {
         case LifecycleState::ACTIVE:
+            gait_set_state(GaitState::STOP, 0.0f);  // stop any in-progress gait
             // Enter IDLE first (grace period before full sleep)
             s_lifecycle_idle_start = now_ms;
             s_lifecycle = LifecycleState::IDLE;

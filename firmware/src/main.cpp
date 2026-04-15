@@ -110,6 +110,9 @@ void setup() {
     // No blocking wait — loop() handles connect and reconnect
 #endif
 
+    // Reset heartbeat clock after boot. If no host connects within HEARTBEAT_TIMEOUT_MS (5s),
+    // lifecycle_heartbeat_lost fires and the dog will ramp back to rest pose and detach servos.
+    // This is intentional safe-fail behavior.
     last_msg_received = millis();
 
     // Boot message — sensor init results are ready from the snapshot
