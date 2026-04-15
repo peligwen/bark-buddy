@@ -3,7 +3,9 @@
 #define FW_VERSION_MAJOR 1
 #define FW_VERSION_MINOR 0
 #define FW_VERSION_PATCH 0
-#define FW_VERSION "1.0.0"
+#define _FW_STR(x)  #x
+#define _FW_XSTR(x) _FW_STR(x)
+#define FW_VERSION  _FW_XSTR(FW_VERSION_MAJOR) "." _FW_XSTR(FW_VERSION_MINOR) "." _FW_XSTR(FW_VERSION_PATCH)
 #define FW_BUILD_TIMESTAMP (__DATE__ " " __TIME__)
 
 #include <stdint.h>

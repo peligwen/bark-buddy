@@ -138,7 +138,7 @@ header h1 {
     border-radius: 50%;
     background: #ffa726;
     margin-right: 4px;
-    animation: pulse-updating 1.5s infinite;
+    animation: pulse-updating 1.5s infinite alternate;
 }
 @keyframes pulse-updating { from { opacity: 1; } to { opacity: 0.3; } }
 
