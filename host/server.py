@@ -65,13 +65,15 @@ def find_serial_port() -> str | None:
 
 class Server:
     def __init__(self, dog: DogComms, web_dir: str, transport=None, transport_label="sim",
-                 wifi_host: str | None = None, wifi_password: str = "bark"):
+                 wifi_host: str | None = None, wifi_password: str = "bark",
+                 no_mdns: bool = False):
         self._dog = dog
         self._web_dir = web_dir
         self._transport = transport
         self._transport_label = transport_label
         self._wifi_host = wifi_host
         self._wifi_password = wifi_password
+        self._no_mdns = no_mdns
         self._ws_clients: set[web.WebSocketResponse] = set()
         self._poll_task: asyncio.Task | None = None
         self._reconnect_task: asyncio.Task | None = None
@@ -93,6 +95,8 @@ class Server:
         self._device_monitor: "DeviceMonitor | None" = None
         self._user_override_transport: bool = False  # True when user manually selected transport
         self._switch_lock = asyncio.Lock()
+        self._mdns_browser: "MdnsBrowser | None" = None
+        self._mdns_no_auto: bool = False  # set True when transport chosen manually
 
     @web.middleware
     async def _no_cache_middleware(self, request, handler):
@@ -164,7 +168,17 @@ class Server:
         )
         await self._device_monitor.start()
 
+        if not self._no_mdns:
+            from mdns_browser import MdnsBrowser
+            self._mdns_browser = MdnsBrowser(
+                on_found=self._on_mdns_found,
+                on_lost=self._on_mdns_lost,
+            )
+            await self._mdns_browser.start()
+
     async def _on_shutdown(self, app: web.Application):
+        if self._mdns_browser:
+            await self._mdns_browser.stop()
         if self._device_monitor:
             await self._device_monitor.stop()
         for task in (self._poll_task, self._reconnect_task):
@@ -869,6 +883,35 @@ class Server:
                 break
 
 
+    async def _on_mdns_found(self, ip: str, port: int, props: dict):
+        """Called when a MechDog is discovered via mDNS."""
+        self._detected_wifi = {"connected": True, "ip": ip, "port": port,
+                               "fw_version": props.get("fw_version", "")}
+        current_priority = _transport_priority(self._transport_label)
+        wifi_priority = _TRANSPORT_PRIORITY["fw"]  # mDNS-discovered = custom firmware over WiFi
+        if not self._user_override_transport and wifi_priority > current_priority:
+            logger.info("mDNS: auto-connecting to %s:%d", ip, port)
+            from firmware_transport import FirmwareTransport
+            transport = FirmwareTransport(host=ip, tcp_port=port)
+            await self._replace_transport(transport, f"fw:{ip}")
+        else:
+            logger.info("mDNS: found %s:%d (not switching, current=%s priority=%d)",
+                        ip, port, self._transport_label, current_priority)
+            await self._broadcast_status()
+
+    async def _on_mdns_lost(self, name: str):
+        """Called when a MechDog disappears from mDNS."""
+        if self._detected_wifi is None:
+            return
+        lost_ip = self._detected_wifi.get("ip", "")
+        if lost_ip and lost_ip in self._transport_label:
+            logger.warning("mDNS: active device lost (%s) — falling back to sim", lost_ip)
+            self._detected_wifi = None
+            from sim.sim_transport import SimTransport
+            await self._replace_transport(SimTransport(), "sim")
+        else:
+            self._detected_wifi = None
+
     async def _on_device_added(self, port: str):
         """Called when a USB serial device is plugged in."""
         if self._user_override_transport:
@@ -1029,7 +1072,8 @@ async def main(args):
     web_dir = os.path.join(os.path.dirname(__file__), "..", "web")
     web_dir = os.path.abspath(web_dir)
     server = Server(dog, web_dir, transport=transport, transport_label=transport_label,
-                    wifi_host=wifi_host, wifi_password=args.wifi_password or "bark")
+                    wifi_host=wifi_host, wifi_password=args.wifi_password or "bark",
+                    no_mdns=args.no_mdns)
     await server.start(host=args.host, port=args.port)
 
 
@@ -1049,6 +1093,8 @@ if __name__ == "__main__":
                         help="WiFi address (e.g. 192.168.1.163)")
     parser.add_argument("--wifi-password", default="bark",
                         help="WebREPL password (default: bark)")
+    parser.add_argument("--no-mdns", action="store_true",
+                        help="Disable mDNS auto-discovery")
     parser.add_argument("--restart", action="store_true",
                         help="Restart a running server via WebSocket command")
     args = parser.parse_args()

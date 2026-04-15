@@ -15,6 +15,7 @@
 #endif
 #if WIFI_ENABLED
 #include <WiFi.h>
+#include <ESPmDNS.h>
 #endif
 
 // --- RX buffers ---
@@ -141,12 +142,18 @@ void loop() {
             wifi_connected = true;
             tcp_server.begin();
             tcp_server.setNoDelay(true);
+            if (MDNS.begin("mechdog")) {
+                MDNS.addService("_mechdog", "_tcp", WIFI_TCP_PORT);
+                MDNS.addServiceTxt("_mechdog", "_tcp", "fw_version", FW_VERSION);
+                MDNS.addServiceTxt("_mechdog", "_tcp", "board", "esp32-d0wd");
+            }
             sensor_led_set(1, LED_BRIGHTNESS, LED_BRIGHTNESS / 2, 0);  // amber = waiting
             sensor_led_set(2, LED_BRIGHTNESS, LED_BRIGHTNESS / 2, 0);
         }
         if (!now_wifi && wifi_connected) {
             wifi_connected = false;
             tcp_client.stop();
+            MDNS.end();
             WiFi.reconnect();
         }
     }
