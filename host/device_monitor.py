@@ -32,7 +32,7 @@ class DeviceMonitor:
 
     async def start(self):
         """Start monitoring. Captures the current port set as baseline."""
-        self._known_ports = self._matching_ports()
+        self._known_ports = await asyncio.get_running_loop().run_in_executor(None, self._matching_ports)
         self._task = asyncio.create_task(self._poll_loop())
 
     async def stop(self):
@@ -47,7 +47,7 @@ class DeviceMonitor:
     async def _poll_loop(self):
         while True:
             await asyncio.sleep(self._interval_s)
-            current = self._matching_ports()
+            current = await asyncio.get_running_loop().run_in_executor(None, self._matching_ports)
             added = current - self._known_ports
             removed = self._known_ports - current
             self._known_ports = current

@@ -33,15 +33,26 @@ BATTERY_POLL_HZ = 0.2
 
 # Transport priority — higher number = higher priority for auto-switching
 _TRANSPORT_PRIORITY: dict[str, int] = {
-    "sim":    0,
-    "wifi":   1,   # WebREPL WiFi (stock firmware)
-    "hybrid": 2,   # USB stock firmware
-    "fw":     3,   # USB or WiFi custom firmware
+    "sim":      0,
+    "wifi":     1,   # WebREPL WiFi (stock firmware)
+    "hybrid":   2,   # USB stock firmware
+    "fw-wifi":  3,   # WiFi custom firmware (mDNS discovered)
+    "fw-usb":   4,   # USB custom firmware (highest priority)
 }
 
 def _transport_priority(label: str) -> int:
-    """Return priority for a transport label like 'fw:/dev/cu.usbserial-10'."""
-    prefix = label.split(":")[0] if ":" in label else label
+    """Return priority for a transport label.
+
+    Labels: 'sim', 'wifi:{host}', 'hybrid:{port}', 'fw:{ip}' (WiFi), 'fw:{/dev/...}' (USB)
+    USB custom firmware gets priority 4 > WiFi custom firmware priority 3.
+    """
+    if ":" not in label:
+        return _TRANSPORT_PRIORITY.get(label, 0)
+    prefix, rest = label.split(":", 1)
+    if prefix == "fw":
+        # Distinguish USB fw (/dev/... or COM...) from WiFi fw
+        is_usb = rest.startswith("/dev/") or rest.startswith("COM")
+        return _TRANSPORT_PRIORITY["fw-usb" if is_usb else "fw-wifi"]
     return _TRANSPORT_PRIORITY.get(prefix, 0)
 
 
@@ -763,7 +774,8 @@ class Server:
             "binary_ready": os.path.exists(_firmware_binary_path()),
         })
 
-    async def _handle_firmware_build(self, request: web.Request) -> web.Response:
+    async def _do_firmware_build(self) -> dict:
+        """Run pio build and return result dict."""
         firmware_dir = os.path.abspath(
             os.path.join(os.path.dirname(__file__), "..", "firmware")
         )
@@ -778,20 +790,21 @@ class Server:
             try:
                 stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=180.0)
                 ok = proc.returncode == 0
+                output = stdout.decode(errors="replace")
             except asyncio.TimeoutError:
                 proc.kill()
-                return web.json_response(
-                    {"ok": False, "error": "Build timed out after 180s"},
-                    status=504,
-                )
-            output = stdout.decode(errors="replace")
+                return {"ok": False, "error": "Build timed out after 180s", "output": ""}
         except FileNotFoundError:
-            return web.json_response({"ok": False, "error": "pio not found in PATH"}, status=500)
-        return web.json_response({
+            return {"ok": False, "error": "pio not found in PATH", "output": ""}
+        return {
             "ok": ok,
             "output": output[-3000:],
             "binary_ready": ok and os.path.exists(_firmware_binary_path()),
-        })
+        }
+
+    async def _handle_firmware_build(self, request: web.Request) -> web.Response:
+        result = await self._do_firmware_build()
+        return web.json_response(result)
 
     async def _handle_firmware_binary(self, request: web.Request) -> web.Response:
         path = _firmware_binary_path()
@@ -805,8 +818,7 @@ class Server:
     async def _handle_firmware_update(self, request: web.Request) -> web.Response:
         """Orchestrate OTA: build, then send cmd_ota_update to firmware."""
         # 1. Build
-        build_resp = await self._handle_firmware_build(request)
-        build_data = json.loads(build_resp.text)
+        build_data = await self._do_firmware_build()
         if not build_data.get("ok"):
             return web.json_response(
                 {"ok": False, "error": "Build failed", "output": build_data.get("output")},
@@ -853,6 +865,8 @@ class Server:
         ota_status = (getattr(getattr(self._dog, '_transport', None), 'firmware_info', {}) or {}).get('ota_status')
         if ota_status:
             status["ota_status"] = ota_status
+            if ota_status == "complete":
+                self._detected_wifi = None  # Allow re-discovery after reboot
         await self._broadcast(status)
 
     async def _broadcast(self, msg: dict):
@@ -987,7 +1001,7 @@ class Server:
         self._detected_wifi = {"connected": True, "ip": ip, "port": port,
                                "fw_version": props.get("fw_version", "")}
         current_priority = _transport_priority(self._transport_label)
-        wifi_priority = _TRANSPORT_PRIORITY["fw"]  # mDNS-discovered = custom firmware over WiFi
+        wifi_priority = _TRANSPORT_PRIORITY["fw-wifi"]  # mDNS-discovered = custom firmware over WiFi
         if not self._user_override_transport and wifi_priority > current_priority:
             logger.info("mDNS: auto-connecting to %s:%d", ip, port)
             try:
