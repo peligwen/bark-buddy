@@ -15,17 +15,7 @@
             <span class="stat"><span class="stat-label">Bal</span> <span id="balance-val" class="off">OFF</span></span>
             <div id="header-right">
                 <span id="fw-badge" class="fw-badge unknown" title="Firmware version" role="button">FW --</span>
-                <div id="transport-wrapper">
-                    <span id="transport-badge" class="transport-badge sim">SIM</span>
-                    <div id="transport-menu" class="transport-menu hidden">
-                        <button data-transport="usb">USB (stock)</button>
-                        <button data-transport="usb-fw">USB (firmware)</button>
-                        <button data-transport="wifi">WiFi (stock)</button>
-                        <button data-transport="wifi-fw">WiFi (firmware)</button>
-                        <button data-transport="wifi-setup">Setup WiFi...</button>
-                        <button data-transport="sim">Sim (classic)</button>
-                    </div>
-                </div>
+                <span id="transport-badge" class="transport-badge sim">SIM</span>
                 <button id="btn-lock" class="header-btn">Take Control</button>
                 <span id="lock-text"></span>
                 <span id="conn-indicator" class="indicator disconnected"></span>
@@ -42,27 +32,7 @@
         <canvas id="batt-canvas" width="300" height="120"></canvas>
     </div>
 
-    <div id="wifi-banner" class="hidden">
-        <span id="wifi-banner-text">WiFi detected</span>
-        <button id="wifi-banner-switch">Switch to WiFi</button>
-        <button class="dismiss" id="wifi-banner-dismiss">&#10005;</button>
-    </div>
     <div id="fall-alert" class="hidden">FALL DETECTED</div>
-
-    <div id="wifi-modal" class="modal hidden">
-        <div class="modal-content">
-            <h3>WiFi Setup</h3>
-            <label for="wifi-ssid">Network Name</label>
-            <input type="text" id="wifi-ssid" placeholder="SSID" autocomplete="off">
-            <label for="wifi-pass">Password</label>
-            <input type="password" id="wifi-pass" placeholder="Password">
-            <div class="modal-buttons">
-                <button id="wifi-modal-cancel" class="action-btn">Cancel</button>
-                <button id="wifi-modal-connect" class="action-btn primary">Connect</button>
-            </div>
-            <div id="wifi-modal-status" class="hidden"></div>
-        </div>
-    </div>
 
     <div id="main">
         <div id="panel-left">
