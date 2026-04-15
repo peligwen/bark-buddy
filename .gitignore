@@ -23,3 +23,4 @@ firmware/test/test_offsets
 firmware/test/test_gait_ik
 firmware/test/test_servos
 firmware/test/test_lifecycle
+bark_buddy.egg-info/
