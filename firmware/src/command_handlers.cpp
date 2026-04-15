@@ -42,6 +42,10 @@ static void handle_ping(const JsonDocument&) {
 }
 
 static void handle_cmd_move(const JsonDocument& doc) {
+    if (!lifecycle_can_command()) {
+        send_ack(MSG_CMD_MOVE, false, "not_active");
+        return;
+    }
     s_manual_servo_mode = false;
     const char* dir_str = doc["direction"] | "stop";
     float spd = doc["speed"] | 1.0f;
@@ -57,6 +61,10 @@ static void handle_cmd_move(const JsonDocument& doc) {
 }
 
 static void handle_cmd_stand(const JsonDocument&) {
+    if (!lifecycle_can_command()) {
+        send_ack(MSG_CMD_STAND, false, "not_active");
+        return;
+    }
     s_manual_servo_mode = false;
     gait_set_state(GaitState::STAND);
     send_ack(MSG_CMD_STAND, true);
@@ -162,12 +170,22 @@ static void handle_cmd_test_mode(const JsonDocument& doc) {
     send_json(resp);
 }
 
+static void handle_cmd_wake(const JsonDocument&) {
+    lifecycle_cmd_wake(millis());
+    send_ack(MSG_CMD_WAKE, true);
+}
+
+static void handle_cmd_sleep(const JsonDocument&) {
+    lifecycle_cmd_sleep(millis());
+    send_ack(MSG_CMD_SLEEP, true);
+}
+
 static void handle_cmd_shutdown(const JsonDocument&) {
     s_manual_servo_mode = false;
     s_test_mode = false;
     servos_set_frail(false);
     gait_set_state(GaitState::STOP);
-    bool ok = servos_shutdown_to_lying_down();
+    bool ok = servos_shutdown_to_rest();
     send_ack(MSG_CMD_SHUTDOWN, ok);
 }
 
@@ -225,6 +243,8 @@ static const Handler k_handlers[] = {
     { MSG_CMD_OFFSET,       handle_cmd_offset       },
     { MSG_CMD_I2C_WRITE,    handle_cmd_i2c_write    },
     { MSG_CMD_SHUTDOWN,     handle_cmd_shutdown     },
+    { MSG_CMD_WAKE,         handle_cmd_wake         },
+    { MSG_CMD_SLEEP,        handle_cmd_sleep        },
 };
 
 void handlers_init() {
