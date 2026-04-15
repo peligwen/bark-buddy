@@ -65,8 +65,8 @@ def main():
     print(f"WiFi connected! IP: {ip}")
 
     webrepl_pass = read_config_local_value("WEBREPL_PASS", "bark")
-    if '"' in webrepl_pass or '\\' in webrepl_pass:
-        print("Error: WEBREPL_PASS must not contain double-quotes or backslashes")
+    if any(c in webrepl_pass for c in ('"', '\\', "'", '\n', '\r')):
+        print("Error: WEBREPL_PASS must not contain double-quotes, backslashes, single-quotes, or newlines")
         sys.exit(1)
     print("Writing WebREPL config...")
     send(ser, 'f = open("webrepl_cfg.py", "w")', delay=0.5)

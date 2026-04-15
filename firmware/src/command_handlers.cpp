@@ -264,8 +264,15 @@ static void handle_cmd_ota_update(const JsonDocument& doc) {
             return;
         }
         after_scheme += 3; // skip past "://"
+        // Reject URLs containing '@' in the authority (userinfo bypass prevention)
+        const char* auth_end = strchr(after_scheme, '/');
+        size_t auth_len = auth_end ? (size_t)(auth_end - after_scheme) : strlen(after_scheme);
+        if (memchr(after_scheme, '@', auth_len) != nullptr) {
+            send_ack(MSG_CMD_OTA_UPDATE, false, "url_not_allowed");
+            return;
+        }
         const char* end = after_scheme;
-        while (*end && *end != ':' && *end != '/' && *end != '@') end++;
+        while (*end && *end != ':' && *end != '/') end++;
         String url_host(after_scheme, (size_t)(end - after_scheme));
         if (url_host != client_ip) {
             send_ack(MSG_CMD_OTA_UPDATE, false, "url_not_allowed");
