@@ -8,6 +8,7 @@
 #include "servos.h"
 #include "balance.h"
 #include "offsets.h"
+#include "ota.h"
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <string.h>
@@ -259,11 +260,17 @@ static void handle_cmd_ota_update(const JsonDocument& doc) {
     lifecycle_cmd_update(millis());
 
     // Enable rainbow LEDs
-    extern bool s_ota_led_active;
     s_ota_led_active = true;
 
-    // Wait for servo ramp to settle
-    delay(SHUTDOWN_RAMP_MS + 300);
+    // Detach servos immediately — the ramp can't execute while loop() is blocked
+    // by this handler. Detached is the same end-state as end-of-ramp anyway.
+    servos_detach_all();
+
+    auto ota_cleanup = [&]() {
+        s_ota_led_active = false;
+        sensor_led_set(1, 0, LED_BRIGHTNESS, 0);
+        sensor_led_set(2, 0, LED_BRIGHTNESS, 0);
+    };
 
     auto send_status = [](const char* status, const char* error = nullptr) {
         JsonDocument s;
@@ -281,9 +288,7 @@ static void handle_cmd_ota_update(const JsonDocument& doc) {
     if (code != HTTP_CODE_OK) {
         send_status("failed", "http_error");
         http.end();
-        s_ota_led_active = false;
-        sensor_led_set(1, 0, LED_BRIGHTNESS, 0);
-        sensor_led_set(2, 0, LED_BRIGHTNESS, 0);
+        ota_cleanup();
         return;
     }
 
@@ -292,9 +297,7 @@ static void handle_cmd_ota_update(const JsonDocument& doc) {
     if (!Update.begin(len > 0 ? len : UPDATE_SIZE_UNKNOWN)) {
         send_status("failed", "update_begin_failed");
         http.end();
-        s_ota_led_active = false;
-        sensor_led_set(1, 0, LED_BRIGHTNESS, 0);
-        sensor_led_set(2, 0, LED_BRIGHTNESS, 0);
+        ota_cleanup();
         return;
     }
 
@@ -310,9 +313,7 @@ static void handle_cmd_ota_update(const JsonDocument& doc) {
         ESP.restart();
     } else {
         send_status("failed", "flash_error");
-        s_ota_led_active = false;
-        sensor_led_set(1, 0, LED_BRIGHTNESS, 0);
-        sensor_led_set(2, 0, LED_BRIGHTNESS, 0);
+        ota_cleanup();
     }
 #endif
 }

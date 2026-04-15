@@ -775,8 +775,15 @@ class Server:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
             )
-            stdout, _ = await proc.communicate()
-            ok = proc.returncode == 0
+            try:
+                stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=180.0)
+                ok = proc.returncode == 0
+            except asyncio.TimeoutError:
+                proc.kill()
+                return web.json_response(
+                    {"ok": False, "error": "Build timed out after 180s"},
+                    status=504,
+                )
             output = stdout.decode(errors="replace")
         except FileNotFoundError:
             return web.json_response({"ok": False, "error": "pio not found in PATH"}, status=500)

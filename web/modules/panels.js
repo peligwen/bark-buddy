@@ -256,6 +256,11 @@ export function setupOtaPanel() {
 }
 
 export function updateOtaStatus(status, error) {
+    // Auto-show modal if OTA is in progress (handles page refresh recovery)
+    if (status === 'downloading' || status === 'flashing') {
+        var modal = document.getElementById('ota-modal');
+        if (modal) modal.classList.remove('hidden');
+    }
     var fill = document.getElementById('ota-progress-fill');
     var text = document.getElementById('ota-status-text');
     if (!fill || !text) return;

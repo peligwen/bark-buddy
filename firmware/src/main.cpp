@@ -11,6 +11,7 @@
 #include "gait.h"
 #include "balance.h"
 #include "offsets.h"
+#include "ota.h"
 #ifndef WIFI_ENABLED
 #define WIFI_ENABLED 0
 #endif
@@ -218,8 +219,8 @@ void loop() {
     }
 #endif
 
-    // Heartbeat watchdog
-    if (connected && (now - last_msg_received > HEARTBEAT_TIMEOUT_MS)) {
+    // Heartbeat watchdog (skip during OTA — blocking handler holds loop())
+    if (connected && !lifecycle_is_updating() && (now - last_msg_received > HEARTBEAT_TIMEOUT_MS)) {
         connected = false;
         lifecycle_heartbeat_lost(now);
         sensor_led_set(1, LED_R_LAVENDER, LED_G_LAVENDER, LED_B_LAVENDER);
