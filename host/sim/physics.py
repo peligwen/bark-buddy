@@ -38,6 +38,10 @@ TOTAL_MASS = BODY_MASS + 4 * LEG_MASS
 STAND_HIP = 0.524       # ~30 degrees
 STAND_KNEE = -0.611     # ~-35 degrees
 
+# Rest pose (radians) — placeholder values matching firmware REST_POSE intent
+REST_HIP  =  0.262      # ~15° — hips rotated back, placeholder
+REST_KNEE = -0.349      # ~-20° — knees tucked, placeholder
+
 # Inertia (body + legs at their offsets — parallel axis theorem)
 Ixx = BODY_MASS * (BODY_W ** 2 + BODY_H ** 2) / 12
 Iyy = BODY_MASS * (BODY_L ** 2 + BODY_H ** 2) / 12
@@ -845,3 +849,32 @@ class DogPhysics:
                 "foot": [leg.foot_world.x, leg.foot_world.y, leg.foot_world.z],
             }
         return joints
+
+    def set_lifecycle_target(self, target: str, t: float) -> None:
+        """Interpolate leg pose toward 'standing' or 'rest'.
+
+        Args:
+            target: 'standing' or 'rest'
+            t: interpolation progress [0.0, 1.0] — 0=start, 1=target reached
+
+        Called by sim_transport._sim_lifecycle_update() during startup/shutdown
+        ramps to animate the dog transitioning between poses. Sets joint targets
+        and angles directly so the visual pose responds immediately without
+        waiting for the PD controller to converge.
+        """
+        if target == "standing":
+            target_hip  = STAND_HIP
+            target_knee = STAND_KNEE
+        else:  # "rest"
+            target_hip  = REST_HIP
+            target_knee = REST_KNEE
+
+        for leg in self.legs:
+            new_hip  = leg.hip_angle  + (target_hip  - leg.hip_angle)  * t
+            new_knee = leg.knee_angle + (target_knee - leg.knee_angle) * t
+            leg.hip_angle   = new_hip
+            leg.knee_angle  = new_knee
+            leg.hip_target  = new_hip
+            leg.knee_target = new_knee
+
+        self._update_foot_positions()
