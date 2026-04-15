@@ -79,8 +79,8 @@ header h1 {
 .stat-label { font-size: 0.6rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; }
 .stat .on { color: var(--green); }
 .stat .off { color: var(--text-dim); }
-.stat .warn-text { color: var(--amber); }
-.stat .danger-text { color: var(--red); }
+.warn-text { color: var(--amber); }
+.danger-text { color: var(--red); }
 
 #header-right { display: flex; align-items: center; gap: 8px; font-size: 0.75rem; color: var(--text-muted); white-space: nowrap; flex-shrink: 0; margin-left: auto; }
 .header-btn {
