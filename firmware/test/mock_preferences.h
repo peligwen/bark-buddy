@@ -1,5 +1,7 @@
 // firmware/test/mock_preferences.h
 #pragma once
+// Block the real Arduino Preferences.h from loading — we define our own stub.
+#define _PREFERENCES_H_
 #include <cstring>
 #include <cstdint>
 

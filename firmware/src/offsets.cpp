@@ -1,12 +1,12 @@
 #include "offsets.h"
 #include "config.h"
 
-#if defined(ESP_PLATFORM)
+#if defined(ESP_PLATFORM) && !defined(UNIT_TEST)
 #include <Preferences.h>
 #else
 #include "../test/mock_preferences.h"
 #include <algorithm>
-// local constrain for native
+// local constrain for native/test builds
 static inline int constrain_i(int v, int lo, int hi) {
     return v < lo ? lo : (v > hi ? hi : v);
 }
@@ -67,7 +67,7 @@ void offsets_reset() {
 
 uint16_t apply_offset(uint8_t servo_idx, uint16_t raw_us) {
     int val = (int)raw_us + (int)offset_get(servo_idx);
-#if defined(ESP_PLATFORM)
+#if defined(ESP_PLATFORM) && !defined(UNIT_TEST)
     return (uint16_t)constrain(val, SERVO_MIN_US, SERVO_MAX_US);
 #else
     return (uint16_t)constrain_i(val, SERVO_MIN_US, SERVO_MAX_US);

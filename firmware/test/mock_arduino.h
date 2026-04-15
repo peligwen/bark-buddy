@@ -68,8 +68,12 @@ inline int analogRead(uint8_t pin) { (void)pin; return 3200; } // ~7.4V with div
 // Serial stub
 struct MockSerial {
     void begin(unsigned long) {}
+    void end() {}
     void println(const char* s = "") { printf("%s\n", s); }
     void print(const char* s) { printf("%s", s); }
+    size_t write(uint8_t c) { printf("%c", c); return 1; }
+    size_t write(const uint8_t* buf, size_t n) { fwrite(buf, 1, n, stdout); return n; }
+    void flush() { fflush(stdout); }
     int available() { return 0; }
     char read() { return 0; }
     operator bool() { return true; }
