@@ -64,7 +64,6 @@ class Server:
         self._lock_time: float = 0.0
         self._lock_timeout: float = 30.0  # seconds of inactivity before auto-release
         self._client_names: dict[web.WebSocketResponse, str] = {}
-        self._lifecycle = "unknown"
 
     @web.middleware
     async def _no_cache_middleware(self, request, handler):
@@ -320,39 +319,42 @@ class Server:
 
     # --- Control lock ---
 
-    def _check_lock_timeout(self) -> None:
-        """Release lock if holder timed out."""
+    def _lock_timed_out(self) -> bool:
+        """Return True if the lock holder has timed out (sync, no side effects)."""
         if self._lock_holder and self._lock_time:
             import time
-            if time.monotonic() - self._lock_time > self._lock_timeout:
-                self._lock_holder = None
-                self._lock_name = ""
-                # Fire-and-forget: put the dog to sleep after lock auto-expires
-                asyncio.get_event_loop().call_soon(
-                    lambda: asyncio.ensure_future(self._dog.sleep())
-                )
+            return time.monotonic() - self._lock_time > self._lock_timeout
+        return False
+
+    async def _check_lock_timeout(self) -> None:
+        """Release lock via _release_lock() if the holder has timed out."""
+        if self._lock_timed_out():
+            await self._release_lock()
 
     def _is_locked_by(self, ws: web.WebSocketResponse) -> bool:
-        """Check if the given client holds the lock."""
-        self._check_lock_timeout()
+        """Check if the given client holds the lock (does not trigger release)."""
+        if self._lock_timed_out():
+            return False
         return self._lock_holder is ws
 
     def _is_locked(self) -> bool:
-        """Check if any client holds the lock."""
-        self._check_lock_timeout()
+        """Check if any client holds the lock (does not trigger release)."""
+        if self._lock_timed_out():
+            return False
         return self._lock_holder is not None
 
     def _can_control(self, ws: web.WebSocketResponse) -> bool:
-        """Check if the given client is allowed to send commands."""
-        self._check_lock_timeout()
+        """Check if the given client is allowed to send commands (does not trigger release)."""
+        if self._lock_timed_out():
+            return True
         return self._lock_holder is None or self._lock_holder is ws
 
     def _lock_status_msg(self) -> dict:
-        self._check_lock_timeout()
+        timed_out = self._lock_timed_out()
         return {
             "type": "lock_status",
-            "locked": self._lock_holder is not None,
-            "holder": self._lock_name if self._lock_holder else None,
+            "locked": self._lock_holder is not None and not timed_out,
+            "holder": self._lock_name if self._lock_holder and not timed_out else None,
             "is_you": False,  # overridden per-client
         }
 
@@ -368,9 +370,11 @@ class Server:
         """Release the control lock and put the dog to sleep."""
         self._lock_holder = None
         self._lock_name = ""
+        self._lock_time = 0.0
         await self._dog.sleep()
 
     async def _broadcast_lock_status(self) -> None:
+        await self._check_lock_timeout()
         msg = self._lock_status_msg()
         dead = set()
         for ws in self._ws_clients:
@@ -418,6 +422,7 @@ class Server:
         }))
 
         # Send lock status
+        await self._check_lock_timeout()
         lock_msg = self._lock_status_msg()
         lock_msg["is_you"] = (ws is self._lock_holder)
         await ws.send_str(json.dumps(lock_msg))
@@ -490,6 +495,7 @@ class Server:
         # --- Control commands (gated by lock) ---
         if msg_type in ("cmd_move", "cmd_stand", "cmd_balance",
                          "cmd_action", "cmd_scan"):
+            await self._check_lock_timeout()
             if not self._can_control(ws):
                 await ws.send_str(json.dumps({
                     "type": "lock_denied",
