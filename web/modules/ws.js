@@ -6,14 +6,14 @@ var messageHandler = null;
 
 export function setMessageHandler(fn) { messageHandler = fn; }
 
-export function connect() {
+export function connect(onOpen) {
     if (ws && ws.readyState <= WebSocket.OPEN) return;
     ws = new WebSocket(WS_URL);
 
     ws.onopen = function () {
         setConnected(true);
         if (reconnectTimer) { clearInterval(reconnectTimer); reconnectTimer = null; }
-        if (window._onWsOpen) window._onWsOpen();
+        if (onOpen) onOpen();
     };
     ws.onclose = function () { setConnected(false); scheduleReconnect(); };
     ws.onerror = function () { ws.close(); };

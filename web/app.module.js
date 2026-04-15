@@ -202,10 +202,7 @@ document.addEventListener("keydown", function (e) {
     if (e.key === "k" || e.key === "K") toggleKinematics();
 });
 
-// On WS open, identify and request map
-window._onWsOpen = function () {
+connect(function () {
     send({ type: "cmd_identify", name: operatorName });
     send({ type: "cmd_map", action: "get" });
-};
-
-connect();
+});
