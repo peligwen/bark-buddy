@@ -2,8 +2,19 @@
 #include <stdint.h>
 
 // Initialize 8-servo LEDC hardware PWM. Returns false if PINS_VERIFIED is 0.
-// Performs soft-start: attaches at lying-down pose, pauses, then ramps to standing over 2s.
+// Performs soft-start: attaches at REST_POSE, pauses, then ramps to standing over 2s.
 bool servos_init();
+
+// Attach all LEDC channels and set servos to the given pose without ramping.
+// Returns false if already attached or PINS_VERIFIED=0.
+bool servos_attach_at(const uint16_t pose[8]);
+
+// Blocking ramp from current positions to target over duration_ms using the given step count.
+// No-op if servos are not attached.
+void servos_ramp_to(const uint16_t target[8], uint16_t duration_ms, uint8_t steps);
+
+// Ramp to REST_POSE, settle, then detach. Returns false if not attached.
+bool servos_shutdown_to_rest();
 
 // Smoothly transition to lying-down pose, settle, then detach all servos. Blocking (~2s).
 // Returns false if servos were not attached.

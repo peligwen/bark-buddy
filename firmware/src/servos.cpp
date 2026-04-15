@@ -31,43 +31,59 @@ static uint32_t us_to_duty(uint16_t pulse_us) {
     return (uint32_t)((uint64_t)pulse_us * LEDC_MAX_DUTY / (1000000UL / SERVO_FREQ_HZ));
 }
 
-bool servos_init() {
+bool servos_attach_at(const uint16_t pose[8]) {
 #if !PINS_VERIFIED
     Serial.println("{\"type\":\"error\",\"msg\":\"PINS_VERIFIED=0, servos disabled\"}");
     return false;
 #else
-    // Channels 0-7 map 1:1 to servo indices.
+    if (attached) return false;
     for (int i = 0; i < 8; i++) {
         ledcSetup(i, SERVO_FREQ_HZ, LEDC_RESOLUTION);
         ledcAttachPin(SERVO_PINS[i], i);
     }
     attached = true;
-
-    // Start at lying-down pose — no snap, servos are already there from last shutdown.
     for (int i = 0; i < 8; i++) {
-        uint16_t pos = clamp_us(LYING_DOWN_POSE[i]);
+        uint16_t pos = clamp_us(pose[i]);
         current_us[i] = pos;
         ledcWrite(SERVO_PINS[i], us_to_duty(pos));
     }
+    return true;
+#endif
+}
 
-    delay(BOOT_SETTLE_MS);
-
-    // Ramp from lying-down to standing over SOFTSTART_DURATION_MS
-    for (int step = 0; step <= SOFTSTART_STEPS; step++) {
-        float t = (float)step / (float)SOFTSTART_STEPS;
+void servos_ramp_to(const uint16_t target[8], uint16_t duration_ms, uint8_t steps) {
+    if (!attached) return;
+    uint16_t start_us[8];
+    for (int i = 0; i < 8; i++) {
+        start_us[i] = current_us[i] > 0 ? current_us[i] : target[i];
+    }
+    for (int step = 0; step <= steps; step++) {
+        float t = (float)step / (float)steps;
         for (int i = 0; i < 8; i++) {
-            int16_t start = (int16_t)LYING_DOWN_POSE[i];
-            int16_t end   = (int16_t)STANDING_POSE[i];
-            uint16_t pos  = (uint16_t)(start + (int16_t)((float)(end - start) * t));
+            int16_t s = (int16_t)start_us[i];
+            int16_t e = (int16_t)target[i];
+            uint16_t pos = (uint16_t)(s + (int16_t)((float)(e - s) * t));
             pos = clamp_us(pos);
             current_us[i] = pos;
             ledcWrite(SERVO_PINS[i], us_to_duty(pos));
         }
-        delay(SOFTSTART_DURATION_MS / SOFTSTART_STEPS);
+        delay(duration_ms / steps);
     }
+}
 
+bool servos_shutdown_to_rest() {
+    if (!attached) return false;
+    servos_ramp_to(REST_POSE, SHUTDOWN_RAMP_MS, SHUTDOWN_RAMP_STEPS);
+    delay(REST_SETTLE_MS);
+    servos_detach_all();
     return true;
-#endif
+}
+
+bool servos_init() {
+    if (!servos_attach_at(REST_POSE)) return false;
+    delay(BOOT_SETTLE_MS);
+    servos_ramp_to(STANDING_POSE, SOFTSTART_DURATION_MS, SOFTSTART_STEPS);
+    return true;
 }
 
 void servo_write_us(uint8_t index, uint16_t pulse_us) {

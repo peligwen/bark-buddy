@@ -53,12 +53,13 @@ static void test_init_reaches_standing() {
 }
 
 // ------------------------------------------------------------------ //
-// Test 2: Soft-start ramp is monotonic (for each servo from lying-down to standing)
+// Test 2: Soft-start ramp is monotonic (for each servo from rest to standing)
 // ------------------------------------------------------------------ //
 static void test_softstart_monotonic() {
     printf("\nTest: soft-start ramp is monotonic\n");
     servo_log_reset();
     mock_reset_clock();
+    servos_detach_all();
 
     servos_init();
 
@@ -78,8 +79,8 @@ static void test_softstart_monotonic() {
             continue;
         }
         // Allow equal (same step written twice at start/end of ramp)
-        // Direction: LYING_DOWN_POSE[0]=1500 → STANDING_POSE[0]=2096, so duty should be non-decreasing
-        bool going_up = STANDING_POSE[0] >= LYING_DOWN_POSE[0];
+        // Direction: REST_POSE[0]=1800 → STANDING_POSE[0]=2096, so duty should be non-decreasing
+        bool going_up = STANDING_POSE[0] >= REST_POSE[0];
         if (going_up && c.duty < prev) { monotonic = false; break; }
         if (!going_up && c.duty > prev) { monotonic = false; break; }
         prev = c.duty;
@@ -213,6 +214,70 @@ static void test_duty_values() {
 }
 
 // ------------------------------------------------------------------ //
+// Test 8: servos_attach_at() sets all servos to the given pose
+// ------------------------------------------------------------------ //
+static void test_attach_at() {
+    printf("\nTest: servos_attach_at sets pose without ramping\n");
+    servo_log_reset();
+    mock_reset_clock();
+
+    // Start from detached state
+    servos_detach_all();
+
+    bool result = servos_attach_at(REST_POSE);
+    check(result, "servos_attach_at returns true when detached");
+    check(servos_active(), "servos_active() true after attach_at");
+
+    // Verify all servos are at REST_POSE
+    bool all_correct = true;
+    for (int i = 0; i < 8; i++) {
+        uint32_t expected = expected_duty(REST_POSE[i]);
+        uint32_t actual   = _servo_duty[SERVO_PINS[i]];
+        if (actual != expected) {
+            printf("  servo %d: expected duty %u (REST_POSE %u) got %u\n",
+                   i, expected, REST_POSE[i], actual);
+            all_correct = false;
+        }
+    }
+    check(all_correct, "all servos at REST_POSE duty after attach_at");
+    check(servo_read_us(0) == REST_POSE[0], "servo_read_us returns REST_POSE value");
+
+    // Second call while attached returns false
+    bool second = servos_attach_at(REST_POSE);
+    check(!second, "servos_attach_at returns false when already attached");
+    check(servos_active(), "servos_active() still true after second attach_at");
+}
+
+// ------------------------------------------------------------------ //
+// Test 9: servos_shutdown_to_rest() ramps to REST_POSE and detaches
+// ------------------------------------------------------------------ //
+static void test_shutdown_to_rest() {
+    printf("\nTest: servos_shutdown_to_rest ramps to REST_POSE and detaches\n");
+    servo_log_reset();
+    mock_reset_clock();
+
+    // Start from standing
+    servos_init();
+
+    // Move servo 0 away from rest
+    servo_write_us(0, 2000);
+
+    bool result = servos_shutdown_to_rest();
+    check(result, "servos_shutdown_to_rest returns true");
+    check(!servos_active(), "servos inactive after shutdown_to_rest");
+
+    // All duties should be 0 (detached)
+    bool all_zero = true;
+    for (int i = 0; i < 8; i++) {
+        if (_servo_duty[SERVO_PINS[i]] != 0) { all_zero = false; break; }
+    }
+    check(all_zero, "all duties zero after shutdown_to_rest");
+
+    // Second call returns false (already detached)
+    check(!servos_shutdown_to_rest(), "second shutdown_to_rest call returns false");
+}
+
+// ------------------------------------------------------------------ //
 // Main
 // ------------------------------------------------------------------ //
 int main() {
@@ -225,6 +290,8 @@ int main() {
     test_detach();
     test_shutdown_ramp();
     test_frail_mode();
+    test_attach_at();
+    test_shutdown_to_rest();
 
     printf("\n%d passed, %d failed\n", g_pass, g_fail);
     return g_fail > 0 ? 1 : 0;
