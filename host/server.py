@@ -184,8 +184,9 @@ class Server:
     async def _replace_transport(self, new_transport, new_label: str):
         """Teardown current transport and swap in a new one.
 
-        Cancels both poll_task and reconnect_task before touching the transport,
-        then reconnects and restarts both tasks. Serialized by _switch_lock.
+        Acquires _switch_lock, cancels both poll_task and reconnect_task before
+        touching the transport, then reconnects and restarts both tasks.
+        This is the single canonical method for all transport switching.
         """
         async with self._switch_lock:
             # Cancel telemetry loop
@@ -870,102 +871,46 @@ class Server:
 
     async def _on_device_added(self, port: str):
         """Called when a USB serial device is plugged in."""
-        async with self._switch_lock:
-            if self._user_override_transport:
-                logger.info("Hot-plug: ignoring %s (user override active)", port)
-                return
-            current_priority = _transport_priority(self._transport_label)
-            # Probe what's on the port
-            try:
-                transport, label = await _detect_serial_transport(port)
-            except Exception as e:
-                logger.warning("Hot-plug: probe failed for %s: %s", port, e)
-                return
-            new_priority = _transport_priority(label)
-            if new_priority > current_priority:
-                logger.info("Hot-plug: auto-switching to %s (priority %d > %d)",
-                            label, new_priority, current_priority)
-                await self._auto_switch(transport, label)
-            else:
-                logger.info("Hot-plug: ignoring %s (priority %d <= current %d)",
-                            label, new_priority, current_priority)
+        if self._user_override_transport:
+            logger.info("Hot-plug: ignoring %s (user override active)", port)
+            return
+        current_priority = _transport_priority(self._transport_label)
+        # Probe what's on the port
+        try:
+            transport, label = await _detect_serial_transport(port)
+        except Exception as e:
+            logger.warning("Hot-plug: probe failed for %s: %s", port, e)
+            return
+        new_priority = _transport_priority(label)
+        if new_priority > current_priority:
+            logger.info("Hot-plug: auto-switching to %s (priority %d > %d)",
+                        label, new_priority, current_priority)
+            await self._replace_transport(transport, label)
+        else:
+            logger.info("Hot-plug: ignoring %s (priority %d <= current %d)",
+                        label, new_priority, current_priority)
 
     async def _on_device_removed(self, port: str):
         """Called when a USB serial device is unplugged."""
-        async with self._switch_lock:
-            # Only act if the removed port matches the active transport
-            if port not in self._transport_label:
+        # Only act if the removed port matches the active transport
+        if port not in self._transport_label:
+            return
+        logger.warning("Hot-plug: active device removed: %s — falling back", port)
+        # User's chosen device is gone — clear the override
+        self._user_override_transport = False
+        # Fall back: mDNS-discovered WiFi (if available), else sim
+        if self._detected_wifi and self._detected_wifi.get("ip"):
+            ip = self._detected_wifi["ip"]
+            tcp_port = self._detected_wifi.get("port", 9000)
+            try:
+                from firmware_transport import FirmwareTransport
+                transport = FirmwareTransport(host=ip, tcp_port=tcp_port)
+                await self._replace_transport(transport, f"fw:{ip}")
                 return
-            logger.warning("Hot-plug: active device removed: %s — falling back", port)
-            # User's chosen device is gone — clear the override
-            self._user_override_transport = False
-            # Fall back: mDNS-discovered WiFi (if available), else sim
-            if self._detected_wifi and self._detected_wifi.get("ip"):
-                ip = self._detected_wifi["ip"]
-                tcp_port = self._detected_wifi.get("port", 9000)
-                try:
-                    from firmware_transport import FirmwareTransport
-                    transport = FirmwareTransport(host=ip, tcp_port=tcp_port)
-                    await self._auto_switch(transport, f"fw:{ip}")
-                    return
-                except Exception as e:
-                    logger.warning("Hot-plug: WiFi fallback failed: %s", e)
-            from sim.sim_transport import SimTransport
-            await self._auto_switch(SimTransport(), "sim")
-
-    async def _auto_switch(self, new_transport, new_label: str):
-        """Switch to a new transport programmatically (not user-triggered).
-
-        Delegates to _replace_transport. Callers must already hold _switch_lock
-        (e.g. _on_device_added / _on_device_removed), so _replace_transport must
-        NOT try to re-acquire it — we call the inner logic directly here to avoid
-        a deadlock. Since the lock is already held, we replicate the teardown inline.
-        """
-        # NOTE: _switch_lock is already held by the caller (_on_device_added /
-        # _on_device_removed). We cannot call _replace_transport (which re-acquires
-        # the lock). Perform the swap directly.
-        if self._poll_task:
-            self._poll_task.cancel()
-            try:
-                await self._poll_task
-            except asyncio.CancelledError:
-                pass
-            self._poll_task = None
-        if self._reconnect_task:
-            self._reconnect_task.cancel()
-            try:
-                await self._reconnect_task
-            except asyncio.CancelledError:
-                pass
-            self._reconnect_task = None
-        try:
-            if self._transport and self._transport.is_open():
-                await self._transport.set_led_status("shutdown")
-        except Exception:
-            pass
-        try:
-            await self._dog.disconnect()
-        except Exception:
-            pass
-        from comms import DogComms
-        from behaviors.balance import BalanceLayer
-        from behaviors.scan import ScanBehavior
-        self._transport = new_transport
-        self._dog = DogComms(new_transport)
-        self._balance = BalanceLayer(self._dog)
-        self._balance.on_fall(self._on_fall)
-        self._balance.on_recovered(self._on_recovered)
-        self._scan = ScanBehavior(self._dog)
-        self._scan.on_point(self._on_scan_point)
-        self._scan.on_complete(self._on_scan_complete)
-        self._transport_label = new_label
-        try:
-            await self._dog.connect()
-        except Exception as e:
-            logger.warning("Auto-switch connect failed: %s — staying on %s", e, new_label)
-        self._poll_task = asyncio.create_task(self._telemetry_loop())
-        self._reconnect_task = asyncio.create_task(self._reconnect_loop())
-        await self._broadcast_status()
+            except Exception as e:
+                logger.warning("Hot-plug: WiFi fallback failed: %s", e)
+        from sim.sim_transport import SimTransport
+        await self._replace_transport(SimTransport(), "sim")
 
 
 def _restart_server():
