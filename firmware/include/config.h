@@ -54,6 +54,10 @@ static const uint8_t SERVO_PINS[8] = {
 #define SHUTDOWN_SETTLE_MS  500     // pause after lying-down before detach
 #define BOOT_SETTLE_MS      500     // pause at lying-down before ramping to standing
 
+// --- Lifecycle Timing ---
+#define IDLE_TIMEOUT_MS   10000  // sleep after 10s idle in IDLE state
+#define REST_SETTLE_MS      500  // pause at rest pose before detaching servos
+
 // --- Standing Pose (servo pulse widths in μs) ---
 // Captured from stock firmware set_default_pose() + offsets
 // Order: FL_hip, FL_knee, FR_hip, FR_knee, RL_hip, RL_knee, RR_hip, RR_knee
@@ -67,6 +71,15 @@ static const uint16_t STANDING_POSE[8] = {
 // Order: FL_hip, FL_knee, FR_hip, FR_knee, RL_hip, RL_knee, RR_hip, RR_knee
 static const uint16_t LYING_DOWN_POSE[8] = {
     1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500
+};
+
+// --- Rest Pose (servo pulse widths in μs) ---
+// Physical rest pose: hips back, knees tucked. Used by the startup lifecycle
+// state machine to settle the dog before detaching servos.
+// PLACEHOLDER VALUES — requires hardware tuning before use.
+// Order: FL_hip, FL_knee, FR_hip, FR_knee, RL_hip, RL_knee, RR_hip, RR_knee
+static const uint16_t REST_POSE[8] = {
+    1800, 1500, 1870, 1500, 1202, 1500, 1165, 1500
 };
 
 // --- Battery ADC (VERIFIED: Hiwonder.__adcp = ADC(Pin(34), atten=3)) ---
