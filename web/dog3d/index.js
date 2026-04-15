@@ -1,7 +1,7 @@
 // Main entry point — assembles submodules and exports the Dog3D public API.
 import { state, S, COL, BODY_L, BODY_H, standingHeight } from './state.js';
 import { buildDog } from './model.js';
-import { animateGait, setPose, clearPose, getPoseNames, applySimJoints } from './gait.js';
+import { animateGait, setPose, clearPose, applySimJoints } from './gait.js';
 import { initUltraHit, updateUltraBeam } from './sonar.js';
 import { clearWalls, buildWallsFromSegments, buildWallsFromChains } from './walls.js';
 import { toggleOverlay, updateOverlay } from './overlay.js';
