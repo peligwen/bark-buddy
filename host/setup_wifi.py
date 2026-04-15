@@ -1,23 +1,13 @@
 #!/usr/bin/env python3
 """Set up WiFi + WebREPL on MechDog. Run with USB cable connected."""
 
-import os
-import re
 import serial
 import time
 import sys
 import glob
 
+from config_util import read_config_local_value
 
-def _read_config_local_value(key: str, default: str) -> str:
-    """Read a #define string value from firmware/include/config_local.h."""
-    config_path = os.path.join(os.path.dirname(__file__), "..", "firmware", "include", "config_local.h")
-    try:
-        with open(config_path) as f:
-            m = re.search(r'#define\s+' + re.escape(key) + r'\s+"([^"]+)"', f.read())
-            return m.group(1) if m else default
-    except FileNotFoundError:
-        return default
 
 def find_port():
     ports = glob.glob("/dev/cu.usbserial*")
@@ -32,10 +22,12 @@ def find_port():
     choice = input("Pick one: ").strip()
     return ports[int(choice) - 1]
 
+
 def send(ser, cmd, delay=2):
     ser.write((cmd + "\r\n").encode())
     time.sleep(delay)
     return ser.read(ser.in_waiting).decode(errors="replace")
+
 
 def main():
     port = find_port()
@@ -72,7 +64,10 @@ def main():
             pass
     print(f"WiFi connected! IP: {ip}")
 
-    webrepl_pass = _read_config_local_value("WEBREPL_PASS", "bark")
+    webrepl_pass = read_config_local_value("WEBREPL_PASS", "bark")
+    if '"' in webrepl_pass or '\\' in webrepl_pass:
+        print("Error: WEBREPL_PASS must not contain double-quotes or backslashes")
+        sys.exit(1)
     print("Writing WebREPL config...")
     send(ser, 'f = open("webrepl_cfg.py", "w")', delay=0.5)
     send(ser, f'f.write("PASS = \\"{webrepl_pass}\\"\\n")', delay=0.5)

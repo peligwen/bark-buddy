@@ -13,6 +13,8 @@ import logging
 import os
 import re
 
+from config_util import read_config_local_value as _read_config_local_value
+
 from aiohttp import web
 
 from behaviors.balance import BalanceLayer
@@ -65,17 +67,6 @@ def _read_available_fw_version() -> str:
             return m.group(1) if m else ""
     except FileNotFoundError:
         return ""
-
-
-def _read_config_local_value(key: str, default: str) -> str:
-    """Read a #define string value from firmware/include/config_local.h."""
-    config_path = os.path.join(os.path.dirname(__file__), "..", "firmware", "include", "config_local.h")
-    try:
-        with open(config_path) as f:
-            m = re.search(r'#define\s+' + re.escape(key) + r'\s+"([^"]+)"', f.read())
-            return m.group(1) if m else default
-    except FileNotFoundError:
-        return default
 
 
 def _firmware_binary_path() -> str:
@@ -1192,6 +1183,7 @@ async def _detect_serial_transport(port: str):
 
 async def main(args):
     wifi_host = None
+    wifi_password = args.wifi_password or _read_config_local_value("WEBREPL_PASS", "bark")
 
     if args.sim:
         transport = SimTransport()
@@ -1202,9 +1194,8 @@ async def main(args):
         host_port = args.wifi.split(":")
         wifi_host = host_port[0]
         port = int(host_port[1]) if len(host_port) > 1 else 8266
-        password = args.wifi_password or _read_config_local_value("WEBREPL_PASS", "bark")
         from webrepl_transport import WebReplTransport
-        transport = WebReplTransport(host=wifi_host, port=port, password=password)
+        transport = WebReplTransport(host=wifi_host, port=port, password=wifi_password)
         transport_label = f"wifi:{wifi_host}"
         logger.info("Using WebREPL transport: %s:%d", wifi_host, port)
     else:
@@ -1222,7 +1213,7 @@ async def main(args):
     web_dir = os.path.join(os.path.dirname(__file__), "..", "web")
     web_dir = os.path.abspath(web_dir)
     server = Server(dog, web_dir, transport=transport, transport_label=transport_label,
-                    wifi_host=wifi_host, wifi_password=args.wifi_password or _read_config_local_value("WEBREPL_PASS", "bark"),
+                    wifi_host=wifi_host, wifi_password=wifi_password,
                     no_mdns=args.no_mdns)
     await server.start(host=args.host, port=args.port)
 

@@ -17,6 +17,8 @@ import logging
 import sys
 import time
 
+from config_util import read_config_local_value
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 logger = logging.getLogger(__name__)
 
@@ -31,7 +33,7 @@ async def capture(transport_type, address, output_file, duration, gait_sequence,
     elif transport_type == "wifi":
         from webrepl_transport import WebReplTransport
         if password is None:
-            raise ValueError("--password is required when using --wifi")
+            raise ValueError("--password is required when using --wifi (or set WEBREPL_PASS in firmware/include/config_local.h)")
         transport = WebReplTransport(host=address, password=password)
     else:
         print("Unknown transport type")
@@ -159,7 +161,8 @@ def main():
     else:
         sequence = DEFAULT_SEQUENCE
 
-    asyncio.run(capture(transport_type, address, args.output, args.duration, sequence, password=args.password))
+    password = args.password or read_config_local_value("WEBREPL_PASS", None)
+    asyncio.run(capture(transport_type, address, args.output, args.duration, sequence, password=password))
 
 
 if __name__ == "__main__":
