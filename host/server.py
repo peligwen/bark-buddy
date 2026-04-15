@@ -96,7 +96,6 @@ class Server:
         self._user_override_transport: bool = False  # True when user manually selected transport
         self._switch_lock = asyncio.Lock()
         self._mdns_browser: "MdnsBrowser | None" = None
-        self._mdns_no_auto: bool = False  # set True when transport chosen manually
 
     @web.middleware
     async def _no_cache_middleware(self, request, handler):
@@ -885,32 +884,35 @@ class Server:
 
     async def _on_mdns_found(self, ip: str, port: int, props: dict):
         """Called when a MechDog is discovered via mDNS."""
+        # Suppress re-announcements for the same device
+        if self._detected_wifi and self._detected_wifi.get("ip") == ip:
+            return
         self._detected_wifi = {"connected": True, "ip": ip, "port": port,
                                "fw_version": props.get("fw_version", "")}
         current_priority = _transport_priority(self._transport_label)
         wifi_priority = _TRANSPORT_PRIORITY["fw"]  # mDNS-discovered = custom firmware over WiFi
         if not self._user_override_transport and wifi_priority > current_priority:
             logger.info("mDNS: auto-connecting to %s:%d", ip, port)
-            from firmware_transport import FirmwareTransport
-            transport = FirmwareTransport(host=ip, tcp_port=port)
-            await self._replace_transport(transport, f"fw:{ip}")
+            try:
+                from firmware_transport import FirmwareTransport
+                transport = FirmwareTransport(host=ip, tcp_port=port)
+                await self._replace_transport(transport, f"fw:{ip}")
+            except Exception as e:
+                logger.warning("mDNS: auto-connect to %s:%d failed: %s", ip, port, e)
         else:
             logger.info("mDNS: found %s:%d (not switching, current=%s priority=%d)",
                         ip, port, self._transport_label, current_priority)
             await self._broadcast_status()
 
-    async def _on_mdns_lost(self, name: str):
-        """Called when a MechDog disappears from mDNS."""
-        if self._detected_wifi is None:
+    async def _on_mdns_lost(self, ip: str):
+        """Called when a discovered MechDog disappears from mDNS."""
+        if not self._detected_wifi or self._detected_wifi.get("ip") != ip:
             return
-        lost_ip = self._detected_wifi.get("ip", "")
-        if lost_ip and lost_ip in self._transport_label:
-            logger.warning("mDNS: active device lost (%s) — falling back to sim", lost_ip)
-            self._detected_wifi = None
+        self._detected_wifi = None
+        if ip in self._transport_label:
+            logger.warning("mDNS: active device lost (%s) — falling back to sim", ip)
             from sim.sim_transport import SimTransport
             await self._replace_transport(SimTransport(), "sim")
-        else:
-            self._detected_wifi = None
 
     async def _on_device_added(self, port: str):
         """Called when a USB serial device is plugged in."""

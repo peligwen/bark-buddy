@@ -21,6 +21,7 @@ class MdnsBrowser:
         self._on_lost = on_lost
         self._zc = None
         self._browser = None
+        self._services: dict[str, str] = {}  # service name → IP
 
     async def start(self):
         from zeroconf import Zeroconf, ServiceBrowser, ServiceListener
@@ -28,6 +29,8 @@ class MdnsBrowser:
         loop = asyncio.get_running_loop()
         on_found = self._on_found
         on_lost = self._on_lost
+
+        services = self._services
 
         class _Listener(ServiceListener):
             def add_service(self, zc, type_: str, name: str):
@@ -40,12 +43,15 @@ class MdnsBrowser:
                         v.decode() if isinstance(v, bytes) else v
                         for k, v in info.properties.items()
                     }
+                    services[name] = ip
                     logger.info("mDNS: found %s at %s:%d props=%s", name, ip, port, props)
                     asyncio.run_coroutine_threadsafe(on_found(ip, port, props), loop)
 
             def remove_service(self, zc, type_: str, name: str):
-                logger.info("mDNS: lost %s", name)
-                asyncio.run_coroutine_threadsafe(on_lost(name), loop)
+                ip = services.pop(name, None)
+                if ip:
+                    logger.info("mDNS: lost %s (%s)", name, ip)
+                    asyncio.run_coroutine_threadsafe(on_lost(ip), loop)
 
             def update_service(self, zc, type_: str, name: str):
                 self.add_service(zc, type_, name)
@@ -54,9 +60,7 @@ class MdnsBrowser:
         self._browser = ServiceBrowser(self._zc, SERVICE_TYPE, _Listener())
 
     async def stop(self):
-        if self._browser:
-            self._browser.cancel()
-            self._browser = None
         if self._zc:
             self._zc.close()
             self._zc = None
+        self._browser = None
