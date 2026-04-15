@@ -56,6 +56,14 @@ def _read_available_fw_version() -> str:
         return ""
 
 
+def _firmware_binary_path() -> str:
+    """Path to the built firmware binary."""
+    return os.path.abspath(os.path.join(
+        os.path.dirname(__file__), "..", "firmware",
+        ".pio", "build", "mechdog", "firmware.bin"
+    ))
+
+
 def find_serial_port() -> str | None:
     """Auto-detect a USB serial port for MechDog."""
     import glob
@@ -111,6 +119,10 @@ class Server:
         app = web.Application(middlewares=[self._no_cache_middleware])
         app.router.add_get("/ws", self._ws_handler)
         app.router.add_get("/", self._index_handler)
+        app.router.add_get("/api/firmware/status",  self._handle_firmware_status)
+        app.router.add_post("/api/firmware/build",  self._handle_firmware_build)
+        app.router.add_get("/api/firmware/binary",  self._handle_firmware_binary)
+        app.router.add_post("/api/firmware/update", self._handle_firmware_update)
         app.router.add_static("/", self._web_dir)
         app.on_startup.append(self._on_startup)
         app.on_shutdown.append(self._on_shutdown)
@@ -737,6 +749,81 @@ class Server:
         else:
             logger.warning("Unknown WS message type: %s", msg_type)
 
+    async def _handle_firmware_status(self, request: web.Request) -> web.Response:
+        transport = getattr(self._dog, '_transport', None)
+        current = getattr(transport, 'get_fw_version', lambda: '')()
+        available = self._available_fw_version
+        is_wifi = 'fw:' in self._transport_label and '/dev/' not in self._transport_label
+        return web.json_response({
+            "current_version": current,
+            "available_version": available,
+            "update_available": bool(current and available and current != available),
+            "transport": self._transport_label,
+            "can_ota": is_wifi,
+            "binary_ready": os.path.exists(_firmware_binary_path()),
+        })
+
+    async def _handle_firmware_build(self, request: web.Request) -> web.Response:
+        firmware_dir = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "..", "firmware")
+        )
+        try:
+            # Use subprocess_exec (not shell) — args passed as list, no injection risk
+            proc = await asyncio.create_subprocess_exec(
+                "pio", "run",
+                cwd=firmware_dir,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+            )
+            stdout, _ = await proc.communicate()
+            ok = proc.returncode == 0
+            output = stdout.decode(errors="replace")
+        except FileNotFoundError:
+            return web.json_response({"ok": False, "error": "pio not found in PATH"}, status=500)
+        return web.json_response({
+            "ok": ok,
+            "output": output[-3000:],
+            "binary_ready": ok and os.path.exists(_firmware_binary_path()),
+        })
+
+    async def _handle_firmware_binary(self, request: web.Request) -> web.Response:
+        path = _firmware_binary_path()
+        if not os.path.exists(path):
+            return web.json_response({"error": "No firmware binary. Run /api/firmware/build first."}, status=404)
+        return web.FileResponse(path, headers={
+            "Content-Type": "application/octet-stream",
+            "Content-Disposition": "attachment; filename=firmware.bin",
+        })
+
+    async def _handle_firmware_update(self, request: web.Request) -> web.Response:
+        """Orchestrate OTA: build, then send cmd_ota_update to firmware."""
+        # 1. Build
+        build_resp = await self._handle_firmware_build(request)
+        build_data = json.loads(build_resp.text)
+        if not build_data.get("ok"):
+            return web.json_response(
+                {"ok": False, "error": "Build failed", "output": build_data.get("output")},
+                status=500
+            )
+        # 2. Determine binary URL using request host
+        host_parts = request.host.split(":")
+        host_ip = host_parts[0]
+        host_port = host_parts[1] if len(host_parts) > 1 else "8080"
+        binary_url = f"http://{host_ip}:{host_port}/api/firmware/binary"
+        # 3. Send OTA command
+        transport = getattr(self._dog, '_transport', None)
+        if not transport or not hasattr(transport, 'send_json'):
+            return web.json_response({"ok": False, "error": "No firmware transport"}, status=400)
+        try:
+            await transport.send_json({"type": "cmd_ota_update", "url": binary_url})
+        except Exception as e:
+            return web.json_response({"ok": False, "error": f"Failed to send OTA command: {e}"}, status=500)
+        return web.json_response({
+            "ok": True,
+            "binary_url": binary_url,
+            "new_version": self._available_fw_version,
+        })
+
     async def _broadcast_status(self, battery_mv=None):
         """Broadcast current status to all clients."""
         transport = getattr(self._dog, '_transport', None)
@@ -756,6 +843,9 @@ class Server:
         fw_version = getattr(transport, 'get_fw_version', lambda: '')()
         status["fw_version"] = fw_version
         status["available_fw_version"] = self._available_fw_version
+        ota_status = (getattr(getattr(self._dog, '_transport', None), 'firmware_info', {}) or {}).get('ota_status')
+        if ota_status:
+            status["ota_status"] = ota_status
         await self._broadcast(status)
 
     async def _broadcast(self, msg: dict):

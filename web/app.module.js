@@ -5,7 +5,8 @@ import { connect, send, setMessageHandler } from './modules/ws.js';
 import { setupDpad, setupKeyboard, setupActions, setCanControl, setLifecycle } from './modules/controls.js';
 import { dogMapState, addScanPoint, renderFullMap, drawMap, setupScan } from './modules/map.js';
 import { setupBatteryGraph, recordBattery, setupNoisePanel, syncNoiseSliders,
-         setupTransport, updateTransportUI, showWifiBanner, handleWifiSetupResult } from './modules/panels.js';
+         setupTransport, updateTransportUI, showWifiBanner, handleWifiSetupResult,
+         setupOtaPanel, updateOtaStatus } from './modules/panels.js';
 
 // --- State ---
 var hasLock = false;
@@ -142,6 +143,7 @@ function handleMessage(msg) {
         drawMap();
     } else if (msg.type === "telem_status") {
         updateStatus(msg);
+        if (msg.ota_status) updateOtaStatus(msg.ota_status, msg.ota_error);
     } else if (msg.type === "balance_state") {
         if (actionsCtrl) actionsCtrl.setBalanceState(msg.enabled);
     } else if (msg.type === "telem_ultrasonic") {
@@ -213,6 +215,7 @@ setupReset();
 setupTransport();
 setupNoisePanel();
 setupBatteryGraph();
+setupOtaPanel();
 
 // Kinematics overlay toggle (button + K key)
 var overlayOn = false;

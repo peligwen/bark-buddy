@@ -15,6 +15,8 @@ constexpr const char* MSG_PING          = "ping";
 constexpr const char* MSG_CMD_SHUTDOWN  = "cmd_shutdown";
 constexpr const char* MSG_CMD_WAKE      = "cmd_wake";
 constexpr const char* MSG_CMD_SLEEP     = "cmd_sleep";
+constexpr const char* MSG_CMD_OTA_UPDATE = "cmd_ota_update";
+constexpr const char* MSG_OTA_STATUS     = "ota_status";
 
 // Firmware -> Host telemetry
 constexpr const char* MSG_TELEM_IMU     = "telem_imu";

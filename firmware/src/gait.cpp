@@ -277,6 +277,10 @@ void lifecycle_update(unsigned long now_ms) {
         case LifecycleState::RESTING:
             // Nothing to tick — waiting for cmd_wake
             break;
+
+        case LifecycleState::UPDATING:
+            // OTA in progress — hold rest pose, no transitions
+            break;
     }
 }
 
@@ -379,8 +383,9 @@ const char* lifecycle_state_name() {
         case LifecycleState::IDLE:     return "idle";
         case LifecycleState::ACTIVE:   return "active";
         case LifecycleState::SLEEPING: return "sleeping";
-        case LifecycleState::RESTING:  return "resting";
-        default:                       return "unknown";
+        case LifecycleState::RESTING:   return "resting";
+        case LifecycleState::UPDATING:  return "updating";
+        default:                        return "unknown";
     }
 }
 
@@ -407,4 +412,22 @@ void lifecycle_cmd_shutdown(unsigned long now_ms) {
     s_lifecycle_ramp_start = now_ms;
     s_lifecycle_ramp_ms = SHUTDOWN_RAMP_MS;
     s_lifecycle = LifecycleState::SLEEPING;
+}
+
+void lifecycle_cmd_update(unsigned long now_ms) {
+    // Only enter UPDATING from IDLE or ACTIVE
+    if (s_lifecycle != LifecycleState::IDLE &&
+        s_lifecycle != LifecycleState::ACTIVE) return;
+    for (int i = 0; i < 8; i++) {
+        uint16_t cur = servo_read_us(i);
+        s_lifecycle_ramp_from[i] = (cur > 0) ? cur : STANDING_POSE[i];
+        s_lifecycle_ramp_target[i] = REST_POSE[i];
+    }
+    s_lifecycle_ramp_start = now_ms;
+    s_lifecycle_ramp_ms = SHUTDOWN_RAMP_MS;
+    s_lifecycle = LifecycleState::UPDATING;
+}
+
+bool lifecycle_is_updating() {
+    return s_lifecycle == LifecycleState::UPDATING;
 }

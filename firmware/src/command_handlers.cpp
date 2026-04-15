@@ -11,6 +11,10 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <string.h>
+#if WIFI_ENABLED
+#include <HTTPClient.h>
+#include <Update.h>
+#endif
 
 // --- Handler-owned state ---
 static bool          s_balance_enabled    = false;
@@ -233,6 +237,86 @@ static void handle_cmd_offset(const JsonDocument& doc) {
     send_json(resp);
 }
 
+static void handle_cmd_ota_update(const JsonDocument& doc) {
+#if !WIFI_ENABLED
+    send_ack(MSG_CMD_OTA_UPDATE, false, "wifi_disabled");
+    return;
+#else
+    const char* url = doc["url"] | "";
+    if (!url || url[0] == '\0') {
+        send_ack(MSG_CMD_OTA_UPDATE, false, "missing_url");
+        return;
+    }
+    // Must be IDLE or ACTIVE
+    LifecycleState lc = lifecycle_current();
+    if (lc != LifecycleState::IDLE && lc != LifecycleState::ACTIVE) {
+        send_ack(MSG_CMD_OTA_UPDATE, false, "not_idle_or_active");
+        return;
+    }
+    send_ack(MSG_CMD_OTA_UPDATE, true);
+
+    // Transition to UPDATING (ramps to rest pose)
+    lifecycle_cmd_update(millis());
+
+    // Enable rainbow LEDs
+    extern bool s_ota_led_active;
+    s_ota_led_active = true;
+
+    // Wait for servo ramp to settle
+    delay(SHUTDOWN_RAMP_MS + 300);
+
+    auto send_status = [](const char* status, const char* error = nullptr) {
+        JsonDocument s;
+        s["type"] = MSG_OTA_STATUS;
+        s["status"] = status;
+        if (error) s["error"] = error;
+        send_json(s);
+    };
+
+    send_status("downloading");
+
+    HTTPClient http;
+    http.begin(url);
+    int code = http.GET();
+    if (code != HTTP_CODE_OK) {
+        send_status("failed", "http_error");
+        http.end();
+        s_ota_led_active = false;
+        sensor_led_set(1, 0, LED_BRIGHTNESS, 0);
+        sensor_led_set(2, 0, LED_BRIGHTNESS, 0);
+        return;
+    }
+
+    int len = http.getSize();
+    WiFiClient* stream = http.getStreamPtr();
+    if (!Update.begin(len > 0 ? len : UPDATE_SIZE_UNKNOWN)) {
+        send_status("failed", "update_begin_failed");
+        http.end();
+        s_ota_led_active = false;
+        sensor_led_set(1, 0, LED_BRIGHTNESS, 0);
+        sensor_led_set(2, 0, LED_BRIGHTNESS, 0);
+        return;
+    }
+
+    send_status("flashing");
+
+    Update.writeStream(*stream);
+    http.end();
+
+    if (Update.end() && Update.isFinished()) {
+        send_status("complete");
+        s_ota_led_active = false;
+        delay(1000);
+        ESP.restart();
+    } else {
+        send_status("failed", "flash_error");
+        s_ota_led_active = false;
+        sensor_led_set(1, 0, LED_BRIGHTNESS, 0);
+        sensor_led_set(2, 0, LED_BRIGHTNESS, 0);
+    }
+#endif
+}
+
 // --- Dispatch table ---
 
 typedef void (*HandlerFn)(const JsonDocument&);
@@ -253,6 +337,7 @@ static const Handler k_handlers[] = {
     { MSG_CMD_SHUTDOWN,     handle_cmd_shutdown     },
     { MSG_CMD_WAKE,         handle_cmd_wake         },
     { MSG_CMD_SLEEP,        handle_cmd_sleep        },
+    { MSG_CMD_OTA_UPDATE,   handle_cmd_ota_update   },
 };
 
 void handlers_init() {

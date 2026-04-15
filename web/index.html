@@ -14,7 +14,7 @@
             <span class="stat batt-clickable" id="batt-stat"><span class="stat-label">Batt</span> <span id="battery-val">--</span></span>
             <span class="stat"><span class="stat-label">Bal</span> <span id="balance-val" class="off">OFF</span></span>
             <div id="header-right">
-                <span id="fw-badge" class="fw-badge unknown" title="Firmware version">FW --</span>
+                <span id="fw-badge" class="fw-badge unknown" title="Firmware version" role="button">FW --</span>
                 <div id="transport-wrapper">
                     <span id="transport-badge" class="transport-badge sim">SIM</span>
                     <div id="transport-menu" class="transport-menu hidden">
@@ -156,6 +156,25 @@
                 </div>
             </div>
         </div>
+    </div>
+
+    <div id="ota-modal" class="modal hidden">
+      <div class="modal-inner">
+        <h3>Firmware Update</h3>
+        <div class="ota-versions">
+          <span>Current: <strong id="ota-current">--</strong></span>
+          <span>Available: <strong id="ota-available">--</strong></span>
+        </div>
+        <div id="ota-progress" class="hidden">
+          <div class="progress-bar"><div id="ota-progress-fill" class="progress-fill"></div></div>
+          <div id="ota-status-text" class="ota-status-text">Ready</div>
+        </div>
+        <div id="ota-error" class="ota-error hidden"></div>
+        <div class="modal-buttons">
+          <button id="ota-cancel" class="action-btn">Cancel</button>
+          <button id="ota-start" class="action-btn primary">Update Firmware</button>
+        </div>
+      </div>
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>

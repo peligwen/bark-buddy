@@ -1,6 +1,7 @@
 // firmware/src/main.cpp
 #include <Arduino.h>
 #include <ArduinoJson.h>
+#include <math.h>
 #include "config.h"
 #include "protocol.h"
 #include "comms.h"
@@ -17,6 +18,44 @@
 #include <WiFi.h>
 #include <ESPmDNS.h>
 #endif
+
+// --- OTA rainbow LED ---
+bool          s_ota_led_active   = false;
+static unsigned long s_ota_led_last_ms = 0;
+
+static void ota_rainbow_led_tick(unsigned long now) {
+    if (!s_ota_led_active) return;
+    if (now - s_ota_led_last_ms < 30) return;
+    s_ota_led_last_ms = now;
+
+    // Hue rotation: ~2s per cycle
+    float hue = fmodf((float)now / 2000.0f, 1.0f);
+    // Sinusoidal brightness: 20-100%, ~3s period
+    float brightness = 0.6f + 0.4f * sinf((float)now / 3000.0f * 2.0f * (float)M_PI);
+    if (brightness < 0.2f) brightness = 0.2f;
+    if (brightness > 1.0f) brightness = 1.0f;
+
+    // HSV to RGB (saturation=1)
+    float r = 0, g = 0, b = 0;
+    int hi = (int)(hue * 6.0f);
+    float f  = hue * 6.0f - hi;
+    float bq = brightness * (1.0f - f);
+    float bt = brightness * f;
+    switch (hi % 6) {
+        case 0: r=brightness; g=bt;         b=0;          break;
+        case 1: r=bq;         g=brightness; b=0;          break;
+        case 2: r=0;          g=brightness; b=bt;         break;
+        case 3: r=0;          g=bq;         b=brightness; break;
+        case 4: r=bt;         g=0;          b=brightness; break;
+        case 5: r=brightness; g=0;          b=bq;         break;
+    }
+    sensor_led_set(1, (uint8_t)(r * LED_BRIGHTNESS),
+                      (uint8_t)(g * LED_BRIGHTNESS),
+                      (uint8_t)(b * LED_BRIGHTNESS));
+    sensor_led_set(2, (uint8_t)(r * LED_BRIGHTNESS),
+                      (uint8_t)(g * LED_BRIGHTNESS),
+                      (uint8_t)(b * LED_BRIGHTNESS));
+}
 
 // --- RX buffers ---
 static char   serial_rx[MAX_MESSAGE_SIZE];
@@ -263,6 +302,9 @@ void loop() {
 
     // Test mode heartbeat — exit test mode if host goes quiet
     handlers_check_timeout(now);
+
+    // OTA rainbow LED tick
+    ota_rainbow_led_tick(now);
 
     // Frail mode duty cycle
     if (servos_update_duty(now)) {

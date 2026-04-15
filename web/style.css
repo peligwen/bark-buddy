@@ -368,8 +368,25 @@ header h1 {
 .lifecycle-waking   { background: #1e2e10; color: #8bc34a; }
 .lifecycle-idle     { background: #0e1e2e; color: #64b5f6; }
 .lifecycle-active   { background: #0e2a0e; color: #66bb6a; }
-.lifecycle-sleeping { background: #2a1e0a; color: #ffa726; }
-.lifecycle-resting  { background: #2a0e0e; color: #ef5350; }
+.lifecycle-sleeping  { background: #2a1e0a; color: #ffa726; }
+.lifecycle-resting   { background: #2a0e0e; color: #ef5350; }
+.lifecycle-updating  { background: #1a0e2e; color: #b388ff; animation: pulse-updating 2s infinite alternate; }
+
+/* OTA modal inner panel */
+.modal-inner {
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 24px;
+    min-width: 320px;
+    max-width: 480px;
+}
+.modal-inner h3 { margin: 0 0 16px; color: var(--text); font-size: 0.85rem; }
+.ota-versions { display: flex; gap: 24px; margin-bottom: 16px; color: var(--text-muted); font-size: 0.75rem; }
+.ota-versions strong { color: var(--text); }
+.ota-status-text { font-size: 0.75rem; color: var(--text-muted); }
+.ota-error { font-size: 0.75rem; color: var(--red); margin-top: 8px; }
+.ota-error.hidden { display: none; }
 
 /* Disabled D-pad state */
 .dpad-disabled {
@@ -483,6 +500,7 @@ header h1 {
 .action-btn:active { background: var(--bg-card-hover); }
 .action-btn.active { background: var(--accent-dark); color: #fff; border-color: var(--accent); }
 .action-btn:disabled { opacity: 0.25; cursor: default; }
+.action-btn.primary { background: var(--green-dark); color: var(--green); border-color: var(--green); }
 
 .pose-select {
     padding: 7px 10px;

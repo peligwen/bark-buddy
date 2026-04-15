@@ -240,6 +240,10 @@ class JsonStreamTransport(DeadReckoningMixin, Transport):
             if not msg.get("ok"):
                 logger.warning("%s NACK: %s — %s", self.log_prefix,
                                msg.get("ref_type", "?"), msg.get("error", "?"))
+        elif msg_type == "ota_status":
+            self._firmware_info["ota_status"] = msg.get("status")
+            self._firmware_info["ota_error"] = msg.get("error")
+            logger.info("%s OTA status: %s", self.log_prefix, msg)
         elif msg_type == "pong":
             logger.debug("%s pong", self.log_prefix)
         elif msg_type == "error":

@@ -205,3 +205,82 @@ export function handleWifiSetupResult(msg) {
         status.className = "error";
     }
 }
+
+// --- OTA Firmware Update Panel ---
+
+export function setupOtaPanel() {
+    var fwBadge = document.getElementById('fw-badge');
+    var modal   = document.getElementById('ota-modal');
+    var startBtn = document.getElementById('ota-start');
+    var cancelBtn = document.getElementById('ota-cancel');
+
+    fwBadge.addEventListener('click', async function () {
+        if (!fwBadge.classList.contains('outdated')) return;
+        try {
+            var resp = await fetch('/api/firmware/status');
+            var data = await resp.json();
+            document.getElementById('ota-current').textContent   = data.current_version || '--';
+            document.getElementById('ota-available').textContent = data.available_version || '--';
+            startBtn.disabled = !data.can_ota;
+            startBtn.title = data.can_ota ? '' : 'OTA requires WiFi connection';
+        } catch (e) {
+            document.getElementById('ota-current').textContent   = '--';
+            document.getElementById('ota-available').textContent = '--';
+        }
+        document.getElementById('ota-error').classList.add('hidden');
+        document.getElementById('ota-progress').classList.add('hidden');
+        modal.classList.remove('hidden');
+    });
+
+    cancelBtn.addEventListener('click', function () { modal.classList.add('hidden'); });
+
+    startBtn.addEventListener('click', async function () {
+        startBtn.disabled = true;
+        cancelBtn.disabled = true;
+        document.getElementById('ota-progress').classList.remove('hidden');
+        document.getElementById('ota-error').classList.add('hidden');
+        setOtaProgress('building', 10);
+        try {
+            var resp = await fetch('/api/firmware/update', { method: 'POST' });
+            var data = await resp.json();
+            if (!data.ok) {
+                showOtaError(data.error || 'Update failed');
+                cancelBtn.disabled = false;
+            }
+            // Further progress comes via WebSocket ota_status messages
+        } catch (e) {
+            showOtaError('Network error: ' + e.message);
+            cancelBtn.disabled = false;
+        }
+    });
+}
+
+export function updateOtaStatus(status, error) {
+    var fill = document.getElementById('ota-progress-fill');
+    var text = document.getElementById('ota-status-text');
+    if (!fill || !text) return;
+    switch (status) {
+        case 'downloading':
+            text.textContent = 'Downloading firmware...'; fill.style.width = '40%'; break;
+        case 'flashing':
+            text.textContent = 'Flashing...';             fill.style.width = '75%'; break;
+        case 'complete':
+            text.textContent = 'Complete! Rebooting...';  fill.style.width = '100%'; break;
+        case 'failed':
+            showOtaError(error || 'Flash failed');         break;
+    }
+}
+
+function setOtaProgress(label, pct) {
+    var fill = document.getElementById('ota-progress-fill');
+    var text = document.getElementById('ota-status-text');
+    if (fill) fill.style.width = pct + '%';
+    if (text) text.textContent = label;
+}
+
+function showOtaError(msg) {
+    var el = document.getElementById('ota-error');
+    if (el) { el.textContent = msg; el.classList.remove('hidden'); }
+    var start = document.getElementById('ota-start');
+    if (start) start.disabled = false;
+}
