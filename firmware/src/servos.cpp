@@ -53,6 +53,7 @@ bool servos_attach_at(const uint16_t pose[8]) {
 
 void servos_ramp_to(const uint16_t target[8], uint16_t duration_ms, uint8_t steps) {
     if (!attached) return;
+    if (steps == 0) steps = 1;
     uint16_t start_us[8];
     for (int i = 0; i < 8; i++) {
         start_us[i] = current_us[i] > 0 ? current_us[i] : target[i];
@@ -135,27 +136,7 @@ bool servos_active() {
 
 bool servos_shutdown_to_lying_down() {
     if (!attached) return false;
-
-    // Capture current positions as ramp start
-    uint16_t start_us[8];
-    for (int i = 0; i < 8; i++) {
-        start_us[i] = current_us[i] > 0 ? current_us[i] : STANDING_POSE[i];
-    }
-
-    // Ramp to lying-down over SHUTDOWN_RAMP_MS
-    for (int step = 0; step <= SHUTDOWN_RAMP_STEPS; step++) {
-        float t = (float)step / (float)SHUTDOWN_RAMP_STEPS;
-        for (int i = 0; i < 8; i++) {
-            int16_t s    = (int16_t)start_us[i];
-            int16_t e    = (int16_t)LYING_DOWN_POSE[i];
-            uint16_t pos = (uint16_t)(s + (int16_t)((float)(e - s) * t));
-            pos = clamp_us(pos);
-            current_us[i] = pos;
-            ledcWrite(SERVO_PINS[i], us_to_duty(pos));
-        }
-        delay(SHUTDOWN_RAMP_MS / SHUTDOWN_RAMP_STEPS);
-    }
-
+    servos_ramp_to(LYING_DOWN_POSE, SHUTDOWN_RAMP_MS, SHUTDOWN_RAMP_STEPS);
     delay(SHUTDOWN_SETTLE_MS);
     servos_detach_all();
     return true;

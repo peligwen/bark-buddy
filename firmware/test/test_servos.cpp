@@ -278,6 +278,22 @@ static void test_shutdown_to_rest() {
 }
 
 // ------------------------------------------------------------------ //
+// Test 10: servos_ramp_to with steps=0 must not crash and reach target
+// ------------------------------------------------------------------ //
+static void test_ramp_to_zero_steps() {
+    printf("\nTest: servos_ramp_to with steps=0 does not crash and reaches target\n");
+    servo_log_reset();
+    mock_reset_clock();
+
+    servos_detach_all();
+    servos_attach_at(REST_POSE);
+    servos_ramp_to(STANDING_POSE, 100, 0);  // steps=0 must not crash
+    for (int i = 0; i < 8; i++) {
+        check(servo_read_us(i) == STANDING_POSE[i], "zero-steps ramp reaches target");
+    }
+}
+
+// ------------------------------------------------------------------ //
 // Main
 // ------------------------------------------------------------------ //
 int main() {
@@ -292,6 +308,7 @@ int main() {
     test_frail_mode();
     test_attach_at();
     test_shutdown_to_rest();
+    test_ramp_to_zero_steps();
 
     printf("\n%d passed, %d failed\n", g_pass, g_fail);
     return g_fail > 0 ? 1 : 0;
