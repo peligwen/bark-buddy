@@ -131,6 +131,14 @@ export function updateOverlay() {
     });
 }
 
+export function updateLifecycleIndicator(lifecycle) {
+    var badge = document.getElementById('lifecycle-badge');
+    if (!badge) return;
+    badge.className = badge.className.replace(/lifecycle-\w+/g, '').trim();
+    badge.classList.add('lifecycle-badge', 'lifecycle-' + lifecycle);
+    badge.textContent = lifecycle;
+}
+
 export function toggleOverlay(show) {
     if (overlayParts.length === 0) buildOverlay();
     overlayVisible = show;

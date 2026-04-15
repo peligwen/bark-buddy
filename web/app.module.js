@@ -1,7 +1,8 @@
 // Bark-Buddy Web UI — ES module entry point
 import Dog3D from './dog3d/index.js';
+import { updateLifecycleIndicator } from './dog3d/overlay.js';
 import { connect, send, setMessageHandler } from './modules/ws.js';
-import { setupDpad, setupKeyboard, setupActions, setCanControl } from './modules/controls.js';
+import { setupDpad, setupKeyboard, setupActions, setCanControl, setLifecycle } from './modules/controls.js';
 import { dogMapState, addScanPoint, renderFullMap, drawMap, setupScan } from './modules/map.js';
 import { setupBatteryGraph, recordBattery, setupNoisePanel, syncNoiseSliders,
          setupTransport, updateTransportUI, showWifiBanner, handleWifiSetupResult } from './modules/panels.js';
@@ -63,6 +64,10 @@ function updateStatus(msg) {
         scanCtrl.setScanRunning(msg.mode === "scan");
     }
     if (msg.balance != null && actionsCtrl) actionsCtrl.setBalanceState(msg.balance);
+    if (msg.lifecycle != null) {
+        setLifecycle(msg.lifecycle);
+        updateLifecycleIndicator(msg.lifecycle);
+    }
     if (msg.fallen != null) showFallAlert(msg.fallen);
     if (msg.transport != null) {
         var badge = document.getElementById("transport-badge");

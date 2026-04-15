@@ -328,6 +328,30 @@ header h1 {
 }
 #telem-overlay .stat-label { color: rgba(255,255,255,0.35); }
 
+/* Lifecycle badge */
+.lifecycle-badge {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 0.55rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    pointer-events: none;
+}
+.lifecycle-booting  { background: #333; color: #888; }
+.lifecycle-waking   { background: #1e2e10; color: #8bc34a; }
+.lifecycle-idle     { background: #0e1e2e; color: #64b5f6; }
+.lifecycle-active   { background: #0e2a0e; color: #66bb6a; }
+.lifecycle-sleeping { background: #2a1e0a; color: #ffa726; }
+.lifecycle-resting  { background: #2a0e0e; color: #ef5350; }
+
+/* Disabled D-pad state */
+.dpad-disabled {
+    opacity: 0.4;
+    pointer-events: none;
+}
+
 #dog-3d-container {
     width: 100%;
     height: 100%;

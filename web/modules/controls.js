@@ -5,6 +5,15 @@ var canControlFn = null;
 export function setCanControl(fn) { canControlFn = fn; }
 function canControl() { return canControlFn ? canControlFn() : true; }
 
+var _lifecycle = 'booting';
+export function setLifecycle(state) {
+    _lifecycle = state;
+    var dpad = document.querySelector('.dpad');
+    if (dpad) {
+        dpad.classList.toggle('dpad-disabled', state !== 'active');
+    }
+}
+
 var balanceEnabled = false;
 
 export function setupDpad() {
@@ -13,7 +22,7 @@ export function setupDpad() {
 
         btn.addEventListener("touchstart", function (e) {
             e.preventDefault();
-            if (!canControl()) return;
+            if (!canControl() || _lifecycle !== 'active') return;
             btn.classList.add("pressed");
             send({ type: "cmd_move", direction: dir });
         });
@@ -23,7 +32,7 @@ export function setupDpad() {
             if (dir !== "stop") send({ type: "cmd_move", direction: "stop" });
         });
         btn.addEventListener("mousedown", function () {
-            if (!canControl()) return;
+            if (!canControl() || _lifecycle !== 'active') return;
             btn.classList.add("pressed");
             send({ type: "cmd_move", direction: dir });
         });
@@ -51,7 +60,7 @@ export function setupKeyboard() {
         var el = document.activeElement;
         var tag = el ? el.tagName : "";
         if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
-        if (!canControl()) return;
+        if (!canControl() || _lifecycle !== 'active') return;
         var dir = keyMap[e.key];
         if (dir && !pressed[e.key]) {
             pressed[e.key] = true;
