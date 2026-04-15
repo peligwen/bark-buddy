@@ -1,10 +1,9 @@
 // 2D scan map canvas rendering
 export var dogMapState = { x: 0, y: 0, heading: 0, motion: "stop" };
-export var mapPoints = [];
-export var mapScans = [];
-export var mapWalls = [];
-export var mapChains = [];
-export var mapBounds = { min_x: -2, max_x: 2, min_y: -2, max_y: 2 };
+var mapPoints = [];
+var mapScans = [];
+var mapChains = [];
+var mapBounds = { min_x: -2, max_x: 2, min_y: -2, max_y: 2 };
 
 export function addScanPoint(msg) {
     mapPoints.push({ x: msg.x, y: msg.y, distance_mm: msg.distance_mm,
@@ -19,7 +18,6 @@ export function addScanPoint(msg) {
 export function renderFullMap(data, Dog3D) {
     mapPoints = data.points || [];
     mapScans = data.scans || [];
-    mapWalls = data.walls || [];
     mapChains = data.chains || [];
     mapBounds = data.bounds || mapBounds;
     document.getElementById("map-points").textContent = (data.point_count || 0) + " pts";
@@ -101,18 +99,6 @@ export function drawMap() {
             ctx.stroke();
         }
         ctx.globalAlpha = 1.0;
-    } else if (mapWalls && mapWalls.length > 0) {
-        // Legacy fallback: wall segments
-        ctx.strokeStyle = "#6366f1"; ctx.lineWidth = 3; ctx.lineCap = "round";
-        for (var wi = 0; wi < mapWalls.length; wi++) {
-            var wall = mapWalls[wi];
-            ctx.globalAlpha = 0.3 + 0.7 * (wall.confidence || 0.5);
-            ctx.beginPath();
-            ctx.moveTo(toCanvasX(wall.x1), toCanvasY(wall.y1));
-            ctx.lineTo(toCanvasX(wall.x2), toCanvasY(wall.y2));
-            ctx.stroke();
-        }
-        ctx.globalAlpha = 1.0;
     }
 
     // Obstacle points — colored by confidence
@@ -148,20 +134,17 @@ function gridStepForRange(range) {
     return 2.0;
 }
 
-export function setupScan() {
+export function setupScan(send) {
     var btnStart = document.getElementById("btn-scan-start");
     var btnStop = document.getElementById("btn-scan-stop");
     var btnClear = document.getElementById("btn-map-clear");
-    var sendFn = null;
+
+    btnStart.addEventListener("click", function () { send({ type: "cmd_scan", action: "start" }); });
+    btnStop.addEventListener("click", function () { send({ type: "cmd_scan", action: "stop" }); });
+    btnClear.addEventListener("click", function () { send({ type: "cmd_map", action: "clear" }); });
+    drawMap();
 
     return {
-        init: function(send) {
-            sendFn = send;
-            btnStart.addEventListener("click", function () { sendFn({ type: "cmd_scan", action: "start" }); });
-            btnStop.addEventListener("click", function () { sendFn({ type: "cmd_scan", action: "stop" }); });
-            btnClear.addEventListener("click", function () { sendFn({ type: "cmd_map", action: "clear" }); });
-            drawMap();
-        },
         setScanRunning: function(running) {
             btnStart.disabled = running;
             btnStop.disabled = !running;
