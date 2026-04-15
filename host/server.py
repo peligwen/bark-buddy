@@ -727,25 +727,6 @@ class Server:
                     "type": "sim_noise_ack", "ok": False, "error": "Not in sim mode",
                 }))
 
-        elif msg_type == "cmd_transport":
-            mode = msg.get("mode", "sim")
-            if msg.get("wifi_host"):
-                self._wifi_host = msg["wifi_host"]
-            result = await self._switch_transport(mode)
-            await ws.send_str(json.dumps({"type": "transport_result", **result}))
-
-        elif msg_type == "cmd_wifi_setup":
-            ssid = msg.get("ssid", "")
-            password = msg.get("password", "")
-            if not ssid:
-                await ws.send_str(json.dumps({"type": "wifi_setup_result", "ok": False, "error": "No SSID"}))
-            else:
-                result = await self._transport.setup_wifi(ssid, password)
-                if result.get("ok"):
-                    self._wifi_host = result.get("ip")
-                    self._detected_wifi = {"connected": True, "ip": result["ip"], "ssid": ssid}
-                await ws.send_str(json.dumps({"type": "wifi_setup_result", **result}))
-
         elif msg_type == "cmd_reset":
             if self._transport:
                 self._transport.reset()
