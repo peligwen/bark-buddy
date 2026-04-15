@@ -189,6 +189,7 @@ setMessageHandler(handleMessage);
 
 actionsCtrl = setupActions(Dog3D);
 setupDpad();
+setLifecycle('booting');  // dim D-pad until lifecycle becomes active
 setupKeyboard();
 var scanCtrl = setupScan(send);
 setupLock();
