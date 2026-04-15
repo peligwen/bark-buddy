@@ -5,6 +5,8 @@ var canControlFn = null;
 export function setCanControl(fn) { canControlFn = fn; }
 function canControl() { return canControlFn ? canControlFn() : true; }
 
+var balanceEnabled = false;
+
 export function setupDpad() {
     document.querySelectorAll(".dpad-btn").forEach(function (btn) {
         var dir = btn.dataset.dir;
@@ -57,7 +59,7 @@ export function setupKeyboard() {
             var btn = document.querySelector('[data-dir="' + dir + '"]');
             if (btn) btn.classList.add("pressed");
         }
-        if (e.key === "b") { send({ type: "cmd_balance", enabled: !window._balanceEnabled }); }
+        if (e.key === "b") { send({ type: "cmd_balance", enabled: !balanceEnabled }); }
     });
 
     document.addEventListener("keyup", function (e) {
@@ -80,10 +82,7 @@ export function setupKeyboard() {
 }
 
 export function setupActions(Dog3D) {
-    var balanceEnabled = false;
-    window._balanceEnabled = false;
-
-    document.querySelectorAll(".action-btn").forEach(function (btn) {
+    document.querySelectorAll(".action-btn[data-action]").forEach(function (btn) {
         btn.addEventListener("click", function () {
             if (!canControl()) return;
             var action = btn.dataset.action;
@@ -101,18 +100,9 @@ export function setupActions(Dog3D) {
         send({ type: "cmd_pose", pose: pose });
     });
 
-    var defaultPose = "rest";
-    document.getElementById("btn-pose-default").addEventListener("click", function () {
-        defaultPose = document.getElementById("pose-select").value;
-        document.getElementById("btn-pose-default").textContent = "Default: " + defaultPose;
-        send({ type: "cmd_set_default_pose", pose: defaultPose });
-    });
-    document.getElementById("btn-pose-default").textContent = "Set Default";
-
     return {
         setBalanceState: function (enabled) {
             balanceEnabled = enabled;
-            window._balanceEnabled = enabled;
             var balVal = document.getElementById("balance-val");
             var balBtn = document.getElementById("btn-balance");
             if (enabled) {
