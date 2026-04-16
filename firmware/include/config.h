@@ -64,7 +64,7 @@ static const uint8_t SERVO_PINS[8] = {
 #define BOOT_SETTLE_MS      500     // pause at lying-down before ramping to standing
 
 // --- Lifecycle Timing ---
-#define IDLE_TIMEOUT_MS   10000  // sleep after 10s idle in IDLE state
+#define IDLE_TIMEOUT_MS   30000  // sleep after 30s idle in IDLE state
 #define REST_SETTLE_MS      500  // pause at rest pose before detaching servos
 
 // --- Standing Pose (servo pulse widths in μs) ---
@@ -119,7 +119,7 @@ static const uint16_t REST_POSE[8] = {
 #define TELEM_BATTERY_HZ    1
 #define TELEM_STATUS_HZ     1
 #define GAIT_UPDATE_HZ      50
-#define HEARTBEAT_TIMEOUT_MS 5000
+#define HEARTBEAT_TIMEOUT_MS 10000
 
 // --- Gait Parameters ---
 #define GAIT_STRIDE_HEIGHT_MM   10.0f   // foot lift height mm (conservative for first hardware tests)

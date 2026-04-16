@@ -52,6 +52,8 @@ class JsonStreamTransport(DeadReckoningMixin, Transport):
         # Optional callback invoked on every firmware ack (e.g. to forward to WebSocket clients)
         self._ack_callback = None
 
+        self._keepalive_task: Optional[asyncio.Task] = None
+
         self._init_dead_reckoning()
 
     @property
@@ -69,12 +71,15 @@ class JsonStreamTransport(DeadReckoningMixin, Transport):
                 await self.recv_ack("cmd_shutdown", timeout=5.0)
             except Exception:
                 pass  # best-effort — don't block close on firmware errors
-        if self._reader_task:
-            self._reader_task.cancel()
-            try:
-                await self._reader_task
-            except asyncio.CancelledError:
-                pass
+        for task in (self._reader_task, self._keepalive_task):
+            if task:
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+        self._reader_task = None
+        self._keepalive_task = None
         if self._writer:
             self._writer.close()
             try:
@@ -85,6 +90,11 @@ class JsonStreamTransport(DeadReckoningMixin, Transport):
         self._writer = None
         self._open = False
         logger.info("%s closed", self.log_prefix)
+
+    def _start_streams(self) -> None:
+        """Start background reader and keepalive tasks. Call after _open = True."""
+        self._reader_task = asyncio.create_task(self._reader_loop())
+        self._keepalive_task = asyncio.create_task(self._keepalive_loop())
 
     async def send(self, data: str) -> None:
         if not self._open:
@@ -205,7 +215,19 @@ class JsonStreamTransport(DeadReckoningMixin, Transport):
 
         return None
 
-    # --- Background telemetry reader ---
+    # --- Background tasks ---
+
+    async def _keepalive_loop(self):
+        """Send periodic pings so the firmware heartbeat watchdog stays satisfied."""
+        try:
+            while self._open and self._writer:
+                await asyncio.sleep(2.0)
+                if self._open and self._writer:
+                    await self._send_json({"type": "ping"})
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logger.debug("%s keepalive error: %s", self.log_prefix, e)
 
     async def _reader_loop(self):
         """Read streaming NDJSON, update telemetry cache."""

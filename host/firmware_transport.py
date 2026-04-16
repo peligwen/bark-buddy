@@ -62,8 +62,8 @@ class FirmwareTransport(JsonStreamTransport):
         await self._send_json({"type": "ping"})
         await asyncio.sleep(0.5)
 
-        # Start background reader for streaming telemetry
-        self._reader_task = asyncio.create_task(self._reader_loop())
+        # Start background reader and keepalive
+        self._start_streams()
 
         logger.info("FirmwareTransport opened on %s",
                     self._port or f"{self._host}:{self._tcp_port}")
