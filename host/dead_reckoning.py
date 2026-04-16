@@ -37,6 +37,15 @@ class DeadReckoningMixin:
         self._step_dead_reckoning()
         return self._heading
 
+    def record_motion(self, direction: str) -> None:
+        """Record a motion command for dead-reckoning odometry. Call before send_json cmd_move."""
+        self._step_dead_reckoning()
+        dir_to_motion = {
+            "forward": 3, "backward": 4, "left": 5, "right": 6, "stop": 1
+        }
+        self._motion_cmd = dir_to_motion.get(direction, 1)
+        self._last_motion_time = time.monotonic()
+
     def _step_dead_reckoning(self) -> None:
         now = time.monotonic()
         dt = now - self._last_motion_time if self._last_motion_time > 0 else 0
