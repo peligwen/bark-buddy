@@ -69,7 +69,9 @@ static size_t tcp_rx_pos = 0;
 // --- Connection state ---
 static unsigned long last_msg_received = 0;
 static bool          connected         = false;
-static bool          low_battery       = false;
+
+// --- Boot diagnostic ---
+static bool gpio2_at_boot = false;
 
 // --- Telemetry timers ---
 static unsigned long last_imu     = 0;
@@ -142,8 +144,13 @@ void setup() {
     Serial.begin(SERIAL_BAUD);
     delay(100);
 
+    // GPIO 2 boot diagnostic — captured BEFORE the sensor task or anything else
+    // configures pins. Shared with GPIO usage elsewhere; informational only.
+    pinMode(2, INPUT);
+    gpio2_at_boot = digitalRead(2);
+
     // Sensor task starts I2C, probes IMU + sonar, sets boot LED.
-    // Blocks until first init pass completes (≤1s).
+    // Blocks until first init pass completes (<=1s).
     sensor_task_start();
 
     // Boot rainbow — runs briefly on every boot, confirms firmware is alive after a flash
@@ -155,12 +162,9 @@ void setup() {
     }
     s_update_led_active = false;
 
+    // Dog boots disengaged. Servos stay detached until the operator engages.
     offsets_init();
-    bool servos_ok = servos_attach_at(REST_POSE);
-    delay(BOOT_SETTLE_MS);
-    servos_ramp_to(STANDING_POSE, SOFTSTART_DURATION_MS, SOFTSTART_STEPS);
     gait_init(millis());
-    lifecycle_boot_complete(millis());
     handlers_init();
 
 #if WIFI_ENABLED
@@ -169,22 +173,21 @@ void setup() {
     // No blocking wait — loop() handles connect and reconnect
 #endif
 
-    // Reset heartbeat clock after boot. If no host connects within HEARTBEAT_TIMEOUT_MS (5s),
-    // lifecycle_heartbeat_lost fires and the dog will ramp back to rest pose and detach servos.
-    // This is intentional safe-fail behavior.
+    // Reset heartbeat clock after boot. If no host connects within HEARTBEAT_TIMEOUT_MS,
+    // the heartbeat watchdog fires and servos_detach_all() keeps the dog safe.
     last_msg_received = millis();
 
-    // Boot message — sensor init results are ready from the snapshot
+    // Boot message
     SensorSnapshot snap;
     sensor_snapshot_get(snap);
     JsonDocument doc;
-    doc["type"]          = "boot";
-    doc["imu"]           = snap.imu_ok;
-    doc["sonar"]         = snap.sonar_ok;
-    doc["servos"]        = servos_ok;
-    doc["pins_verified"] = (bool)PINS_VERIFIED;
-    doc["fw_version"]   = FW_VERSION;
-    doc["fw_build"]     = FW_BUILD_TIMESTAMP;
+    doc["type"]           = "boot";
+    doc["imu"]            = snap.imu_ok;
+    doc["sonar"]          = snap.sonar_ok;
+    doc["pins_verified"]  = (bool)PINS_VERIFIED;
+    doc["fw_version"]     = FW_VERSION;
+    doc["fw_build"]       = FW_BUILD_TIMESTAMP;
+    doc["gpio2_at_boot"]  = gpio2_at_boot;
     send_json(doc);
 }
 
@@ -237,16 +240,17 @@ void loop() {
     }
 #endif
 
-    // Heartbeat watchdog (skip during OTA — blocking handler holds loop())
-    if (connected && !lifecycle_is_updating() && (now - last_msg_received > HEARTBEAT_TIMEOUT_MS)) {
+    // Heartbeat watchdog — if the host goes quiet, detach servos + stop gait.
+    if (connected && (now - last_msg_received > HEARTBEAT_TIMEOUT_MS)) {
         connected = false;
         JsonDocument hb_evt;
-        hb_evt["type"]               = MSG_TELEM_EVENT;
-        hb_evt["event"]              = "heartbeat_lost";
-        hb_evt["t"]                  = (uint32_t)now;
-        hb_evt["ms_since_last_msg"]  = (uint32_t)(now - last_msg_received);
+        hb_evt["type"]              = MSG_TELEM_EVENT;
+        hb_evt["event"]             = "heartbeat_detach";
+        hb_evt["t"]                 = (uint32_t)now;
+        hb_evt["ms_since_last_msg"] = (uint32_t)(now - last_msg_received);
         send_json(hb_evt);
-        lifecycle_heartbeat_lost(now);
+        servos_detach_all();
+        gait_set_state(GaitState::STOP);
         sensor_led_set(1, LED_R_LAVENDER, LED_G_LAVENDER, LED_B_LAVENDER);
         sensor_led_set(2, LED_R_LAVENDER, LED_G_LAVENDER, LED_B_LAVENDER);
     }
@@ -256,23 +260,22 @@ void loop() {
         int   raw     = analogRead(BATTERY_ADC_PIN);
         float voltage = (raw / 4095.0f) * 3.3f * BATTERY_DIVIDER;
         int   mv      = (int)(voltage * 1000);
-        if (mv < BATTERY_LOW_MV && mv > 1000 && !low_battery) {
-            low_battery = true;
+        if (mv < BATTERY_LOW_MV && mv > 1000 && !servos_battery_cutoff()) {
+            servos_set_battery_cutoff();  // latches AND detaches
+            gait_set_state(GaitState::STOP);
             JsonDocument lb_evt;
             lb_evt["type"]  = MSG_TELEM_EVENT;
-            lb_evt["event"] = "low_battery_detach";
+            lb_evt["event"] = "battery_cutoff_detach";
             lb_evt["t"]     = (uint32_t)now;
             lb_evt["mv"]    = mv;
             send_json(lb_evt);
-            servos_detach_all();
-            gait_set_state(GaitState::STOP);
         }
         if (connected) {
             JsonDocument doc;
             doc["type"]       = MSG_TELEM_BATTERY;
             doc["voltage_mv"] = mv;
             doc["pct"]        = constrain((mv - 6000) * 100 / 2400, 0, 100);
-            doc["low"]        = low_battery;
+            doc["low"]        = servos_battery_cutoff();
             send_json(doc);
         }
         last_battery = now;
@@ -314,17 +317,12 @@ void loop() {
     // Status streaming
     if (connected && now - last_status >= 1000 / TELEM_STATUS_HZ) {
         JsonDocument doc;
-        doc["type"]                  = MSG_TELEM_STATUS;
-        doc["lifecycle"]             = lifecycle_state_name();
-        doc["balance"]               = balance_is_enabled();
-        doc["servos"]                = servos_active();
-        doc["low_battery"]           = low_battery;
-        doc["test_mode"]             = handlers_test_mode();
-        doc["manual_servo_mode"]     = handlers_manual_servo_mode();
+        doc["type"]                   = MSG_TELEM_STATUS;
+        doc["engaged"]                = servos_engaged();
+        doc["ramping"]                = servos_is_ramping();
+        doc["balance"]                = balance_is_enabled();
+        doc["battery_cutoff"]         = servos_battery_cutoff();
         doc["ms_since_last_host_msg"] = (uint32_t)(now - last_msg_received);
-        if (handlers_test_mode()) {
-            doc["ms_since_last_test_cmd"] = (uint32_t)(now - handlers_last_test_cmd());
-        }
 #if WIFI_ENABLED
         doc["wifi"] = wifi_connected;
         if (wifi_connected) {
@@ -336,19 +334,24 @@ void loop() {
         last_status = now;
     }
 
-    // Test mode heartbeat — exit test mode if host goes quiet
-    handlers_check_timeout(now);
-
     // Update rainbow LED tick
     update_rainbow_led_tick(now);
 
-    // Gait tick (skip during manual servo mode)
-    if (!handlers_manual_servo_mode() && now - last_gait >= 1000 / GAIT_UPDATE_HZ) {
-        lifecycle_update(now);
-        LifecycleState lc = lifecycle_current();
-        if (!low_battery && (lc == LifecycleState::ACTIVE || lc == LifecycleState::IDLE)) {
-            gait_update(now);
+    // Drive engage/disengage ramp. Emit event on completion.
+    {
+        bool was_engage = servos_last_ramp_was_engage();
+        if (servos_ramp_tick(now)) {
+            JsonDocument evt;
+            evt["type"]  = MSG_TELEM_EVENT;
+            evt["t"]     = (uint32_t)now;
+            evt["event"] = was_engage ? "engage_complete" : "disengage_complete";
+            send_json(evt);
         }
+    }
+
+    // Gait tick — only when not ramping. gait_update() guards on servos_engaged() internally.
+    if (!servos_is_ramping() && now - last_gait >= 1000 / GAIT_UPDATE_HZ) {
+        gait_update(now);
         last_gait = now;
     }
 }

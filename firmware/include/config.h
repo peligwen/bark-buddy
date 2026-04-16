@@ -37,7 +37,7 @@
 // --- Servo PWM Pins (ALL 8 VERIFIED via MCPWM register diff + IMU) ---
 // MCPWM0: GPIOs 25,26,27,14,16,17 (confirmed via register scan)
 // MCPWM1: GPIOs 4,2 (confirmed via MCPWM1 register diff + IMU)
-// Custom firmware uses software PWM (works on all pins)
+// Hardware LEDC peripheral: servo index i → LEDC channel i, 50Hz, 14-bit.
 // Order: FL_hip, FL_knee, FR_hip, FR_knee, RL_hip, RL_knee, RR_hip, RR_knee
 static const uint8_t SERVO_PINS[8] = {
     25, 26, 27, 14, 16, 17, 4, 2
@@ -63,8 +63,7 @@ static const uint8_t SERVO_PINS[8] = {
 #define SHUTDOWN_SETTLE_MS  500     // pause after lying-down before detach
 #define BOOT_SETTLE_MS      500     // pause at lying-down before ramping to standing
 
-// --- Lifecycle Timing ---
-#define IDLE_TIMEOUT_MS   30000  // sleep after 30s idle in IDLE state
+// --- Engage/Disengage Timing ---
 #define REST_SETTLE_MS      500  // pause at rest pose before detaching servos
 
 // --- Standing Pose (servo pulse widths in μs) ---
@@ -83,9 +82,7 @@ static const uint16_t LYING_DOWN_POSE[8] = {
 };
 
 // --- Rest Pose (servo pulse widths in μs) ---
-// Physical rest pose: hips back, knees tucked. Used by the startup lifecycle
-// state machine to settle the dog before detaching servos.
-// PLACEHOLDER VALUES — requires hardware tuning before use.
+// Resting pose: hips back, knees partially tucked. Used for engage/disengage transitions.
 // Order: FL_hip, FL_knee, FR_hip, FR_knee, RL_hip, RL_knee, RR_hip, RR_knee
 static const uint16_t REST_POSE[8] = {
     1800, 1500, 1870, 1500, 1202, 1500, 1165, 1500
@@ -151,12 +148,6 @@ static const int8_t SERVO_POLARITY_OVERRIDE[8] = {
 };
 #endif
 // clang-format on
-
-// --- Servo Idle ---
-#define SERVO_IDLE_TIMEOUT_MS   30000   // detach servos after 30s no movement
-
-// --- Test Mode ---
-#define TEST_HEARTBEAT_MS       10000   // exit test mode if no command for 10s
 
 // --- LED Brightness ---
 // Scale is 0-255. Stock firmware uses full 0-255 range.

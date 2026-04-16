@@ -42,13 +42,13 @@ static void send_boot_to_new_client() {
     SensorSnapshot snap;
     sensor_snapshot_get(snap);
     JsonDocument doc;
-    doc["type"]          = "boot";
-    doc["imu"]           = snap.imu_ok;
-    doc["sonar"]         = snap.sonar_ok;
-    doc["servos"]        = servos_active();
-    doc["pins_verified"] = (bool)PINS_VERIFIED;
-    doc["fw_version"]    = FW_VERSION;
-    doc["fw_build"]      = FW_BUILD_TIMESTAMP;
+    doc["type"]           = "boot";
+    doc["imu"]            = snap.imu_ok;
+    doc["sonar"]          = snap.sonar_ok;
+    doc["pins_verified"]  = (bool)PINS_VERIFIED;
+    doc["fw_version"]     = FW_VERSION;
+    doc["fw_build"]       = FW_BUILD_TIMESTAMP;
+    doc["gpio2_at_boot"]  = false;  // mock build: no GPIO; always false
     char buf[256];
     size_t n = serializeJson(doc, buf, sizeof(buf));
     buf[n] = '\n';

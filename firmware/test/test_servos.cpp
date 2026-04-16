@@ -1,5 +1,5 @@
 // test_servos.cpp — Host-side tests for LEDC-based servo control.
-// Validates: duty values, soft-start ramp, write, detach, shutdown ramp.
+// Validates: duty values, engage ramp, write, detach, disengage ramp.
 
 #include "mock_arduino.h"
 #include "mock_preferences.h"
@@ -29,41 +29,84 @@ static uint32_t expected_duty(uint16_t us) {
     return (uint32_t)((uint64_t)us * LEDC_MAX_DUTY / (1000000UL / SERVO_FREQ_HZ));
 }
 
-// ------------------------------------------------------------------ //
-// Test 1: servos_init() ends with STANDING_POSE duties on all pins
-// ------------------------------------------------------------------ //
-static void test_init_reaches_standing() {
-    printf("\nTest: init reaches standing pose\n");
-    servo_log_reset();
-    mock_reset_clock();
-
-    servos_init();
-
-    bool all_correct = true;
-    for (int i = 0; i < 8; i++) {
-        uint32_t expected = expected_duty(STANDING_POSE[i]);
-        uint32_t actual   = _servo_duty[SERVO_PINS[i]];
-        if (actual != expected) {
-            printf("  servo %d: expected duty %u got %u\n", i, expected, actual);
-            all_correct = false;
-        }
+// Run the non-blocking engage ramp to completion in a simulated clock.
+// Steps the mock clock forward and calls servos_ramp_tick() each step.
+static void run_ramp_to_completion() {
+    while (servos_is_ramping()) {
+        mock_advance_ms(20);
+        servos_ramp_tick((uint32_t)millis());
     }
-    check(all_correct, "all servos at standing duty after init");
-    check(servos_active(), "servos_active() true after init");
 }
 
 // ------------------------------------------------------------------ //
-// Test 2: Soft-start ramp is monotonic (for each servo from rest to standing)
+// Test: servos_engage_start() attaches at REST_POSE and kicks off ramp
 // ------------------------------------------------------------------ //
-static void test_softstart_monotonic() {
-    printf("\nTest: soft-start ramp is monotonic\n");
+static void test_engage_attaches_at_rest() {
+    printf("\nTest: servos_engage_start attaches at REST_POSE\n");
     servo_log_reset();
     mock_reset_clock();
     servos_detach_all();
 
-    servos_init();
+    bool ok = servos_engage_start();
+    check(ok, "servos_engage_start returns true from detached state");
+    check(servos_engaged(), "servos_engaged() true after engage_start");
+    check(servos_is_ramping(), "servos_is_ramping() true after engage_start");
+    check(servos_last_ramp_was_engage(), "last ramp marked as engage");
 
-    // Build per-pin duty sequences from the log
+    // All servos should be at REST_POSE on the initial write
+    bool all_correct = true;
+    for (int i = 0; i < 8; i++) {
+        uint32_t expected = expected_duty(REST_POSE[i]);
+        uint32_t actual   = _servo_duty[SERVO_PINS[i]];
+        if (actual != expected) {
+            printf("  servo %d: expected %u got %u\n", i, expected, actual);
+            all_correct = false;
+        }
+    }
+    check(all_correct, "all servos at REST_POSE duty after engage_start");
+
+    // Second call while ramping returns false
+    check(!servos_engage_start(), "second engage_start returns false while ramping");
+}
+
+// ------------------------------------------------------------------ //
+// Test: engage ramp completes at STANDING_POSE
+// ------------------------------------------------------------------ //
+static void test_engage_ramp_reaches_standing() {
+    printf("\nTest: engage ramp reaches STANDING_POSE\n");
+    servo_log_reset();
+    mock_reset_clock();
+    servos_detach_all();
+
+    servos_engage_start();
+    run_ramp_to_completion();
+
+    check(!servos_is_ramping(), "ramp no longer in progress");
+    check(servos_engaged(), "servos still engaged after ramp");
+
+    bool all_correct = true;
+    for (int i = 0; i < 8; i++) {
+        if (servo_read_us(i) != STANDING_POSE[i]) {
+            printf("  servo %d: expected %u got %u\n",
+                   i, STANDING_POSE[i], servo_read_us(i));
+            all_correct = false;
+        }
+    }
+    check(all_correct, "all servos at STANDING_POSE after engage ramp");
+}
+
+// ------------------------------------------------------------------ //
+// Test: Engage ramp is monotonic for each servo (rest → standing)
+// ------------------------------------------------------------------ //
+static void test_engage_ramp_monotonic() {
+    printf("\nTest: engage ramp is monotonic\n");
+    servo_log_reset();
+    mock_reset_clock();
+    servos_detach_all();
+
+    servos_engage_start();
+    run_ramp_to_completion();
+
     // Focus on servo 0 (FL_hip, pin 25) — representative
     int pin = SERVO_PINS[0];
     uint32_t prev = 0;
@@ -78,25 +121,26 @@ static void test_softstart_monotonic() {
             prev = c.duty;
             continue;
         }
-        // Allow equal (same step written twice at start/end of ramp)
-        // Direction: REST_POSE[0]=1800 → STANDING_POSE[0]=2096, so duty should be non-decreasing
+        // REST_POSE[0]=1800 → STANDING_POSE[0]=2096, so duty should be non-decreasing
         bool going_up = STANDING_POSE[0] >= REST_POSE[0];
         if (going_up && c.duty < prev) { monotonic = false; break; }
         if (!going_up && c.duty > prev) { monotonic = false; break; }
         prev = c.duty;
     }
     check(saw_start, "servo log has entries for pin 25");
-    check(monotonic, "FL_hip soft-start ramp is monotonic");
+    check(monotonic, "FL_hip engage ramp is monotonic");
 }
 
 // ------------------------------------------------------------------ //
-// Test 3: servo_write_us() produces correct duty on correct pin
+// Test: servo_write_us() produces correct duty on correct pin (engaged)
 // ------------------------------------------------------------------ //
 static void test_write_duty() {
     printf("\nTest: servo_write_us produces correct duty\n");
     servo_log_reset();
     mock_reset_clock();
-    servos_init();
+    servos_detach_all();
+    servos_engage_start();
+    run_ramp_to_completion();
 
     uint16_t test_us = 1800;
     servo_write_us(0, test_us);
@@ -117,17 +161,34 @@ static void test_write_duty() {
 }
 
 // ------------------------------------------------------------------ //
-// Test 4: servos_detach_all() zeros duties and marks inactive
+// Test: servo_write_us is a no-op when not engaged
+// ------------------------------------------------------------------ //
+static void test_write_when_disengaged_noop() {
+    printf("\nTest: servo_write_us no-op when not engaged\n");
+    servo_log_reset();
+    mock_reset_clock();
+    servos_detach_all();
+
+    servo_write_us(0, 1800);
+    check(servo_read_us(0) == 0, "servo_read_us still 0 after write-while-disengaged");
+    check(_servo_duty[SERVO_PINS[0]] == 0, "duty unchanged after write-while-disengaged");
+}
+
+// ------------------------------------------------------------------ //
+// Test: servos_detach_all() zeros duties and marks disengaged
 // ------------------------------------------------------------------ //
 static void test_detach() {
     printf("\nTest: servos_detach_all zeros duties\n");
     servo_log_reset();
     mock_reset_clock();
-    servos_init();
+    servos_detach_all();
+    servos_engage_start();
+    run_ramp_to_completion();
 
     servos_detach_all();
 
-    check(!servos_active(), "servos_active() false after detach");
+    check(!servos_engaged(), "servos_engaged() false after detach");
+    check(!servos_is_ramping(), "servos_is_ramping() false after detach");
 
     bool all_zero = true;
     for (int i = 0; i < 8; i++) {
@@ -137,34 +198,59 @@ static void test_detach() {
 }
 
 // ------------------------------------------------------------------ //
-// Test 5: servos_shutdown_to_lying_down() ramps and detaches
+// Test: disengage ramp reaches REST_POSE and detaches
 // ------------------------------------------------------------------ //
-static void test_shutdown_ramp() {
-    printf("\nTest: shutdown ramp ends at lying-down and detaches\n");
+static void test_disengage_ramp() {
+    printf("\nTest: disengage ramp reaches REST_POSE then detaches\n");
     servo_log_reset();
     mock_reset_clock();
-    servos_init();
+    servos_detach_all();
 
-    // Move servo 0 away from center first
-    servo_write_us(0, 2096);
+    servos_engage_start();
+    run_ramp_to_completion();
 
-    bool result = servos_shutdown_to_lying_down();
-    check(result, "shutdown returns true");
-    check(!servos_active(), "servos inactive after shutdown");
+    // Now disengage
+    servos_disengage_start();
+    check(servos_is_ramping(), "ramping true after disengage_start");
+    check(!servos_last_ramp_was_engage(), "last ramp marked as disengage");
+
+    run_ramp_to_completion();
+
+    check(!servos_engaged(), "servos disengaged after ramp");
+    check(!servos_is_ramping(), "ramping false after completion");
 
     // All duties should be 0 (detached)
     bool all_zero = true;
     for (int i = 0; i < 8; i++) {
         if (_servo_duty[SERVO_PINS[i]] != 0) { all_zero = false; break; }
     }
-    check(all_zero, "all duties zero after shutdown");
-
-    // Second call returns false (already detached)
-    check(!servos_shutdown_to_lying_down(), "second shutdown call returns false");
+    check(all_zero, "all duties zero after disengage");
 }
 
 // ------------------------------------------------------------------ //
-// Test 6: us_to_duty round-trip — well-known values
+// Test: battery cutoff latches and prevents future engage
+// ------------------------------------------------------------------ //
+static void test_battery_cutoff() {
+    printf("\nTest: battery cutoff prevents engage\n");
+    servo_log_reset();
+    mock_reset_clock();
+    servos_detach_all();
+    servos_engage_start();
+    run_ramp_to_completion();
+
+    check(!servos_battery_cutoff(), "battery cutoff initially clear");
+    servos_set_battery_cutoff();
+    check(servos_battery_cutoff(), "battery cutoff latched");
+    check(!servos_engaged(), "servos detached by battery cutoff");
+
+    // Cannot engage again
+    bool ok = servos_engage_start();
+    check(!ok, "servos_engage_start returns false after battery cutoff");
+    check(!servos_engaged(), "servos stay disengaged after cutoff");
+}
+
+// ------------------------------------------------------------------ //
+// Test: us_to_duty round-trip — well-known values
 // ------------------------------------------------------------------ //
 static void test_duty_values() {
     printf("\nTest: duty calculation for known pulse widths\n");
@@ -184,83 +270,37 @@ static void test_duty_values() {
 }
 
 // ------------------------------------------------------------------ //
-// Test 8: servos_attach_at() sets all servos to the given pose
+// Test: disengage while mid-engage-ramp reverses toward rest
 // ------------------------------------------------------------------ //
-static void test_attach_at() {
-    printf("\nTest: servos_attach_at sets pose without ramping\n");
+static void test_disengage_mid_engage() {
+    printf("\nTest: disengage mid-engage-ramp reverses toward rest\n");
     servo_log_reset();
     mock_reset_clock();
-
-    // Start from detached state
     servos_detach_all();
+    // Reset battery-cutoff latch from any prior test.
+    s_battery_cutoff = false;
 
-    bool result = servos_attach_at(REST_POSE);
-    check(result, "servos_attach_at returns true when detached");
-    check(servos_active(), "servos_active() true after attach_at");
-
-    // Verify all servos are at REST_POSE
-    bool all_correct = true;
-    for (int i = 0; i < 8; i++) {
-        uint32_t expected = expected_duty(REST_POSE[i]);
-        uint32_t actual   = _servo_duty[SERVO_PINS[i]];
-        if (actual != expected) {
-            printf("  servo %d: expected duty %u (REST_POSE %u) got %u\n",
-                   i, expected, REST_POSE[i], actual);
-            all_correct = false;
-        }
+    servos_engage_start();
+    // Step a few ticks partway through ramp
+    for (int i = 0; i < 10; i++) {
+        mock_advance_ms(20);
+        servos_ramp_tick((uint32_t)millis());
     }
-    check(all_correct, "all servos at REST_POSE duty after attach_at");
-    check(servo_read_us(0) == REST_POSE[0], "servo_read_us returns REST_POSE value");
+    check(servos_is_ramping(), "still ramping after partial time");
 
-    // Second call while attached returns false
-    bool second = servos_attach_at(REST_POSE);
-    check(!second, "servos_attach_at returns false when already attached");
-    check(servos_active(), "servos_active() still true after second attach_at");
-}
+    // Capture current position before disengage
+    uint16_t mid_pos_0 = servo_read_us(0);
+    check(mid_pos_0 != REST_POSE[0] && mid_pos_0 != STANDING_POSE[0],
+          "servo 0 in-between rest and standing mid-ramp");
 
-// ------------------------------------------------------------------ //
-// Test 9: servos_shutdown_to_rest() ramps to REST_POSE and detaches
-// ------------------------------------------------------------------ //
-static void test_shutdown_to_rest() {
-    printf("\nTest: servos_shutdown_to_rest ramps to REST_POSE and detaches\n");
-    servo_log_reset();
-    mock_reset_clock();
+    // Kick off disengage — should use current position as ramp start
+    servos_disengage_start();
+    check(servos_is_ramping(), "still ramping after disengage");
+    check(!servos_last_ramp_was_engage(), "ramp direction flipped to disengage");
 
-    // Start from standing
-    servos_init();
+    run_ramp_to_completion();
 
-    // Move servo 0 away from rest
-    servo_write_us(0, 2000);
-
-    bool result = servos_shutdown_to_rest();
-    check(result, "servos_shutdown_to_rest returns true");
-    check(!servos_active(), "servos inactive after shutdown_to_rest");
-
-    // All duties should be 0 (detached)
-    bool all_zero = true;
-    for (int i = 0; i < 8; i++) {
-        if (_servo_duty[SERVO_PINS[i]] != 0) { all_zero = false; break; }
-    }
-    check(all_zero, "all duties zero after shutdown_to_rest");
-
-    // Second call returns false (already detached)
-    check(!servos_shutdown_to_rest(), "second shutdown_to_rest call returns false");
-}
-
-// ------------------------------------------------------------------ //
-// Test 10: servos_ramp_to with steps=0 must not crash and reach target
-// ------------------------------------------------------------------ //
-static void test_ramp_to_zero_steps() {
-    printf("\nTest: servos_ramp_to with steps=0 does not crash and reaches target\n");
-    servo_log_reset();
-    mock_reset_clock();
-
-    servos_detach_all();
-    servos_attach_at(REST_POSE);
-    servos_ramp_to(STANDING_POSE, 100, 0);  // steps=0 must not crash
-    for (int i = 0; i < 8; i++) {
-        check(servo_read_us(i) == STANDING_POSE[i], "zero-steps ramp reaches target");
-    }
+    check(!servos_engaged(), "servos disengaged after ramp");
 }
 
 // ------------------------------------------------------------------ //
@@ -270,14 +310,15 @@ int main() {
     printf("=== servo tests ===\n");
 
     test_duty_values();
-    test_init_reaches_standing();
-    test_softstart_monotonic();
+    test_engage_attaches_at_rest();
+    test_engage_ramp_reaches_standing();
+    test_engage_ramp_monotonic();
     test_write_duty();
+    test_write_when_disengaged_noop();
     test_detach();
-    test_shutdown_ramp();
-    test_attach_at();
-    test_shutdown_to_rest();
-    test_ramp_to_zero_steps();
+    test_disengage_ramp();
+    test_battery_cutoff();
+    test_disengage_mid_engage();
 
     printf("\n%d passed, %d failed\n", g_pass, g_fail);
     return g_fail > 0 ? 1 : 0;

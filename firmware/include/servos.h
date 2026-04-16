@@ -1,34 +1,37 @@
 #pragma once
 #include <stdint.h>
 
-// Initialize 8-servo LEDC hardware PWM. Returns false if PINS_VERIFIED is 0.
-// Performs soft-start: attaches at REST_POSE, pauses, then ramps to standing over 2s.
-bool servos_init();
+// Start engaging: attach LEDC, write REST_POSE, begin non-blocking ramp to STANDING_POSE.
+// Returns false if already engaged/ramping or PINS_VERIFIED=0.
+bool servos_engage_start();
 
-// Attach all LEDC channels and set servos to the given pose without ramping.
-// Returns false if already attached or PINS_VERIFIED=0.
-bool servos_attach_at(const uint16_t pose[8]);
+// Start disengaging: begin non-blocking ramp to REST_POSE, then detach.
+// No-op if already disengaged.
+void servos_disengage_start();
 
-// Blocking ramp from current positions to target over duration_ms using the given step count.
-// No-op if servos are not attached.
-void servos_ramp_to(const uint16_t target[8], uint16_t duration_ms, uint8_t steps);
+// Drive engage/disengage ramp. Call every main-loop iteration.
+// Returns true on the tick a ramp completes (for event emission).
+bool servos_ramp_tick(uint32_t now_ms);
 
-// Ramp to REST_POSE, settle, then detach. Returns false if not attached.
-bool servos_shutdown_to_rest();
+// Is a ramp currently in progress?
+bool servos_is_ramping();
 
-// Smoothly transition to lying-down pose, settle, then detach all servos. Blocking (~2s).
-// Returns false if servos were not attached.
-bool servos_shutdown_to_lying_down();
+// Are servos currently attached (true during ramp AND after)?
+bool servos_engaged();
 
-// Set servo pulse width in microseconds (clamped to global min/max).
+// True if the most recently started ramp was an engage (vs disengage).
+// Used by main.cpp to distinguish engage_complete vs disengage_complete events.
+bool servos_last_ramp_was_engage();
+
+// Write servo pulse width in microseconds (clamped). No-op if not engaged.
 void servo_write_us(uint8_t index, uint16_t pulse_us);
 
-
-// Read current pulse width for a servo.
+// Read current cached pulse width.
 uint16_t servo_read_us(uint8_t index);
 
-// Detach all servos (safe stop — no PWM output).
+// Immediately detach all servos. Called by battery-cutoff and heartbeat watchdogs.
 void servos_detach_all();
 
-// Are servos currently attached and active?
-bool servos_active();
+// Mark that battery cutoff has been latched (prevents future engage).
+void servos_set_battery_cutoff();
+bool servos_battery_cutoff();

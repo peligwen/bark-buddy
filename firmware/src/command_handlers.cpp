@@ -18,18 +18,7 @@
 #include <mbedtls/sha256.h>
 #endif
 
-// --- Handler-owned state ---
-static bool          s_balance_enabled    = false;
-static bool          s_manual_servo_mode  = false;
-static bool          s_test_mode          = false;
-static unsigned long s_last_test_cmd      = 0;
-
-// --- Accessors for main loop ---
-bool          handlers_manual_servo_mode() { return s_manual_servo_mode; }
-bool          handlers_test_mode()         { return s_test_mode; }
-unsigned long handlers_last_test_cmd()     { return s_last_test_cmd; }
-
-// --- Direction helpers (moved from main.cpp) ---
+// --- Direction helpers ---
 Direction direction_from_string(const char* str) {
     if (strcmp(str, "forward")  == 0) return Direction::FORWARD;
     if (strcmp(str, "backward") == 0) return Direction::BACKWARD;
@@ -38,27 +27,20 @@ Direction direction_from_string(const char* str) {
     return Direction::STOP;
 }
 
-static GaitState dir_to_gait_state(const char* dir_str) {
-    Direction dir = direction_from_string(dir_str);
-    switch (dir) {
-        case Direction::FORWARD:  return GaitState::WALK_FORWARD;
-        case Direction::BACKWARD: return GaitState::WALK_BACKWARD;
-        case Direction::LEFT:     return GaitState::TURN_LEFT;
-        case Direction::RIGHT:    return GaitState::TURN_RIGHT;
-        default:                  return GaitState::STOP;
+// --- Gate helper: motion commands require engaged servos ---
+static bool require_engaged(const char* cmd_type) {
+    if (servos_battery_cutoff()) {
+        send_ack(cmd_type, false, "battery_cutoff");
+        return false;
     }
-}
-
-
-// --- Wake + queue helper ---
-// Returns true if the lifecycle was not ACTIVE (caller should return).
-// Stores cmd FIRST, then triggers wake — correct ordering required because
-// lifecycle_cmd_wake() calls lifecycle_execute_pending() immediately when IDLE.
-static bool wake_and_queue(const PendingCmd& cmd, const char* ack_type) {
-    if (lifecycle_can_command()) return false;
-    lifecycle_set_pending(cmd);   // store BEFORE wake
-    lifecycle_cmd_wake(millis());
-    send_ack(ack_type, true, "waking");
+    if (!servos_engaged()) {
+        send_ack(cmd_type, false, "not_engaged");
+        return false;
+    }
+    if (servos_is_ramping()) {
+        send_ack(cmd_type, false, "ramping");
+        return false;
+    }
     return true;
 }
 
@@ -70,18 +52,51 @@ static void handle_ping(const JsonDocument&) {
     send_json(resp);
 }
 
+static void handle_cmd_engage(const JsonDocument& doc) {
+    bool enable = doc["enabled"] | false;
+    if (enable) {
+        if (servos_battery_cutoff()) {
+            send_ack(MSG_CMD_ENGAGE, false, "battery_cutoff");
+            return;
+        }
+        if (servos_is_ramping()) {
+            send_ack(MSG_CMD_ENGAGE, false, "ramping");
+            return;
+        }
+        if (servos_engaged()) {
+            send_ack(MSG_CMD_ENGAGE, true);  // already engaged, no-op
+            return;
+        }
+        if (!servos_engage_start()) {
+            send_ack(MSG_CMD_ENGAGE, false, "engage_failed");
+            return;
+        }
+        JsonDocument evt;
+        evt["type"]  = MSG_TELEM_EVENT;
+        evt["event"] = "engage_start";
+        evt["t"]     = (uint32_t)millis();
+        send_json(evt);
+        send_ack(MSG_CMD_ENGAGE, true);
+    } else {
+        if (!servos_engaged() && !servos_is_ramping()) {
+            send_ack(MSG_CMD_ENGAGE, true);  // already disengaged, no-op
+            return;
+        }
+        gait_set_state(GaitState::STOP);
+        servos_disengage_start();
+        JsonDocument evt;
+        evt["type"]  = MSG_TELEM_EVENT;
+        evt["event"] = "disengage_start";
+        evt["t"]     = (uint32_t)millis();
+        send_json(evt);
+        send_ack(MSG_CMD_ENGAGE, true);
+    }
+}
+
 static void handle_cmd_move(const JsonDocument& doc) {
+    if (!require_engaged(MSG_CMD_MOVE)) return;
     const char* dir_str = doc["direction"] | "stop";
     float spd = doc["speed"] | 1.0f;
-
-    {
-        PendingCmd cmd;
-        cmd.type = PendingCmdType::MOVE;
-        cmd.gait_state = dir_to_gait_state(dir_str);
-        cmd.speed = spd;
-        if (wake_and_queue(cmd, MSG_CMD_MOVE)) return;
-    }
-    s_manual_servo_mode = false;
     Direction dir = direction_from_string(dir_str);
     switch (dir) {
         case Direction::FORWARD:  gait_set_state(GaitState::WALK_FORWARD,  spd); break;
@@ -94,32 +109,21 @@ static void handle_cmd_move(const JsonDocument& doc) {
 }
 
 static void handle_cmd_stand(const JsonDocument&) {
-    {
-        PendingCmd cmd;
-        cmd.type = PendingCmdType::STAND;
-        if (wake_and_queue(cmd, MSG_CMD_STAND)) return;
-    }
-    s_manual_servo_mode = false;
+    if (!require_engaged(MSG_CMD_STAND)) return;
     gait_set_state(GaitState::STAND);
     send_ack(MSG_CMD_STAND, true);
 }
 
 static void handle_cmd_balance(const JsonDocument& doc) {
+    if (!require_engaged(MSG_CMD_BALANCE)) return;
     bool enabled = doc["enabled"] | true;
-
-    {
-        PendingCmd cmd;
-        cmd.type = PendingCmdType::BALANCE;
-        cmd.balance_enabled = enabled;
-        if (wake_and_queue(cmd, MSG_CMD_BALANCE)) return;
-    }
-    s_balance_enabled = enabled;
-    balance_enable(s_balance_enabled);
-    if (!s_balance_enabled) balance_reset();
+    balance_enable(enabled);
+    if (!enabled) balance_reset();
     send_ack(MSG_CMD_BALANCE, true);
 }
 
 static void handle_cmd_transform(const JsonDocument& doc) {
+    if (!require_engaged(MSG_CMD_TRANSFORM)) return;
     BodyPose pose;
     pose.dx    = doc["x"]     | 0.0f;
     pose.dy    = doc["y"]     | 0.0f;
@@ -128,30 +132,16 @@ static void handle_cmd_transform(const JsonDocument& doc) {
     pose.pitch = doc["pitch"] | 0.0f;
     pose.yaw   = doc["yaw"]   | 0.0f;
     uint16_t ms = doc["ms"]   | 100;
-
-    {
-        PendingCmd cmd;
-        cmd.type = PendingCmdType::TRANSFORM;
-        cmd.body_pose = pose;
-        cmd.transform_ms = ms;
-        if (wake_and_queue(cmd, MSG_CMD_TRANSFORM)) return;
-    }
     gait_set_body_transform(pose, ms);
     send_ack(MSG_CMD_TRANSFORM, true);
 }
 
 static void handle_cmd_gait_params(const JsonDocument& doc) {
+    if (!require_engaged(MSG_CMD_GAIT_PARAMS)) return;
     GaitConfig cfg;
     cfg.stride_height_mm = doc["stride_height"] | GAIT_STRIDE_HEIGHT_MM;
     cfg.stride_length_mm = doc["stride_length"] | GAIT_STRIDE_LENGTH_MM;
     cfg.frequency_hz     = doc["frequency"]     | GAIT_FREQUENCY_HZ;
-
-    {
-        PendingCmd cmd;
-        cmd.type = PendingCmdType::GAIT_PARAMS;
-        cmd.gait_config = cfg;
-        if (wake_and_queue(cmd, MSG_CMD_GAIT_PARAMS)) return;
-    }
     gait_set_config(cfg);
     send_ack(MSG_CMD_GAIT_PARAMS, true);
 }
@@ -166,31 +156,12 @@ static void handle_cmd_led(const JsonDocument& doc) {
 }
 
 static void handle_cmd_servo(const JsonDocument& doc) {
-#if PINS_VERIFIED
-    if (!lifecycle_can_command()) {
-        lifecycle_cmd_wake(millis());
-        JsonDocument evt;
-        evt["type"]      = MSG_TELEM_EVENT;
-        evt["event"]     = "command_rejected";
-        evt["t"]         = (uint32_t)millis();
-        evt["cmd"]       = MSG_CMD_SERVO;
-        evt["reason"]    = "not_active";
-        evt["lifecycle"] = lifecycle_state_name();
-        send_json(evt);
-        JsonDocument resp;
-        resp["type"]      = MSG_ACK;
-        resp["ref_type"]  = MSG_CMD_SERVO;
-        resp["ok"]        = false;
-        resp["error"]     = "not_active";
-        resp["lifecycle"] = lifecycle_state_name();
-        send_json(resp);
-        return;
-    }
-
-    s_manual_servo_mode = true;
+    if (!require_engaged(MSG_CMD_SERVO)) return;
 
     uint8_t  idx = doc["index"]    | 0;
     uint16_t us  = doc["pulse_us"] | 1500;
+
+    gait_pause();  // prevent gait from fighting manual writes
     servo_write_us(idx, us);
 
     JsonDocument resp;
@@ -200,73 +171,6 @@ static void handle_cmd_servo(const JsonDocument& doc) {
     resp["index"]     = idx;
     resp["actual_us"] = servo_read_us(idx);
     send_json(resp);
-#else
-    send_ack(MSG_CMD_SERVO, false, "pins_not_verified");
-#endif
-}
-
-static void handle_cmd_test_mode(const JsonDocument& doc) {
-    bool enable = doc["enable"] | true;
-
-    if (enable) {
-        if (!lifecycle_can_command()) {
-            lifecycle_cmd_wake(millis());
-            JsonDocument evt;
-            evt["type"]      = MSG_TELEM_EVENT;
-            evt["event"]     = "command_rejected";
-            evt["t"]         = (uint32_t)millis();
-            evt["cmd"]       = MSG_CMD_TEST_MODE;
-            evt["reason"]    = "not_active";
-            evt["lifecycle"] = lifecycle_state_name();
-            send_json(evt);
-            JsonDocument resp;
-            resp["type"]      = MSG_ACK;
-            resp["ref_type"]  = MSG_CMD_TEST_MODE;
-            resp["ok"]        = false;
-            resp["error"]     = "not_active";
-            resp["lifecycle"] = lifecycle_state_name();
-            send_json(resp);
-            return;
-        }
-
-        s_test_mode         = true;
-        s_last_test_cmd     = millis();
-        s_manual_servo_mode = true;
-        gait_set_state(GaitState::STOP);
-
-        sensor_led_set(1, LED_BRIGHTNESS / 2, 0, LED_BRIGHTNESS);  // purple
-        sensor_led_set(2, LED_BRIGHTNESS / 2, 0, LED_BRIGHTNESS);
-    } else {
-        s_test_mode         = false;
-        s_manual_servo_mode = false;
-        gait_set_state(GaitState::STAND);
-
-        sensor_led_set(1, 0, LED_BRIGHTNESS, 0);  // green
-        sensor_led_set(2, 0, LED_BRIGHTNESS, 0);
-    }
-
-    JsonDocument resp;
-    resp["type"]          = MSG_ACK;
-    resp["ref_type"]      = MSG_CMD_TEST_MODE;
-    resp["ok"]            = true;
-    resp["test_mode"]     = s_test_mode;
-    resp["servos_active"] = servos_active();
-    send_json(resp);
-}
-
-static void handle_cmd_wake(const JsonDocument&) {
-    lifecycle_cmd_wake(millis());
-    send_ack(MSG_CMD_WAKE, true);
-}
-
-static void handle_cmd_sleep(const JsonDocument&) {
-    lifecycle_cmd_sleep(millis());
-    send_ack(MSG_CMD_SLEEP, true);
-}
-
-static void handle_cmd_shutdown(const JsonDocument&) {
-    lifecycle_cmd_shutdown(millis());
-    send_ack(MSG_CMD_SHUTDOWN, true);
 }
 
 static void handle_cmd_i2c_write(const JsonDocument& doc) {
@@ -286,6 +190,7 @@ static void handle_cmd_i2c_write(const JsonDocument& doc) {
 }
 
 static void handle_cmd_offset(const JsonDocument& doc) {
+    if (!require_engaged(MSG_CMD_OFFSET)) return;
     const char* action = doc["action"] | "read";
     if (strcmp(action, "set") == 0) {
         uint8_t idx = doc["index"] | 0;
@@ -345,22 +250,12 @@ static void handle_cmd_ota_update(const JsonDocument& doc) {
             return;
         }
     }
-    // Must be IDLE or ACTIVE
-    LifecycleState lc = lifecycle_current();
-    if (lc != LifecycleState::IDLE && lc != LifecycleState::ACTIVE) {
-        send_ack(MSG_CMD_OTA_UPDATE, false, "not_idle_or_active");
-        return;
-    }
     send_ack(MSG_CMD_OTA_UPDATE, true);
-
-    // Transition to UPDATING (ramps to rest pose)
-    lifecycle_cmd_update(millis());
 
     // Enable rainbow LEDs
     s_update_led_active = true;
 
-    // Detach servos immediately — the ramp can't execute while loop() is blocked
-    // by this handler. Detached is the same end-state as end-of-ramp anyway.
+    // Detach servos immediately — loop() can't drive ramps while this handler blocks.
     servos_detach_all();
 
     auto ota_cleanup = []() {
@@ -575,15 +470,6 @@ static void handle_cmd_balance_config(const JsonDocument& doc) {
     send_json(resp);
 }
 
-// --- Update begin (serial flash prep) ---
-// Triggered by the host before a serial upload. Starts rainbow LEDs and detaches
-// servos so the dog is safe to receive a reset/flash.
-static void handle_cmd_update_begin(const JsonDocument& doc) {
-    servos_detach_all();
-    s_update_led_active = true;
-    send_ack(MSG_CMD_UPDATE_BEGIN, true);
-}
-
 // --- Dispatch table ---
 
 typedef void (*HandlerFn)(const JsonDocument&);
@@ -591,6 +477,7 @@ struct Handler { const char* type; HandlerFn fn; };
 
 static const Handler k_handlers[] = {
     { MSG_PING,             handle_ping             },
+    { MSG_CMD_ENGAGE,       handle_cmd_engage       },
     { MSG_CMD_MOVE,         handle_cmd_move         },
     { MSG_CMD_STAND,        handle_cmd_stand        },
     { MSG_CMD_BALANCE,      handle_cmd_balance      },
@@ -598,23 +485,15 @@ static const Handler k_handlers[] = {
     { MSG_CMD_LED,          handle_cmd_led          },
     { MSG_CMD_TRANSFORM,    handle_cmd_transform    },
     { MSG_CMD_GAIT_PARAMS,  handle_cmd_gait_params  },
-    { MSG_CMD_TEST_MODE,    handle_cmd_test_mode    },
     { MSG_CMD_OFFSET,       handle_cmd_offset       },
     { MSG_CMD_I2C_WRITE,    handle_cmd_i2c_write    },
-    { MSG_CMD_SHUTDOWN,     handle_cmd_shutdown     },
-    { MSG_CMD_WAKE,         handle_cmd_wake         },
-    { MSG_CMD_SLEEP,        handle_cmd_sleep        },
     { MSG_CMD_OTA_UPDATE,     handle_cmd_ota_update     },
-    { MSG_CMD_UPDATE_BEGIN,   handle_cmd_update_begin   },
     { MSG_CMD_PROBE_PIN,      handle_cmd_probe_pin      },
     { MSG_CMD_BALANCE_CONFIG, handle_cmd_balance_config },
 };
 
 void handlers_init() {
-    s_balance_enabled   = false;
-    s_manual_servo_mode = false;
-    s_test_mode         = false;
-    s_last_test_cmd     = 0;
+    // All state is owned by servos.cpp / gait.cpp / balance.cpp now — nothing to init here.
 }
 
 void handle_message(const JsonDocument& doc) {
@@ -623,30 +502,8 @@ void handle_message(const JsonDocument& doc) {
     for (const auto& h : k_handlers) {
         if (strcmp(type, h.type) == 0) {
             h.fn(doc);
-            // Refresh test-mode heartbeat for any command received while in test mode.
-            // Done after the handler so cmd_test_mode{enable:true} is already applied.
-            if (s_test_mode) s_last_test_cmd = millis();
             return;
         }
     }
     send_ack(type, false, "unknown_type");
-}
-
-void handlers_check_timeout(unsigned long now_ms) {
-    if (!s_test_mode) return;
-    if (now_ms - s_last_test_cmd <= TEST_HEARTBEAT_MS) return;
-
-    JsonDocument evt;
-    evt["type"]              = MSG_TELEM_EVENT;
-    evt["event"]             = "test_mode_timeout";
-    evt["t"]                 = (uint32_t)now_ms;
-    evt["ms_since_last_cmd"] = (uint32_t)(now_ms - s_last_test_cmd);
-    send_json(evt);
-
-    s_test_mode         = false;
-    s_manual_servo_mode = false;
-    gait_set_state(GaitState::STAND);
-
-    sensor_led_set(1, 0, LED_BRIGHTNESS, 0);  // green
-    sensor_led_set(2, 0, LED_BRIGHTNESS, 0);
 }
