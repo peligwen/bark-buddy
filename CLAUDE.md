@@ -9,58 +9,59 @@ Semi-autonomous control system for Hiwonder MechDog robot dog. Stock hardware (n
 - **Milestone 3** (Pure-Python Physics Simulation) — complete
 - **Milestone 4** (Wall Mesh & 3D Visualization) — complete
 - **Firmware Foundation Refactor** (FreeRTOS sensor task, command handler dispatch, WiFi reconnect) — complete
+- **Custom-Firmware-Only Refactor** (deleted stock/hybrid paths, collapsed CMD protocol, replaced Python sim with Mock Firmware) — complete
 - **Current work** — IK-based gait pipeline (foot-position IK, body transforms, active balance, stride config)
 - **Next milestone** — SLAM-based localization, composite multi-scan mapping, waypoint navigation UI
 
 ## Architecture
 
-Two firmware paths, same Python host and web UI:
+Single firmware path:
 
-- **Custom firmware (primary):** C++ on ESP32-S (D0WD), JSON/NDJSON over WiFi TCP (port 9000) or serial. Full servo control, IK gait engine, FreeRTOS sensor task, command handler dispatch table, IMU/sonar streaming, heartbeat. This is the target.
-- **Stock firmware (fallback):** MicroPython REPL over USB serial or WiFi WebREPL. Used for bootstrapping and when custom firmware isn't flashed.
-- **Serial:** Available on both firmware paths for debugging and development.
+- **Custom firmware:** C++ on ESP32-S (D0WD), JSON/NDJSON over WiFi TCP (port 9000) or USB serial. Full servo control, IK gait engine, FreeRTOS sensor task, command handler dispatch table, IMU/sonar streaming, heartbeat.
+- **Mock Firmware:** same C++ source compiled as a native binary (`firmware/test/bark-mock`) with thin platform shims. Launched via `bark mock`. Host connects via `FirmwareTransport` over local TCP — identical to real hardware path.
 
 Components:
 - **MechDog:** ESP32-D0WD, 8 PWM servos, QMI8658 IMU, I2C ultrasonic
-- **Local dev machine (Python):** Web server, behavior engine, transport layer
+- **Local dev machine (Python):** Web server, behavior engine, `FirmwareTransport`
 - **Browser:** Dark-themed control UI with 3D visualization
 
-Flow (custom firmware): Browser → WebSocket (JSON) → Python host → JSON/NDJSON over WiFi TCP → custom firmware → servos
-Flow (stock fallback): Browser → WebSocket (JSON) → Python host → REPL commands → stock firmware → servos
+Flow: Browser → WebSocket (JSON) → Python host → JSON/NDJSON (USB serial or WiFi TCP or local TCP) → firmware (real or mock) → servos
 
 ## Key Design Decisions
 
-- **Simulation:** Pure-Python physics engine — rigid body, ground contact, leg kinematics. Default when no hardware connected.
-- **Hardware (auto-detected):** Plug in USB → auto-detects custom firmware (JSON ping) or stock firmware (hybrid NDJSON handler). No flags needed.
-- **Transport:** All paths speak the same NDJSON protocol. Transports are implementation details, not user choices.
+- **Mock Firmware:** native C++ binary compiled from real firmware source with host shims (`firmware/mock/`). Include-path substitution — `firmware/mock/` prepended so `<Arduino.h>`, `<WiFi.h>`, etc. resolve to host-friendly stubs. Driver-level link substitution for IMU/sonar (reads from physics model). Physics: servo duty → FK via `pulses_to_foot()` → pitch/roll from foot heights → low-pass → gyro derivative → gravity projection.
+- **Single transport:** `FirmwareTransport` is the only transport class. `send_json(msg: dict)` is the sole command path — no CMD text protocol.
+- **Auto-detect hardware:** USB serial JSON ping → mDNS `_mechdog._tcp` → exit with guidance. No silent fallback.
+- **`bark mock`:** spawns `firmware/test/bark-mock --tcp-port 9001`, waits for port, starts server with `--fw-tcp 127.0.0.1:9001`.
 - **Firmware API:** JSON messages — `cmd_move`, `cmd_stand`, `cmd_balance`, `cmd_servo`, `cmd_led`, `cmd_transform`, `cmd_gait_params`, `cmd_test_mode`, `cmd_offset`. Firmware streams telemetry (`telem_imu`, `telem_sonar`, `telem_battery`, `telem_status`).
 - **Browser protocol:** WebSocket + JSON
-- **Behaviors:** Composable layers — balance runs beneath remote or scan
+- **Behaviors:** Composable layers — `BalanceLayer` and `ScanBehavior` take `Transport` directly.
 - **Web UI:** Dark theme, D-pad controls, 3D dog view + scan map, vanilla JS (ES modules)
 - **Goal:** Semi-autonomous — user sets goals from the UI, dog navigates using a continuously updated world model (sonar + future camera)
-
-**Stock firmware caveat:** The stock firmware runs a background thread (`start_main`) that polls BLE/WiFi for CMD protocol. Direct `_dog.move()` calls work when neither BLE nor WiFi socket is connected to the firmware's listener. Calling `set_gait_params()` or `homeostasis()` can break the default gait — avoid modifying firmware state beyond `move()`. This limitation is one reason custom firmware is preferred.
 
 ## Project Layout
 
 - `firmware/` — Custom C++ firmware (PlatformIO, ESP32)
-  - `src/` — main.cpp, gait.cpp, imu.cpp, servos.cpp, sonar.cpp, balance.cpp, calibrate.cpp, command_handlers.cpp, offsets.cpp, sensor_task.cpp
-  - `include/` — config.h, protocol.h, gait.h, imu.h, servos.h, sonar.h, balance.h, body_transform.h, calibrate.h, cf_filter.h, command_handlers.h, comms.h, gait_math.h, ik.h, offsets.h, sensor_task.h
-  - `hybrid/` — MicroPython NDJSON handler (runs on stock firmware)
-  - `test/` — IK, transform, balance, offset, gait, servo tests
+  - `src/` — main.cpp, gait.cpp, imu.cpp, servos.cpp, sonar.cpp, balance.cpp, command_handlers.cpp, offsets.cpp, sensor_task.cpp
+  - `include/` — config.h, protocol.h, gait.h, imu.h, servos.h, sonar.h, balance.h, body_transform.h, cf_filter.h, command_handlers.h, comms.h, gait_math.h, ik.h, offsets.h, sensor_task.h, update_led.h
+  - `mock/` — platform shims + physics model for native mock build
+    - `Arduino.h`, `WiFi.h`, `ESPmDNS.h`, `Wire.h`, `Preferences.h`, `esp_compat.h`, `freertos_shim.h`, `HTTPClient.h`, `Update.h` — host shims
+    - `physics.cpp` / `physics.h` — servo duty → IMU/sonar physics model
+    - `net_tcp.cpp` / `net_tcp.h` — BSD sockets TCP server
+    - `mock_main.cpp` — host entry point; resends boot on new TCP client
+    - `mock_sensor_task.cpp` — std::thread sensor workers (50 Hz IMU, 10 Hz sonar)
+    - `imu_mock.cpp`, `sonar_mock.cpp` — link-time replacements for IMU/sonar drivers
+    - `mock_globals.cpp` — singleton definitions (Wire, WiFi, MDNS, ESP, Update)
+  - `test/` — IK, transform, balance, offset, gait, servo unit tests + Makefile
+    - `make bark-mock` — builds the native mock firmware binary
   - `platformio.ini` — ESP32 build config
 - `host/` — Python host application
   - `server.py` — web server + WebSocket + telemetry loop
-  - `comms.py` — CMD protocol layer + Transport ABC
-  - `firmware_transport.py` — transport for custom firmware (JSON/NDJSON)
-  - `hybrid_transport.py` — hybrid transport (uploads NDJSON handler to stock firmware via REPL)
-  - `hw_transport.py` — shared base for stock firmware transports (CMD→REPL)
-  - `repl_transport.py` — USB serial REPL transport (stock firmware / debug)
-  - `webrepl_transport.py` — WiFi WebREPL transport (stock firmware fallback)
-  - `setup_wifi.py` — interactive WiFi + WebREPL setup script
-  - `capture_profile.py` — profile capture + parameter optimizer
+  - `comms.py` — Transport ABC + constants (DIRECTIONS, SERIAL_BAUD)
+  - `firmware_transport.py` — sole transport (USB serial or TCP); `DeadReckoningMixin`
+  - `dead_reckoning.py` — odometry mixin; `record_motion(direction)` for server to call
+  - `capture_pose.py` — servo offset capture tool
   - `behaviors/` — balance.py, scan.py, map_store.py, wall_fit.py, wall_mesh.py, octree.py
-  - `sim/` — Pure-Python physics simulation (sim_transport.py, physics.py)
 - `web/` — static web UI (ES modules)
   - `index.html` — page structure
   - `style.css` — dark theme, responsive layout
@@ -72,9 +73,18 @@ Flow (stock fallback): Browser → WebSocket (JSON) → Python host → REPL com
 ## Conventions
 
 - Firmware: C++ (PlatformIO), ArduinoJson, ESP32-S (D0WD)
+- Mock firmware build: `cd firmware/test && make bark-mock` (clang++, C++17, MOCK_FIRMWARE=1)
 - Host: Python 3.11+, asyncio, pyserial-asyncio, websockets
 - Web: Vanilla HTML/CSS/JS (ES modules), Three.js r128 via CDN
-- Transport: auto-detected (USB serial → hardware, none → pure-Python sim). Override: `--sim`, `--serial /dev/...`, `--wifi 192.168.1.163`
+- Transport: auto-detected (USB serial → hardware, mDNS → WiFi hardware). Override: `--fw-tcp HOST[:PORT]`.
+
+## CLI
+
+- `bark` — auto-detect hardware (USB → mDNS → exit with guidance)
+- `bark mock` — build + launch mock firmware, connect server to it
+- `bark flash` — flash firmware via PlatformIO
+- `bark test` — run firmware unit tests
+- `bark kill` — kill any running bark server
 
 ## Custom Firmware Protocol (JSON/NDJSON)
 
@@ -97,21 +107,12 @@ Telemetry (firmware → host):
 - `{"type": "telem_status", "mode": "idle", "balance": true, "servos": true}`
 - `{"type": "ack", "ref_type": "cmd_move", "ok": true}`
 
-## Stock Firmware API (via REPL — fallback)
-
-- Move: `_dog.move(speed, direction)` — speed (neg=back), direction (neg=left, pos=right)
-- Stop: `_dog.move(0, 0)`
-- IMU: `_imu.read_angle()` → `[pitch, roll]`
-- Sonar: `_sonar.getDistance()` → centimeters (float)
-- Actions: `_dog.action_run(code)` — 1=wave, 4=sit, 5=lie down
-- Balance: `_dog.homeostasis(0|1)` — avoid toggling, can break gait
-
 ## Workflow Guidelines
 
 - Commit early and often. Small, focused commits.
 - Ask before major pivots.
 - Custom firmware: test with `pio test` before flashing. Servo pins must be verified before enabling `PINS_VERIFIED`.
-- Stock firmware: don't modify gait/balance state — use move() only.
+- Mock firmware: `cd firmware/test && make bark-mock` to build; `./bark-mock --tcp-port 9001` to run standalone.
 
 ## Planned Future Work
 

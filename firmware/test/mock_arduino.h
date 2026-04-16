@@ -28,8 +28,10 @@ static unsigned long _mock_millis = 0;
 inline unsigned long millis() { return _mock_millis; }
 inline void delay(unsigned long ms) { _mock_millis += ms; }
 #endif
+#ifndef MOCK_REAL_TIME
 inline void mock_advance_ms(unsigned long ms) { _mock_millis += ms; }
 inline void mock_reset_clock() { _mock_millis = 0; }
+#endif
 
 // Servo capture: records all PWM writes
 struct ServoCapture {
@@ -75,7 +77,7 @@ namespace physics { void on_servo_duty(uint8_t pin, uint32_t duty); }
 inline void ledcWrite(uint8_t pin, uint32_t duty) {
     _servo_duty[pin] = duty;
     if (_servo_log_count < MAX_CAPTURES) {
-        _servo_log[_servo_log_count++] = {pin, duty, _mock_millis};
+        _servo_log[_servo_log_count++] = {pin, duty, (unsigned long)millis()};
     }
 #ifdef MOCK_FIRMWARE
     physics::on_servo_duty(pin, duty);
@@ -100,6 +102,16 @@ struct MockSerial {
     operator bool() { return true; }
 };
 static MockSerial Serial;
+
+// Arduino String type — thin wrapper around std::string
+#include <string>
+struct String : std::string {
+    using std::string::string;
+    String(const std::string& s) : std::string(s) {}
+    bool isEmpty() const { return empty(); }
+    int toInt() const { return empty() ? 0 : std::stoi(*this); }
+    const char* c_str() const { return std::string::c_str(); }
+};
 
 // constrain
 template<typename T>
