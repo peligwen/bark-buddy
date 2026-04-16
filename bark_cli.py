@@ -25,10 +25,8 @@ def _add_server_flags(parser):
                         help="HTTP port (default: 8456)")
     parser.add_argument("--serial", default=None,
                         help="Serial port override (e.g. /dev/cu.usbserial-10)")
-    parser.add_argument("--wifi", default=None,
-                        help="WiFi address override (e.g. 192.168.1.163)")
-    parser.add_argument("--wifi-password", default=None,
-                        help="WebREPL password")
+    parser.add_argument("--fw-tcp", default=None, metavar="HOST[:PORT]",
+                        help="Connect to firmware over TCP (e.g. 127.0.0.1:9001)")
     parser.add_argument("--no-mdns", action="store_true",
                         help="Disable mDNS auto-discovery")
     parser.add_argument("--no-browser", action="store_true",
@@ -38,11 +36,43 @@ def _add_server_flags(parser):
 def cmd_serve(args):
     _ensure_host_importable()
     import asyncio
-    # Patch args to match what server.main() expects
     args.restart = False
     args.open_browser = not getattr(args, "no_browser", False)
     from server import main as server_main
     asyncio.run(server_main(args))
+
+
+def cmd_mock(args):
+    import socket
+    import time
+    _ensure_host_importable()
+    mock_bin = FIRMWARE_DIR / "test" / "bark-mock"
+    if not mock_bin.exists():
+        result = subprocess.run(
+            ["make", "-C", str(FIRMWARE_DIR / "test"), "bark-mock"],
+            check=True
+        )
+    proc = subprocess.Popen([str(mock_bin), "--tcp-port", "9001"])
+    try:
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline:
+            try:
+                s = socket.create_connection(("127.0.0.1", 9001), timeout=0.2)
+                s.close()
+                break
+            except OSError:
+                time.sleep(0.1)
+        else:
+            proc.terminate()
+            raise RuntimeError("bark-mock did not open port 9001 within 5 s")
+        args.fw_tcp = "127.0.0.1:9001"
+        cmd_serve(args)
+    finally:
+        proc.terminate()
+        try:
+            proc.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            proc.kill()
 
 
 def cmd_flash(args):
@@ -116,10 +146,6 @@ def cmd_kill(args):
     print("Done.")
 
 
-def cmd_wifi_setup(args):
-    _ensure_host_importable()
-    from setup_wifi import main as wifi_main
-    wifi_main()
 
 
 def main():
@@ -136,12 +162,10 @@ def main():
 
     # Default (no subcommand) — start server
     _add_server_flags(parser)
-    parser.set_defaults(sim=False)
 
-    # bark sim
-    p_sim = sub.add_parser("sim", help="Start server in simulation mode")
-    _add_server_flags(p_sim)
-    p_sim.set_defaults(sim=True)
+    # bark mock
+    p_mock = sub.add_parser("mock", help="Start server with mock firmware (compiled C++)")
+    _add_server_flags(p_mock)
 
     # bark flash
     sub.add_parser("flash", help="Build + upload firmware via PlatformIO")
@@ -154,9 +178,6 @@ def main():
     p_kill.add_argument("--port", type=int, default=8456,
                         help="Port the server is listening on (default: 8456)")
 
-    # bark wifi-setup
-    sub.add_parser("wifi-setup", help="Interactive WiFi + WebREPL setup")
-
     args = parser.parse_args()
 
     if args.command == "flash":
@@ -165,10 +186,10 @@ def main():
         cmd_test(args)
     elif args.command == "kill":
         cmd_kill(args)
-    elif args.command == "wifi-setup":
-        cmd_wifi_setup(args)
+    elif args.command == "mock":
+        cmd_mock(args)
     else:
-        # "sim" or no subcommand — both start the server
+        # no subcommand — start server with auto-detect
         cmd_serve(args)
 
 
