@@ -237,7 +237,30 @@ static void test_auto_wake_from_idle_executes_immediately() {
     check(gait_current_state() == GaitState::TURN_RIGHT, "queued MOVE executed on instant ACTIVE");
 }
 
-// Test 13: pending command is overwritten by a second set — only last executes
+// Test 13: ordering contract — set_pending THEN cmd_wake from IDLE executes immediately.
+// Documents and verifies the handler ordering fix: pending must be stored before
+// wake is triggered, because wake from IDLE calls execute_pending() inline.
+static void test_auto_wake_idle_command_order() {
+    printf("test_auto_wake_idle_command_order\n");
+    mock_reset_clock();
+    unsigned long t = reach_active(0);
+    lifecycle_cmd_sleep(t);  // → IDLE
+    check(lifecycle_current() == LifecycleState::IDLE, "in IDLE");
+
+    // Simulate what the handler does after the fix: store pending FIRST, then wake.
+    PendingCmd cmd;
+    cmd.type = PendingCmdType::MOVE;
+    cmd.gait_state = GaitState::WALK_FORWARD;
+    cmd.speed = 0.5f;
+    lifecycle_set_pending(cmd);           // store FIRST
+    lifecycle_cmd_wake(t + 1);            // THEN wake (executes immediately from IDLE)
+
+    check(lifecycle_current() == LifecycleState::ACTIVE, "IDLE→ACTIVE immediately on wake");
+    check(!lifecycle_has_pending(), "pending command cleared (executed inline)");
+    check(gait_current_state() == GaitState::WALK_FORWARD, "MOVE command executed on inline ACTIVE entry");
+}
+
+// Test 14 (was 13): pending command is overwritten by a second set — only last executes
 static void test_pending_command_overwritten() {
     printf("test_pending_command_overwritten\n");
     mock_reset_clock();
@@ -283,6 +306,7 @@ int main() {
     test_auto_wake_cmd_move_from_resting();
     test_auto_wake_cmd_stand_from_resting();
     test_auto_wake_from_idle_executes_immediately();
+    test_auto_wake_idle_command_order();
     test_pending_command_overwritten();
 
     printf("\n%d passed, %d failed\n", g_pass, g_fail);

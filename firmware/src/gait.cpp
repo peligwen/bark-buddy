@@ -378,7 +378,10 @@ void lifecycle_cmd_sleep(unsigned long now_ms) {
             break;
 
         case LifecycleState::WAKING: {
-            // Mid-ramp going up — reverse toward rest
+            // Mid-ramp going up — reverse toward rest.
+            // Clear any pending command: it was queued for a wake that is now
+            // being cancelled, so it must not execute on a future wake.
+            s_pending_cmd.type = PendingCmdType::NONE;
             for (int i = 0; i < 8; i++) {
                 uint16_t cur = servo_read_us(i);
                 s_lifecycle_ramp_from[i] = (cur > 0) ? cur : s_lifecycle_ramp_target[i];
@@ -403,6 +406,10 @@ void lifecycle_heartbeat_lost(unsigned long now_ms) {
     // Safety fallback — force SLEEPING regardless of state
     if (s_lifecycle == LifecycleState::SLEEPING ||
         s_lifecycle == LifecycleState::RESTING) return;
+
+    // Clear any queued command — a stale command should not execute after a
+    // safety-induced shutdown when the next wake arrives.
+    s_pending_cmd.type = PendingCmdType::NONE;
 
     for (int i = 0; i < 8; i++) {
         uint16_t cur = servo_read_us(i);
