@@ -20,9 +20,7 @@ bool servos_shutdown_to_rest();
 // Returns false if servos were not attached.
 bool servos_shutdown_to_lying_down();
 
-// Set servo pulse width in microseconds (clamped to min/max).
-// In frail mode: also clamped to ±FRAIL_MAX_OFFSET_US from standing,
-// and slew-rate limited to FRAIL_SLEW_RATE_US per tick.
+// Set servo pulse width in microseconds (clamped to global min/max).
 void servo_write_us(uint8_t index, uint16_t pulse_us);
 
 
@@ -34,16 +32,3 @@ void servos_detach_all();
 
 // Are servos currently attached and active?
 bool servos_active();
-
-// --- Frail mode ---
-
-// Enable/disable frail mode (servo protection for testing).
-// When enabled: range clamp, slew rate limit, duty cycle tracking.
-void servos_set_frail(bool enabled);
-
-// Is frail mode currently active?
-bool servos_frail();
-
-// Call every loop iteration to track duty cycle and enforce cooldown.
-// Returns true if servos are in cooldown (writes are blocked).
-bool servos_update_duty(unsigned long now_ms);

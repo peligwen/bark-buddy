@@ -53,7 +53,7 @@ The servo-to-joint mapping is **untrusted** — prior identification data was co
 
 **Note:** RR hip servo was blown and has been replaced. All 8 servos should be functional.
 
-**Safety:** Servos get warm. Take breaks. Use frail mode. Check delta from baseline not absolute tilt.
+**Safety:** Servos get warm. Take breaks. Check delta from baseline not absolute tilt.
 
 ## 4. Movement Direction Calibration
 

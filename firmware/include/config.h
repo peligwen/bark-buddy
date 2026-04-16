@@ -158,14 +158,6 @@ static const int8_t SERVO_POLARITY_OVERRIDE[8] = {
 // --- Servo Idle ---
 #define SERVO_IDLE_TIMEOUT_MS   30000   // detach servos after 30s no movement
 
-// --- Frail Mode (servo protection during testing) ---
-// Frail mode is active during test mode. Limits servo authority to
-// prevent damage from bad commands or overheating.
-#define FRAIL_MAX_OFFSET_US     200     // max ±μs deviation from standing pose
-#define FRAIL_SLEW_RATE_US      10      // max μs change per gait tick (20ms)
-#define FRAIL_DUTY_ON_MS        30000   // max continuous servo-on time
-#define FRAIL_COOLDOWN_MS       10000   // mandatory rest after duty limit
-
 // --- Test Mode ---
 #define TEST_HEARTBEAT_MS       10000   // exit test mode if no command for 10s
 

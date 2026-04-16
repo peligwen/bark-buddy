@@ -192,7 +192,6 @@ static void handle_cmd_servo(const JsonDocument& doc) {
     resp["ok"]        = true;
     resp["index"]     = idx;
     resp["actual_us"] = servo_read_us(idx);
-    resp["frail"]     = servos_frail();
     send_json(resp);
 #else
     send_ack(MSG_CMD_SERVO, false, "pins_not_verified");
@@ -201,7 +200,6 @@ static void handle_cmd_servo(const JsonDocument& doc) {
 
 static void handle_cmd_test_mode(const JsonDocument& doc) {
     bool enable = doc["enable"] | true;
-    bool frail  = doc["frail"]  | true;
 
     if (enable) {
         if (!lifecycle_can_command()) {
@@ -221,14 +219,11 @@ static void handle_cmd_test_mode(const JsonDocument& doc) {
         s_manual_servo_mode = true;
         gait_set_state(GaitState::STOP);
 
-        servos_set_frail(frail);
-
         sensor_led_set(1, LED_BRIGHTNESS / 2, 0, LED_BRIGHTNESS);  // purple
         sensor_led_set(2, LED_BRIGHTNESS / 2, 0, LED_BRIGHTNESS);
     } else {
         s_test_mode         = false;
         s_manual_servo_mode = false;
-        servos_set_frail(false);
         gait_set_state(GaitState::STAND);
 
         sensor_led_set(1, 0, LED_BRIGHTNESS, 0);  // green
@@ -240,7 +235,6 @@ static void handle_cmd_test_mode(const JsonDocument& doc) {
     resp["ref_type"]      = MSG_CMD_TEST_MODE;
     resp["ok"]            = true;
     resp["test_mode"]     = s_test_mode;
-    resp["frail"]         = servos_frail();
     resp["servos_active"] = servos_active();
     send_json(resp);
 }
@@ -623,7 +617,6 @@ void handlers_check_timeout(unsigned long now_ms) {
 
     s_test_mode         = false;
     s_manual_servo_mode = false;
-    servos_set_frail(false);
     gait_set_state(GaitState::STAND);
 
     sensor_led_set(1, 0, LED_BRIGHTNESS, 0);  // green

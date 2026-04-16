@@ -1,5 +1,5 @@
 // test_servos.cpp — Host-side tests for LEDC-based servo control.
-// Validates: duty values, soft-start ramp, write, detach, shutdown ramp, frail mode.
+// Validates: duty values, soft-start ramp, write, detach, shutdown ramp.
 
 #include "mock_arduino.h"
 #include "mock_preferences.h"
@@ -164,37 +164,7 @@ static void test_shutdown_ramp() {
 }
 
 // ------------------------------------------------------------------ //
-// Test 6: Frail mode — range clamp and slew rate
-// ------------------------------------------------------------------ //
-static void test_frail_mode() {
-    printf("\nTest: frail mode range clamp and slew rate\n");
-    servo_log_reset();
-    mock_reset_clock();
-    servos_init();
-
-    servos_set_frail(true);
-    check(servos_frail(), "frail mode enabled");
-
-    // Range clamp: servo 0 standing=2096, max offset=200 → max=2296
-    servo_write_us(0, 9999);
-    uint16_t val = servo_read_us(0);
-    uint16_t expected_max = STANDING_POSE[0] + FRAIL_MAX_OFFSET_US;
-    check(val <= expected_max, "frail range clamp: write far above standing clamped");
-
-    // Slew rate: from current position, try to jump by 100us in one write
-    servo_write_us(0, STANDING_POSE[0]);  // reset to standing first
-    uint16_t before = servo_read_us(0);
-    servo_write_us(0, STANDING_POSE[0] + 100);
-    uint16_t after = servo_read_us(0);
-    uint16_t delta = after > before ? after - before : before - after;
-    check(delta <= FRAIL_SLEW_RATE_US, "frail slew rate limits single-step change");
-
-    servos_set_frail(false);
-    check(!servos_frail(), "frail mode disabled");
-}
-
-// ------------------------------------------------------------------ //
-// Test 7: us_to_duty round-trip — well-known values
+// Test 6: us_to_duty round-trip — well-known values
 // ------------------------------------------------------------------ //
 static void test_duty_values() {
     printf("\nTest: duty calculation for known pulse widths\n");
@@ -305,7 +275,6 @@ int main() {
     test_write_duty();
     test_detach();
     test_shutdown_ramp();
-    test_frail_mode();
     test_attach_at();
     test_shutdown_to_rest();
     test_ramp_to_zero_steps();

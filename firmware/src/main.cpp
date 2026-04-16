@@ -325,14 +325,6 @@ void loop() {
     // Update rainbow LED tick
     update_rainbow_led_tick(now);
 
-    // Frail mode duty cycle
-    if (servos_update_duty(now)) {
-        if ((now / 500) % 2 == 0) {
-            sensor_led_set(1, LED_BRIGHTNESS, LED_BRIGHTNESS / 2, 0);  // amber flash
-            sensor_led_set(2, LED_BRIGHTNESS, LED_BRIGHTNESS / 2, 0);
-        }
-    }
-
     // Gait tick (skip during manual servo mode)
     if (!handlers_manual_servo_mode() && now - last_gait >= 1000 / GAIT_UPDATE_HZ) {
         lifecycle_update(now);

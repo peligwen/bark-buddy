@@ -2,12 +2,11 @@
 """
 Servo testing tool for MechDog.
 
-Enters test mode (frail by default), keeps a heartbeat alive, and provides
-a clean interface for probing individual servos with IMU feedback.
+Enters test mode, keeps a heartbeat alive, and provides a clean interface
+for probing individual servos with IMU feedback.
 
 Features:
 - Auto-wakes servos on every command (no more idle timeout issues)
-- Frail mode: range-clamped, slew-rate limited, duty-cycle protected
 - Logs every command + IMU response to NDJSON for analysis
 - Returns to standing on exit or Ctrl+C
 
@@ -17,7 +16,6 @@ Usage:
     python3 servo_test.py --probe 6 --range 150   # ±150μs sweep
     python3 servo_test.py --sweep 6               # full calibration sweep
     python3 servo_test.py --all                   # probe all 8 servos
-    python3 servo_test.py --no-frail              # disable frail mode (careful!)
     python3 servo_test.py --standing              # just stand and report IMU
     python3 servo_test.py --host 192.168.1.163    # connect over WiFi TCP
 """
@@ -52,8 +50,7 @@ STANDING_POSE = [2096, 1621, 2170, 1611, 904, 1379, 1389, 830]
 class ServoTester:
     """Manages test mode session using FirmwareTransport (serial or WiFi)."""
 
-    def __init__(self, port: str = None, host: str = None, frail: bool = True):
-        self._frail = frail
+    def __init__(self, port: str = None, host: str = None):
         self._transport = FirmwareTransport(
             port=port, host=host, dtr_reset=(port is not None)
         )
@@ -70,9 +67,9 @@ class ServoTester:
 
         await self._transport.open()
 
-        await self._transport.send_json({"type": "cmd_test_mode", "enable": True, "frail": self._frail})
+        await self._transport.send_json({"type": "cmd_test_mode", "enable": True})
         await asyncio.sleep(0.5)
-        logger.info("Test mode active (frail=%s)", self._frail)
+        logger.info("Test mode active")
 
         self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
 
@@ -273,7 +270,6 @@ Examples:
   python3 servo_test.py --probe 6 --step 5          # finer resolution
   python3 servo_test.py --all                       # probe all servos
   python3 servo_test.py --sweep 6                   # full calibration sweep
-  python3 servo_test.py --no-frail --probe 0        # disable frail (careful!)
   python3 servo_test.py --host 192.168.1.163        # connect over WiFi
 
 Servo map:
@@ -299,9 +295,6 @@ Servo map:
                         help="Abort if pitch or roll delta exceeds this (degrees, default: 6.0)")
     parser.add_argument("--jerk-limit", type=float, default=2.0,
                         help="Abort if a single step changes IMU by more than this (degrees, default: 2.0)")
-    parser.add_argument("--no-frail", action="store_true",
-                        help="Disable frail mode (full servo authority)")
-
     args = parser.parse_args()
 
     port = args.port
@@ -312,7 +305,7 @@ Servo map:
         print("No USB serial device found and no --host specified")
         sys.exit(1)
 
-    tester = ServoTester(port=port, host=host, frail=not args.no_frail)
+    tester = ServoTester(port=port, host=host)
 
     # Handle Ctrl+C gracefully
     loop = asyncio.get_event_loop()

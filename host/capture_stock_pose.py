@@ -54,15 +54,15 @@ async def read_imu(transport: FirmwareTransport, settle_ms: int = 100) -> dict:
 
 async def set_all_servos(transport: FirmwareTransport, values: list[int],
                          reps: int = 5, delay: float = 0.02) -> None:
-    """Set all 8 servos, repeating to work through frail slew rate."""
+    """Set all 8 servos, repeating to ensure all servos settle."""
     for _ in range(reps):
         for i, us in enumerate(values):
             await transport.send_json({"type": "cmd_servo", "index": i, "pulse_us": us})
         await asyncio.sleep(delay)
 
 
-async def enter_test_mode(transport: FirmwareTransport, frail: bool = True) -> None:
-    await transport.send_json({"type": "cmd_test_mode", "enable": True, "frail": frail})
+async def enter_test_mode(transport: FirmwareTransport) -> None:
+    await transport.send_json({"type": "cmd_test_mode", "enable": True})
     await asyncio.sleep(0.5)
 
 
@@ -118,7 +118,7 @@ async def map_all_servos(transport, args):
     """Full servo mapping: classify each servo by IMU response."""
     print("=== Servo Mapping ===\n")
 
-    await enter_test_mode(transport, frail=True)
+    await enter_test_mode(transport)
 
     # Start from center crouch
     center = [1500] * 8
@@ -217,7 +217,7 @@ async def find_level(transport, args):
     each servo to reduce pitch and roll toward zero.
     """
     print("=== Find Level Standing Pose ===\n")
-    await enter_test_mode(transport, frail=True)
+    await enter_test_mode(transport)
 
     # Start from center, rise to current pose
     center = [1500] * 8
@@ -380,7 +380,7 @@ async def run(args):
         elif args.walk:
             await walk_capture(transport, args)
         elif args.servo is not None:
-            await enter_test_mode(transport, frail=True)
+            await enter_test_mode(transport)
             center = [1500] * 8
             await set_all_servos(transport, center, reps=60, delay=0.05)
             await asyncio.sleep(0.5)

@@ -516,7 +516,7 @@
 <body>
 
 <h1>Servo Tuning</h1>
-<p class="subtitle">Send <code>cmd_servo</code> to individual servos. Enable test mode first — it activates frail protection (±200us from standing, slew rate limiting).</p>
+<p class="subtitle">Send <code>cmd_servo</code> to individual servos. Enable test mode first.</p>
 
 <div class="status-bar">
   <div class="dot" id="ws-dot"></div>
@@ -858,7 +858,7 @@
     dot.className = 'dot';
     if (ws && ws.readyState === WebSocket.OPEN) dot.classList.add(testMode ? 'test-mode' : 'connected');
     document.getElementById('status-text').textContent =
-      testMode ? 'Test mode active — frail protection on' : 'Connected';
+      testMode ? 'Test mode active' : 'Connected';
   }
 
   // ── Send single servo ─────────────────────────────────────────
@@ -894,7 +894,7 @@
   // ── Firmware ack processing ───────────────────────────────────
   function handleServoAck(msg) {
     _ackRecv++;
-    console.log('[RX ack #' + _ackRecv + '] idx=' + msg.index + ' ok=' + msg.ok + ' actual=' + msg.actual_us + (msg.frail ? ' (frail)' : ''));
+    console.log('[RX ack #' + _ackRecv + '] idx=' + msg.index + ' ok=' + msg.ok + ' actual=' + msg.actual_us);
     updateDiagCounter();
     const i = msg.index;
     if (i === undefined || i < 0 || i >= 8) return;
@@ -913,7 +913,7 @@
     if (actualSpan) actualSpan.textContent = actual + ' μs';
 
     if (actual !== values[i]) {
-      // Frail-clamped: update UI to reflect actual position
+      // Clamped by firmware: update UI to reflect actual position
       flashRow(row, 'clamped');
       if (!_dragging) {
         values[i] = actual;
