@@ -117,3 +117,24 @@ void balance_reset() {
     s_roll_prev_err  = 0.0f;
     s_roll_first     = true;
 }
+
+void balance_set_gains(float pitch_kp, float pitch_ki, float pitch_kd,
+                       float roll_kp,  float roll_ki,  float roll_kd) {
+    s_cfg.kp_pitch = pitch_kp;
+    s_cfg.ki_pitch = pitch_ki;
+    s_cfg.kd_pitch = pitch_kd;
+    s_cfg.kp_roll  = roll_kp;
+    s_cfg.ki_roll  = roll_ki;
+    s_cfg.kd_roll  = roll_kd;
+    // Intentionally does NOT reset integral or prev_err state.
+}
+
+void balance_get_gains(float* pitch_kp, float* pitch_ki, float* pitch_kd,
+                       float* roll_kp,  float* roll_ki,  float* roll_kd) {
+    *pitch_kp = s_cfg.kp_pitch;
+    *pitch_ki = s_cfg.ki_pitch;
+    *pitch_kd = s_cfg.kd_pitch;
+    *roll_kp  = s_cfg.kp_roll;
+    *roll_ki  = s_cfg.ki_roll;
+    *roll_kd  = s_cfg.kd_roll;
+}

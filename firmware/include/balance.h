@@ -19,3 +19,9 @@ BodyPose balance_update(float pitch_deg, float roll_deg, float dt);
 
 // Reset integrators and previous error — call on mode transitions (walk↔stand, enable/disable)
 void balance_reset();
+
+// Runtime gain tuning — updates PID gains without resetting integrator/previous-error state.
+void balance_set_gains(float pitch_kp, float pitch_ki, float pitch_kd,
+                       float roll_kp,  float roll_ki,  float roll_kd);
+void balance_get_gains(float* pitch_kp, float* pitch_ki, float* pitch_kd,
+                       float* roll_kp,  float* roll_ki,  float* roll_kd);

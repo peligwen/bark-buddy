@@ -137,7 +137,7 @@ class Server:
 
     def _on_firmware_ack(self, msg: dict):
         """Forward firmware acks to all WebSocket clients."""
-        if self._ws_clients and msg.get("ref_type") in ("cmd_servo", "cmd_probe_pin"):
+        if self._ws_clients and msg.get("ref_type") in ("cmd_servo", "cmd_probe_pin", "cmd_balance_config"):
             asyncio.ensure_future(self._broadcast(msg))
 
     @web.middleware
@@ -761,7 +761,8 @@ class Server:
 
         elif msg_type in ("cmd_test_mode", "cmd_servo", "cmd_transform",
                           "cmd_gait_params", "cmd_shutdown",
-                          "cmd_wake", "cmd_sleep", "cmd_probe_pin"):
+                          "cmd_wake", "cmd_sleep", "cmd_probe_pin",
+                          "cmd_balance_config"):
             # Firmware-direct passthrough — forward as-is
             if msg_type == "cmd_servo":
                 logger.debug("Passthrough cmd_servo idx=%s pulse=%s",

@@ -540,6 +540,32 @@ static void handle_cmd_probe_pin(const JsonDocument& doc) {
     send_json(resp);
 }
 
+static void handle_cmd_balance_config(const JsonDocument& doc) {
+    float pitch_kp, pitch_ki, pitch_kd, roll_kp, roll_ki, roll_kd;
+    balance_get_gains(&pitch_kp, &pitch_ki, &pitch_kd, &roll_kp, &roll_ki, &roll_kd);
+
+    pitch_kp = doc["pitch_kp"] | pitch_kp;
+    pitch_ki = doc["pitch_ki"] | pitch_ki;
+    pitch_kd = doc["pitch_kd"] | pitch_kd;
+    roll_kp  = doc["roll_kp"]  | roll_kp;
+    roll_ki  = doc["roll_ki"]  | roll_ki;
+    roll_kd  = doc["roll_kd"]  | roll_kd;
+
+    balance_set_gains(pitch_kp, pitch_ki, pitch_kd, roll_kp, roll_ki, roll_kd);
+
+    JsonDocument resp;
+    resp["type"]     = MSG_ACK;
+    resp["ref_type"] = MSG_CMD_BALANCE_CONFIG;
+    resp["ok"]       = true;
+    resp["pitch_kp"] = pitch_kp;
+    resp["pitch_ki"] = pitch_ki;
+    resp["pitch_kd"] = pitch_kd;
+    resp["roll_kp"]  = roll_kp;
+    resp["roll_ki"]  = roll_ki;
+    resp["roll_kd"]  = roll_kd;
+    send_json(resp);
+}
+
 // --- Update begin (serial flash prep) ---
 // Triggered by the host before a serial upload. Starts rainbow LEDs and detaches
 // servos so the dog is safe to receive a reset/flash.
@@ -569,9 +595,10 @@ static const Handler k_handlers[] = {
     { MSG_CMD_SHUTDOWN,     handle_cmd_shutdown     },
     { MSG_CMD_WAKE,         handle_cmd_wake         },
     { MSG_CMD_SLEEP,        handle_cmd_sleep        },
-    { MSG_CMD_OTA_UPDATE,   handle_cmd_ota_update   },
-    { MSG_CMD_UPDATE_BEGIN, handle_cmd_update_begin },
-    { MSG_CMD_PROBE_PIN,    handle_cmd_probe_pin    },
+    { MSG_CMD_OTA_UPDATE,     handle_cmd_ota_update     },
+    { MSG_CMD_UPDATE_BEGIN,   handle_cmd_update_begin   },
+    { MSG_CMD_PROBE_PIN,      handle_cmd_probe_pin      },
+    { MSG_CMD_BALANCE_CONFIG, handle_cmd_balance_config },
 };
 
 void handlers_init() {
