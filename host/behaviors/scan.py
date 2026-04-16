@@ -12,7 +12,7 @@ import math
 from dataclasses import dataclass
 from typing import Callable, Optional
 
-from comms import DogComms
+from comms import Transport
 
 logger = logging.getLogger(__name__)
 
@@ -73,8 +73,8 @@ class ScanBehavior:
     captures points during the settle time at each angle.
     """
 
-    def __init__(self, dog: DogComms):
-        self._dog = dog
+    def __init__(self, transport):
+        self._transport = transport
         self._running = False
         self._task: Optional[asyncio.Task] = None
         self._on_point: Optional[Callable] = None
@@ -122,12 +122,12 @@ class ScanBehavior:
 
                 # Turn to next step (except after last)
                 if step < TOTAL_STEPS - 1:
-                    await self._dog.turn_right()
+                    await self._transport.send_json({"type": "cmd_move", "direction": "right"})
                     await asyncio.sleep(TURN_DURATION)
-                    await self._dog.stop()
+                    await self._transport.send_json({"type": "cmd_stand"})
 
             # Return to original heading
-            await self._dog.stop()
+            await self._transport.send_json({"type": "cmd_stand"})
 
             logger.info("Scan complete")
             self._progress = 100
@@ -136,11 +136,11 @@ class ScanBehavior:
             return result
 
         except asyncio.CancelledError:
-            await self._dog.stop()
+            await self._transport.send_json({"type": "cmd_stand"})
             return None
         except Exception:
             logger.exception("Scan failed")
-            await self._dog.stop()
+            await self._transport.send_json({"type": "cmd_stand"})
             return None
         finally:
             self._running = False
@@ -169,7 +169,7 @@ class ScanBehavior:
             except asyncio.CancelledError:
                 pass
             self._task = None
-        await self._dog.stop()
+        await self._transport.send_json({"type": "cmd_stand"})
 
     @staticmethod
     async def _fire(callback: Callable, *args) -> None:
