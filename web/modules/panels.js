@@ -72,36 +72,6 @@ var noiseValueIds = {
     "sonar_outlier_pct": "val-out", "imu_drift_dps": "val-drift",
 };
 
-export function setupNoisePanel() {
-    var sliders = document.querySelectorAll("#sim-panel input[data-noise]");
-    var debounceTimer = null;
-
-    function sendNoiseParams() {
-        var params = {};
-        sliders.forEach(function (s) { params[s.dataset.noise] = parseFloat(s.value); });
-        send({ type: "cmd_sim_noise", params: params });
-    }
-
-    sliders.forEach(function (slider) {
-        slider.addEventListener("input", function () {
-            var valEl = document.getElementById(noiseValueIds[slider.dataset.noise]);
-            if (valEl) valEl.textContent = slider.value;
-            clearTimeout(debounceTimer);
-            debounceTimer = setTimeout(sendNoiseParams, 150);
-        });
-    });
-}
-
-export function syncNoiseSliders(params) {
-    for (var key in params) {
-        var slider = document.querySelector('#sim-panel input[data-noise="' + key + '"]');
-        if (slider) {
-            slider.value = params[key];
-            var valEl = document.getElementById(noiseValueIds[key]);
-            if (valEl) valEl.textContent = Math.round(params[key] * 10) / 10;
-        }
-    }
-}
 
 // --- OTA Firmware Update Panel ---
 

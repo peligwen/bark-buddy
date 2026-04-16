@@ -106,8 +106,8 @@ header h1 {
     text-transform: uppercase;
     font-family: "SF Mono", "Fira Code", monospace;
 }
-.transport-badge.sim { background: var(--border); color: var(--text-muted); }
 .transport-badge.live { background: var(--green-muted); color: var(--green); }
+.transport-badge.mock { background: #3d3010; color: #ffd700; }
 
 .fw-badge {
     font-size: 0.6rem;
@@ -445,46 +445,6 @@ header h1 {
 }
 .pose-select:focus { outline: 1px solid var(--accent); }
 
-/* Sim noise panel */
-#sim-panel.hidden { display: none; }
-.noise-grid {
-    display: grid;
-    grid-template-columns: auto 1fr;
-    gap: 4px 10px;
-    align-items: center;
-}
-.noise-grid label {
-    font-size: 0.65rem;
-    color: var(--text-muted);
-    font-family: "SF Mono", "Fira Code", monospace;
-    white-space: nowrap;
-}
-.noise-grid label span { color: var(--accent); }
-.noise-grid input[type="range"] {
-    width: 100%;
-    height: 4px;
-    -webkit-appearance: none;
-    appearance: none;
-    background: var(--border);
-    border-radius: 2px;
-    outline: none;
-}
-.noise-grid input[type="range"]::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    width: 12px;
-    height: 12px;
-    border-radius: 50%;
-    background: var(--accent);
-    cursor: pointer;
-}
-.noise-grid input[type="range"]::-moz-range-thumb {
-    width: 12px;
-    height: 12px;
-    border-radius: 50%;
-    background: var(--accent);
-    cursor: pointer;
-    border: none;
-}
 
 /* Scrollbar */
 ::-webkit-scrollbar { width: 4px; }

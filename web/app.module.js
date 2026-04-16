@@ -4,7 +4,7 @@ import { updateLifecycleIndicator } from './dog3d/overlay.js';
 import { connect, send, setMessageHandler } from './modules/ws.js';
 import { setupDpad, setupKeyboard, setupActions, setCanControl, setLifecycle } from './modules/controls.js';
 import { dogMapState, addScanPoint, renderFullMap, drawMap, setupScan } from './modules/map.js';
-import { setupBatteryGraph, recordBattery, setupNoisePanel, syncNoiseSliders,
+import { setupBatteryGraph, recordBattery,
          setupOtaPanel, updateOtaStatus } from './modules/panels.js';
 
 // --- State ---
@@ -71,14 +71,10 @@ function updateStatus(msg) {
     if (msg.fallen != null) showFallAlert(msg.fallen);
     if (msg.transport != null) {
         var badge = document.getElementById("transport-badge");
-        var isSim = msg.transport === "sim";
-        badge.textContent = isSim ? "SIM" : msg.transport;
-        badge.className = "transport-badge " + (isSim ? "sim" : "live");
-        var simPanel = document.getElementById("sim-panel");
-        if (isSim) simPanel.classList.remove("hidden");
-        else simPanel.classList.add("hidden");
+        var isMock = msg.transport === "mock";
+        badge.textContent = isMock ? "MOCK" : msg.transport;
+        badge.className = "transport-badge " + (isMock ? "mock" : "live");
     }
-    if (msg.noise_params) syncNoiseSliders(msg.noise_params);
     // Update firmware version badge
     var fwBadge = document.getElementById('fw-badge');
     if (fwBadge && msg.fw_version != null) {
@@ -144,7 +140,7 @@ function handleMessage(msg) {
         if (msg.ota_status) updateOtaStatus(msg.ota_status, msg.ota_error);
     } else if (msg.type === "balance_state") {
         if (actionsCtrl) actionsCtrl.setBalanceState(msg.enabled);
-    } else if (msg.type === "telem_ultrasonic") {
+    } else if (msg.type === "telem_sonar") {
         updateUltrasonic(msg.distance_mm);
     } else if (msg.type === "event_fall") {
         showFallAlert(true); Dog3D.setFallen(true);
@@ -200,7 +196,6 @@ setupKeyboard();
 var scanCtrl = setupScan(send);
 setupLock();
 setupReset();
-setupNoisePanel();
 setupBatteryGraph();
 setupOtaPanel();
 
