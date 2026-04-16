@@ -232,10 +232,40 @@ From main app source: `doghw.move(speed_int, rotation_int)`. Range observed in
 source: speed from -40 (backward) to 120 (forward), rotation from -50 (right)
 to +50 (left). 0 = stop.
 
+### Servo GPIO pin mapping (`PWMServo` C extension)
+
+**Attempted Phase B partial analysis** — servo/LEDC/GPIO mapping investigation
+performed during Phase B work:
+
+- `PWMServo` C extension (in `Hiwonder_IIC.py` module compiled bytecode) uses
+  LEDC, not MCPWM. Error string `"Servo ID must be between 1 and 10"` confirms
+  the extension supports exactly 10 servo slots (IDs 1–10).
+- The `pwm_servo_update_timer` and `pose_control_timer` strings indicate a
+  timer-driven duty-cycle update loop.
+- **No static GPIO lookup table found** in the PWMServo DROM region (file
+  0x2b00–0x2f00). GPIO assignments are either computed dynamically or passed
+  from Python-level bytecode. An array in the SPI HAL area
+  (DROM 0x3f4306ec) that initially looked like candidate GPIOs
+  `[4, 0, 2, 15, 13, 12, 14, 27, 25, 26]` is confirmed to be SPI IOMUX pin
+  data — not servo pins.
+- LEDC signal IDs (79–94 = HS ch0–7 + LS ch0–7) do not appear in the
+  `pwm_servo` IROM region (0x400dbc34–0x400dc200), ruling out hardcoded
+  per-channel initialization there. Channel selection is likely computed from
+  the servo_id at runtime.
+- **Cannot determine servo_id → LEDC_channel → GPIO mapping from binary alone**
+  without Xtensa disassembly or MicroPython v6 bytecode disassembly.
+- **Physical wiring** is the same as custom firmware: confirmed GPIOs
+  `{2, 4, 14, 16, 17, 25, 26, 27}` from MCPWM register scan on hardware.
+  GPIO 2 (RR_knee) is additionally confirmed by the strapping-pin boot issue.
+- To recover the exact servo_id → GPIO mapping: run stock firmware, connect
+  to REPL, and read `ledc_get_freq()` or GPIO matrix register
+  `GPIO_FUNCn_OUT_SEL_CFG_REG` for each candidate GPIO to find which LEDC
+  channels are active, then correlate with servo IDs 1–10.
+
 ## Phase B Status
 
 Phase B (MicroPython frozen bytecode extraction and disassembly) has not been
-performed. Tools required:
+fully performed. Tools required:
 
 1. `python3 micropython/tools/mpy-tool.py -d <module.mpy>` — upstream
    MicroPython tool for bytecode disassembly.
