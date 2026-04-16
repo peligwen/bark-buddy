@@ -8,7 +8,7 @@
 #include "servos.h"
 #include "balance.h"
 #include "offsets.h"
-#include "ota.h"
+#include "update_led.h"
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <string.h>
@@ -291,14 +291,14 @@ static void handle_cmd_ota_update(const JsonDocument& doc) {
     lifecycle_cmd_update(millis());
 
     // Enable rainbow LEDs
-    s_ota_led_active = true;
+    s_update_led_active = true;
 
     // Detach servos immediately — the ramp can't execute while loop() is blocked
     // by this handler. Detached is the same end-state as end-of-ramp anyway.
     servos_detach_all();
 
     auto ota_cleanup = []() {
-        s_ota_led_active = false;
+        s_update_led_active = false;
         sensor_led_set(1, 0, LED_BRIGHTNESS, 0);
         sensor_led_set(2, 0, LED_BRIGHTNESS, 0);
     };
@@ -421,7 +421,7 @@ static void handle_cmd_ota_update(const JsonDocument& doc) {
 
     if (Update.end() && Update.isFinished()) {
         send_status("complete");
-        s_ota_led_active = false;
+        s_update_led_active = false;
         delay(1000);
         ESP.restart();
     } else {
@@ -429,6 +429,67 @@ static void handle_cmd_ota_update(const JsonDocument& doc) {
         ota_cleanup();
     }
 #endif
+}
+
+// --- Pin probe (servo identification tool) ---
+// Uses LEDC channel 8 (not used by servos 0-7) to wiggle an arbitrary GPIO.
+// Lets the user identify which physical servo is on which pin.
+#define PROBE_LEDC_CHANNEL   8
+#define PROBE_FREQ_HZ        50
+#define PROBE_RESOLUTION     14
+#define PROBE_AMPLITUDE_US   30
+#define PROBE_HALF_PERIOD_MS 250
+#define PROBE_CYCLES         4
+
+static uint32_t probe_us_to_duty(uint16_t pulse_us) {
+    // period = 20000us (50Hz); 14-bit = 16383 ticks max
+    return (uint32_t)((uint64_t)pulse_us * 16383UL / 20000UL);
+}
+
+static void handle_cmd_probe_pin(const JsonDocument& doc) {
+    uint8_t  pin    = doc["pin"]      | 255;
+    uint16_t center = doc["pulse_us"] | 1500;
+
+    // Reject invalid / reserved pins
+    if (pin == 255 || pin == 22 || pin == 23 || pin >= 34) {
+        send_ack(MSG_CMD_PROBE_PIN, false, "invalid_pin");
+        return;
+    }
+    if (center < 500)  center = 500;
+    if (center > 2500) center = 2500;
+
+    ledcSetup(PROBE_LEDC_CHANNEL, PROBE_FREQ_HZ, PROBE_RESOLUTION);
+    ledcAttachPin(pin, PROBE_LEDC_CHANNEL);
+
+    // Wiggle ±PROBE_AMPLITUDE_US around center, PROBE_CYCLES times
+    for (int i = 0; i < PROBE_CYCLES; i++) {
+        uint16_t hi = center + PROBE_AMPLITUDE_US;
+        uint16_t lo = (center > PROBE_AMPLITUDE_US) ? (center - PROBE_AMPLITUDE_US) : 500u;
+        ledcWrite(pin, probe_us_to_duty(hi));
+        delay(PROBE_HALF_PERIOD_MS);
+        ledcWrite(pin, probe_us_to_duty(lo));
+        delay(PROBE_HALF_PERIOD_MS);
+    }
+    // Return to center, then detach
+    ledcWrite(pin, probe_us_to_duty(center));
+    delay(50);
+    ledcDetachPin(pin);
+
+    JsonDocument resp;
+    resp["type"]     = MSG_ACK;
+    resp["ref_type"] = MSG_CMD_PROBE_PIN;
+    resp["ok"]       = true;
+    resp["pin"]      = pin;
+    send_json(resp);
+}
+
+// --- Update begin (serial flash prep) ---
+// Triggered by the host before a serial upload. Starts rainbow LEDs and detaches
+// servos so the dog is safe to receive a reset/flash.
+static void handle_cmd_update_begin(const JsonDocument& doc) {
+    servos_detach_all();
+    s_update_led_active = true;
+    send_ack(MSG_CMD_UPDATE_BEGIN, true);
 }
 
 // --- Dispatch table ---
@@ -452,6 +513,8 @@ static const Handler k_handlers[] = {
     { MSG_CMD_WAKE,         handle_cmd_wake         },
     { MSG_CMD_SLEEP,        handle_cmd_sleep        },
     { MSG_CMD_OTA_UPDATE,   handle_cmd_ota_update   },
+    { MSG_CMD_UPDATE_BEGIN, handle_cmd_update_begin },
+    { MSG_CMD_PROBE_PIN,    handle_cmd_probe_pin    },
 };
 
 void handlers_init() {

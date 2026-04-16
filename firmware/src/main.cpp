@@ -11,7 +11,7 @@
 #include "gait.h"
 #include "balance.h"
 #include "offsets.h"
-#include "ota.h"
+#include "update_led.h"
 #ifndef WIFI_ENABLED
 #define WIFI_ENABLED 0
 #endif
@@ -20,14 +20,14 @@
 #include <ESPmDNS.h>
 #endif
 
-// --- OTA rainbow LED ---
-bool          s_ota_led_active   = false;
-static unsigned long s_ota_led_last_ms = 0;
+// --- Update rainbow LED ---
+bool          s_update_led_active   = false;
+static unsigned long s_update_led_last_ms = 0;
 
-static void ota_rainbow_led_tick(unsigned long now) {
-    if (!s_ota_led_active) return;
-    if (now - s_ota_led_last_ms < 30) return;
-    s_ota_led_last_ms = now;
+static void update_rainbow_led_tick(unsigned long now) {
+    if (!s_update_led_active) return;
+    if (now - s_update_led_last_ms < 30) return;
+    s_update_led_last_ms = now;
 
     // Hue rotation: ~2s per cycle
     float hue = fmodf((float)now / 2000.0f, 1.0f);
@@ -145,6 +145,15 @@ void setup() {
     // Sensor task starts I2C, probes IMU + sonar, sets boot LED.
     // Blocks until first init pass completes (≤1s).
     sensor_task_start();
+
+    // Boot rainbow — runs briefly on every boot, confirms firmware is alive after a flash
+    s_update_led_active = true;
+    unsigned long boot_rainbow_start = millis();
+    while (millis() - boot_rainbow_start < 2000) {
+        update_rainbow_led_tick(millis());
+        delay(10);
+    }
+    s_update_led_active = false;
 
     offsets_init();
     bool servos_ok = servos_attach_at(REST_POSE);
@@ -313,8 +322,8 @@ void loop() {
     // Test mode heartbeat — exit test mode if host goes quiet
     handlers_check_timeout(now);
 
-    // OTA rainbow LED tick
-    ota_rainbow_led_tick(now);
+    // Update rainbow LED tick
+    update_rainbow_led_tick(now);
 
     // Frail mode duty cycle
     if (servos_update_duty(now)) {
