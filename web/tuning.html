@@ -1059,6 +1059,7 @@
   // ── Auto-probe state machine ──────────────────────────────────
   let _autoProbeActive = false;
   let _autoProbeIdx = 0;       // index into BOARD_GPIOS
+  let _autoProbingIdx = -1;    // index captured at send time — guards stale acks
   let _autoProbePending = false;
   let _autoProbeTimeout = null;
 
@@ -1118,14 +1119,16 @@
     // Highlight this row in the table
     renderPinMap();
 
+    _autoProbingIdx = _autoProbeIdx;
     _autoProbePending = true;
     send({ type: 'cmd_probe_pin', pin: entry.gpio });
 
     // 3s timeout
     _autoProbeTimeout = setTimeout(() => {
-      if (_autoProbePending) {
+      if (_autoProbePending && _autoProbeIdx === _autoProbingIdx) {
         _autoProbePending = false;
-        statusEl.textContent = 'Timeout on GPIO ' + entry.gpio + ' — select role or skip';
+        const timedOutEntry = BOARD_GPIOS[_autoProbingIdx];
+        statusEl.textContent = 'Timeout on GPIO ' + timedOutEntry.gpio + ' — select role or skip';
         document.getElementById('auto-probe-record-btn').disabled = false;
       }
     }, 3000);
@@ -1139,6 +1142,7 @@
 
   function autoProbeRecord() {
     if (!_autoProbeActive) return;
+    if (_autoProbeTimeout) { clearTimeout(_autoProbeTimeout); _autoProbeTimeout = null; }
     const entry = BOARD_GPIOS[_autoProbeIdx];
     const val = document.getElementById('auto-probe-role-select').value;
     if (!val) return;  // nothing selected
@@ -1177,6 +1181,8 @@
   function handleAutoProbeAck(msg) {
     if (!_autoProbeActive) return;
     if (_autoProbeTimeout) { clearTimeout(_autoProbeTimeout); _autoProbeTimeout = null; }
+    // Ignore acks that arrived after the user advanced to a different step
+    if (_autoProbeIdx !== _autoProbingIdx) return;
     _autoProbePending = false;
     const entry = BOARD_GPIOS[_autoProbeIdx];
     const statusEl = document.getElementById('auto-probe-status');
@@ -1328,10 +1334,7 @@
                   ',  // ' + SERVO_NAMES.slice(0, 4).join(', ');
     const line2 = '    ' + pins.slice(4, 8).map(p => String(p).padStart(2)).join(', ') +
                   '   // ' + SERVO_NAMES.slice(4, 8).join(', ');
-    const text = 'static const uint8_t SERVO_PINS[8] = {
-' + line1 + '
-' + line2 + '
-};';
+    const text = '// 0 = unmapped slot — assign via probe tool before flashing\nstatic const uint8_t SERVO_PINS[8] = {\n' + line1 + '\n' + line2 + '\n};';
     navigator.clipboard.writeText(text).then(() => {
       const fb = document.getElementById('copy-pins-feedback');
       fb.classList.add('show');
