@@ -717,6 +717,8 @@
   const offsets = new Array(8).fill(0);
 
   // Generic throttle state for gait/pid (keyed by string id)
+  // Generic param throttle — stores a builder *function* (not a value) so the
+  // trailing send always reads the latest slider state from the DOM.
   const _throttleLastSend = {};
   const _throttlePendingVal = {};
   const _throttlePendingTmr = {};
@@ -759,7 +761,7 @@
 
   function connect() {
     ws = new WebSocket('ws://' + location.host + '/ws');
-    ws.onopen  = () => { setStatus('connected', 'Connected'); sendWake(); queryAllOffsets(); };
+    ws.onopen  = () => { setStatus('connected', 'Connected'); sendWake(); queryAllOffsets(); }; // queryAllOffsets() safe: send() guards against non-OPEN states
     ws.onclose = () => {
       setStatus('off', 'Disconnected — retrying…');
       setLifecycle(null);
@@ -974,9 +976,11 @@
     const i = msg.index;
     if (i === undefined || i < 0 || i >= 8) return;
     if (msg.offset_us !== undefined) {
-      offsets[i] = msg.offset_us;
+      const val = parseInt(msg.offset_us, 10);
+      if (isNaN(val)) return;
+      offsets[i] = val;
       const el = document.getElementById('offset-' + i);
-      if (el) el.value = msg.offset_us;
+      if (el) el.value = val;
     }
   }
 
