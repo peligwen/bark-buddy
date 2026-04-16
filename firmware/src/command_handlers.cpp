@@ -38,6 +38,17 @@ Direction direction_from_string(const char* str) {
     return Direction::STOP;
 }
 
+static GaitState dir_to_gait_state(const char* dir_str) {
+    Direction dir = direction_from_string(dir_str);
+    switch (dir) {
+        case Direction::FORWARD:  return GaitState::WALK_FORWARD;
+        case Direction::BACKWARD: return GaitState::WALK_BACKWARD;
+        case Direction::LEFT:     return GaitState::TURN_LEFT;
+        case Direction::RIGHT:    return GaitState::TURN_RIGHT;
+        default:                  return GaitState::STOP;
+    }
+}
+
 
 // --- Handlers ---
 
@@ -48,13 +59,20 @@ static void handle_ping(const JsonDocument&) {
 }
 
 static void handle_cmd_move(const JsonDocument& doc) {
+    const char* dir_str = doc["direction"] | "stop";
+    float spd = doc["speed"] | 1.0f;
+
     if (!lifecycle_can_command()) {
-        send_ack(MSG_CMD_MOVE, false, "not_active");
+        lifecycle_cmd_wake(millis());
+        PendingCmd cmd;
+        cmd.type = PendingCmdType::MOVE;
+        cmd.gait_state = dir_to_gait_state(dir_str);
+        cmd.speed = spd;
+        lifecycle_set_pending(cmd);
+        send_ack(MSG_CMD_MOVE, true, "waking");
         return;
     }
     s_manual_servo_mode = false;
-    const char* dir_str = doc["direction"] | "stop";
-    float spd = doc["speed"] | 1.0f;
     Direction dir = direction_from_string(dir_str);
     switch (dir) {
         case Direction::FORWARD:  gait_set_state(GaitState::WALK_FORWARD,  spd); break;
@@ -68,7 +86,11 @@ static void handle_cmd_move(const JsonDocument& doc) {
 
 static void handle_cmd_stand(const JsonDocument&) {
     if (!lifecycle_can_command()) {
-        send_ack(MSG_CMD_STAND, false, "not_active");
+        lifecycle_cmd_wake(millis());
+        PendingCmd cmd;
+        cmd.type = PendingCmdType::STAND;
+        lifecycle_set_pending(cmd);
+        send_ack(MSG_CMD_STAND, true, "waking");
         return;
     }
     s_manual_servo_mode = false;
@@ -77,21 +99,24 @@ static void handle_cmd_stand(const JsonDocument&) {
 }
 
 static void handle_cmd_balance(const JsonDocument& doc) {
+    bool enabled = doc["enabled"] | true;
+
     if (!lifecycle_can_command()) {
-        send_ack(MSG_CMD_BALANCE, false, "not_active");
+        lifecycle_cmd_wake(millis());
+        PendingCmd cmd;
+        cmd.type = PendingCmdType::BALANCE;
+        cmd.balance_enabled = enabled;
+        lifecycle_set_pending(cmd);
+        send_ack(MSG_CMD_BALANCE, true, "waking");
         return;
     }
-    s_balance_enabled = doc["enabled"] | true;
+    s_balance_enabled = enabled;
     balance_enable(s_balance_enabled);
     if (!s_balance_enabled) balance_reset();
     send_ack(MSG_CMD_BALANCE, true);
 }
 
 static void handle_cmd_transform(const JsonDocument& doc) {
-    if (!lifecycle_can_command()) {
-        send_ack(MSG_CMD_TRANSFORM, false, "not_active");
-        return;
-    }
     BodyPose pose;
     pose.dx    = doc["x"]     | 0.0f;
     pose.dy    = doc["y"]     | 0.0f;
@@ -100,19 +125,36 @@ static void handle_cmd_transform(const JsonDocument& doc) {
     pose.pitch = doc["pitch"] | 0.0f;
     pose.yaw   = doc["yaw"]   | 0.0f;
     uint16_t ms = doc["ms"]   | 100;
+
+    if (!lifecycle_can_command()) {
+        lifecycle_cmd_wake(millis());
+        PendingCmd cmd;
+        cmd.type = PendingCmdType::TRANSFORM;
+        cmd.body_pose = pose;
+        cmd.transform_ms = ms;
+        lifecycle_set_pending(cmd);
+        send_ack(MSG_CMD_TRANSFORM, true, "waking");
+        return;
+    }
     gait_set_body_transform(pose, ms);
     send_ack(MSG_CMD_TRANSFORM, true);
 }
 
 static void handle_cmd_gait_params(const JsonDocument& doc) {
-    if (!lifecycle_can_command()) {
-        send_ack(MSG_CMD_GAIT_PARAMS, false, "not_active");
-        return;
-    }
     GaitConfig cfg;
     cfg.stride_height_mm = doc["stride_height"] | GAIT_STRIDE_HEIGHT_MM;
     cfg.stride_length_mm = doc["stride_length"] | GAIT_STRIDE_LENGTH_MM;
     cfg.frequency_hz     = doc["frequency"]     | GAIT_FREQUENCY_HZ;
+
+    if (!lifecycle_can_command()) {
+        lifecycle_cmd_wake(millis());
+        PendingCmd cmd;
+        cmd.type = PendingCmdType::GAIT_PARAMS;
+        cmd.gait_config = cfg;
+        lifecycle_set_pending(cmd);
+        send_ack(MSG_CMD_GAIT_PARAMS, true, "waking");
+        return;
+    }
     gait_set_config(cfg);
     send_ack(MSG_CMD_GAIT_PARAMS, true);
 }
@@ -128,13 +170,20 @@ static void handle_cmd_led(const JsonDocument& doc) {
 
 static void handle_cmd_servo(const JsonDocument& doc) {
 #if PINS_VERIFIED
+    if (!lifecycle_can_command()) {
+        lifecycle_cmd_wake(millis());
+        // Don't queue — tuning UI will resend once it sees waking→active transition
+        JsonDocument resp;
+        resp["type"]     = MSG_ACK;
+        resp["ref_type"] = MSG_CMD_SERVO;
+        resp["ok"]       = true;
+        resp["status"]   = "waking";
+        send_json(resp);
+        return;
+    }
+
     s_manual_servo_mode = true;
     if (s_test_mode) s_last_test_cmd = millis();
-
-    if (!servos_active()) {
-        servos_init();
-        if (s_test_mode) servos_set_frail(true);
-    }
 
     uint8_t  idx = doc["index"]    | 0;
     uint16_t us  = doc["pulse_us"] | 1500;
@@ -158,12 +207,23 @@ static void handle_cmd_test_mode(const JsonDocument& doc) {
     bool frail  = doc["frail"]  | true;
 
     if (enable) {
+        if (!lifecycle_can_command()) {
+            lifecycle_cmd_wake(millis());
+            // Don't queue — user will re-send cmd_test_mode once active
+            JsonDocument resp;
+            resp["type"]          = MSG_ACK;
+            resp["ref_type"]      = MSG_CMD_TEST_MODE;
+            resp["ok"]            = true;
+            resp["status"]        = "waking";
+            send_json(resp);
+            return;
+        }
+
         s_test_mode         = true;
         s_last_test_cmd     = millis();
         s_manual_servo_mode = true;
         gait_set_state(GaitState::STOP);
 
-        if (!servos_active()) servos_init();
         servos_set_frail(frail);
 
         sensor_led_set(1, LED_BRIGHTNESS / 2, 0, LED_BRIGHTNESS);  // purple

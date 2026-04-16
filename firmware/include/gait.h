@@ -30,6 +30,24 @@ void gait_update_imu(float pitch_deg, float roll_deg);  // called from main loop
 void gait_update(unsigned long now_ms);
 GaitState gait_current_state();
 
+// Pending command — queued while waking, executed on WAKING→ACTIVE transition
+enum class PendingCmdType { NONE, MOVE, STAND, BALANCE, TRANSFORM, GAIT_PARAMS };
+
+struct PendingCmd {
+    PendingCmdType type = PendingCmdType::NONE;
+    // Per-type payloads:
+    GaitState gait_state = GaitState::STOP;
+    float speed = 1.0f;
+    bool balance_enabled = true;
+    BodyPose body_pose = {};
+    uint16_t transform_ms = 100;
+    GaitConfig gait_config = {};
+};
+
+void lifecycle_set_pending(const PendingCmd& cmd);
+void lifecycle_execute_pending();   // called internally on WAKING→ACTIVE
+bool lifecycle_has_pending();
+
 // Lifecycle state machine
 void lifecycle_init(unsigned long now_ms);
 void lifecycle_update(unsigned long now_ms);

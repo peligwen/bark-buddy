@@ -9,6 +9,10 @@
 
 static GaitState s_state = GaitState::STOP;
 static float s_speed = 1.0f;
+
+// Pending command — stored when a command arrives while not yet ACTIVE.
+// Executed immediately when WAKING→ACTIVE transition completes (or IDLE→ACTIVE instantly).
+static PendingCmd s_pending_cmd;
 static float s_phase = 0.0f;
 static unsigned long s_last_update = 0;
 static unsigned long s_last_active = 0;
@@ -195,6 +199,42 @@ void gait_update(unsigned long now_ms) {
 }
 
 // ============================================================
+// Pending command — queued while waking, executed on ACTIVE entry
+// ============================================================
+
+void lifecycle_set_pending(const PendingCmd& cmd) {
+    s_pending_cmd = cmd;
+}
+
+bool lifecycle_has_pending() {
+    return s_pending_cmd.type != PendingCmdType::NONE;
+}
+
+void lifecycle_execute_pending() {
+    switch (s_pending_cmd.type) {
+        case PendingCmdType::NONE:
+            break;
+        case PendingCmdType::MOVE:
+            gait_set_state(s_pending_cmd.gait_state, s_pending_cmd.speed);
+            break;
+        case PendingCmdType::STAND:
+            gait_set_state(GaitState::STAND);
+            break;
+        case PendingCmdType::BALANCE:
+            balance_enable(s_pending_cmd.balance_enabled);
+            if (!s_pending_cmd.balance_enabled) balance_reset();
+            break;
+        case PendingCmdType::TRANSFORM:
+            gait_set_body_transform(s_pending_cmd.body_pose, s_pending_cmd.transform_ms);
+            break;
+        case PendingCmdType::GAIT_PARAMS:
+            gait_set_config(s_pending_cmd.gait_config);
+            break;
+    }
+    s_pending_cmd.type = PendingCmdType::NONE;
+}
+
+// ============================================================
 // Lifecycle state machine
 // ============================================================
 
@@ -220,6 +260,7 @@ void lifecycle_update(unsigned long now_ms) {
                     servo_write_us(i, s_lifecycle_ramp_target[i]);
                 }
                 s_lifecycle = LifecycleState::ACTIVE;
+                lifecycle_execute_pending();
             } else {
                 // Interpolate
                 float t = (float)elapsed / (float)s_lifecycle_ramp_ms;
@@ -290,6 +331,7 @@ void lifecycle_cmd_wake(unsigned long now_ms) {
             // Already standing, just go active
             s_lifecycle_idle_start = 0;
             s_lifecycle = LifecycleState::ACTIVE;
+            lifecycle_execute_pending();
             break;
 
         case LifecycleState::RESTING:

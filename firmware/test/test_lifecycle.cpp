@@ -153,6 +153,121 @@ static void test_duplicate_sleep_is_noop() {
     check(lifecycle_current() == LifecycleState::IDLE, "double cmd_sleep stays IDLE");
 }
 
+// Helper: drive to RESTING state using mock clock.
+static unsigned long reach_resting(unsigned long start_ms) {
+    _mock_millis = start_ms;
+    servos_detach_all();
+    lifecycle_init(start_ms);
+    lifecycle_heartbeat_lost(start_ms);
+    unsigned long t = start_ms + SHUTDOWN_RAMP_MS + REST_SETTLE_MS + 1;
+    _mock_millis = t;
+    lifecycle_update(t);
+    return t;
+}
+
+// Test 10: auto-wake cmd_move from RESTING — queued MOVE executes on ACTIVE entry
+static void test_auto_wake_cmd_move_from_resting() {
+    printf("test_auto_wake_cmd_move_from_resting\n");
+    mock_reset_clock();
+    unsigned long t = reach_resting(0);
+    check(lifecycle_current() == LifecycleState::RESTING, "in RESTING");
+
+    // Queue a MOVE command and trigger wake
+    PendingCmd cmd;
+    cmd.type = PendingCmdType::MOVE;
+    cmd.gait_state = GaitState::WALK_FORWARD;
+    cmd.speed = 0.8f;
+    lifecycle_set_pending(cmd);
+    check(lifecycle_has_pending(), "pending command stored");
+
+    lifecycle_cmd_wake(t);
+    check(lifecycle_current() == LifecycleState::WAKING, "RESTING→WAKING after cmd_wake");
+
+    // Advance past 2s ramp — pending command should execute at ACTIVE entry
+    t += SOFTSTART_DURATION_MS + 1;
+    _mock_millis = t;
+    lifecycle_update(t);
+
+    check(lifecycle_current() == LifecycleState::ACTIVE, "WAKING→ACTIVE after ramp");
+    check(!lifecycle_has_pending(), "pending command cleared after execution");
+    check(gait_current_state() == GaitState::WALK_FORWARD, "queued MOVE executed on ACTIVE entry");
+}
+
+// Test 11: auto-wake cmd_stand from RESTING — queued STAND executes on ACTIVE entry
+static void test_auto_wake_cmd_stand_from_resting() {
+    printf("test_auto_wake_cmd_stand_from_resting\n");
+    mock_reset_clock();
+    unsigned long t = reach_resting(0);
+    check(lifecycle_current() == LifecycleState::RESTING, "in RESTING");
+
+    PendingCmd cmd;
+    cmd.type = PendingCmdType::STAND;
+    lifecycle_set_pending(cmd);
+    lifecycle_cmd_wake(t);
+    check(lifecycle_current() == LifecycleState::WAKING, "RESTING→WAKING");
+
+    t += SOFTSTART_DURATION_MS + 1;
+    _mock_millis = t;
+    lifecycle_update(t);
+
+    check(lifecycle_current() == LifecycleState::ACTIVE, "WAKING→ACTIVE");
+    check(!lifecycle_has_pending(), "pending command cleared");
+    check(gait_current_state() == GaitState::STAND, "queued STAND executed on ACTIVE entry");
+}
+
+// Test 12: auto-wake from IDLE executes pending command immediately (no ramp)
+static void test_auto_wake_from_idle_executes_immediately() {
+    printf("test_auto_wake_from_idle_executes_immediately\n");
+    mock_reset_clock();
+    unsigned long t = reach_active(0);
+    lifecycle_cmd_sleep(t);  // → IDLE
+    check(lifecycle_current() == LifecycleState::IDLE, "in IDLE");
+
+    PendingCmd cmd;
+    cmd.type = PendingCmdType::MOVE;
+    cmd.gait_state = GaitState::TURN_RIGHT;
+    cmd.speed = 1.0f;
+    lifecycle_set_pending(cmd);
+
+    // Wake from IDLE — transitions instantly, should execute pending immediately
+    lifecycle_cmd_wake(t + 1);
+
+    check(lifecycle_current() == LifecycleState::ACTIVE, "IDLE→ACTIVE immediately");
+    check(!lifecycle_has_pending(), "pending command cleared on instant ACTIVE");
+    check(gait_current_state() == GaitState::TURN_RIGHT, "queued MOVE executed on instant ACTIVE");
+}
+
+// Test 13: pending command is overwritten by a second set — only last executes
+static void test_pending_command_overwritten() {
+    printf("test_pending_command_overwritten\n");
+    mock_reset_clock();
+    unsigned long t = reach_resting(0);
+
+    // First pending: MOVE forward
+    PendingCmd cmd1;
+    cmd1.type = PendingCmdType::MOVE;
+    cmd1.gait_state = GaitState::WALK_FORWARD;
+    cmd1.speed = 1.0f;
+    lifecycle_set_pending(cmd1);
+
+    // Overwrite with STAND
+    PendingCmd cmd2;
+    cmd2.type = PendingCmdType::STAND;
+    lifecycle_set_pending(cmd2);
+
+    check(lifecycle_has_pending(), "pending command stored");
+
+    lifecycle_cmd_wake(t);
+    t += SOFTSTART_DURATION_MS + 1;
+    _mock_millis = t;
+    lifecycle_update(t);
+
+    check(lifecycle_current() == LifecycleState::ACTIVE, "ACTIVE");
+    check(!lifecycle_has_pending(), "pending cleared");
+    // Should be STAND (the overwrite), not WALK_FORWARD
+    check(gait_current_state() == GaitState::STAND, "only last pending command executed");
+}
+
 int main() {
     printf("=== lifecycle tests ===\n\n");
 
@@ -165,6 +280,10 @@ int main() {
     test_heartbeat_lost_forces_sleeping();
     test_cmd_wake_from_idle_no_ramp();
     test_duplicate_sleep_is_noop();
+    test_auto_wake_cmd_move_from_resting();
+    test_auto_wake_cmd_stand_from_resting();
+    test_auto_wake_from_idle_executes_immediately();
+    test_pending_command_overwritten();
 
     printf("\n%d passed, %d failed\n", g_pass, g_fail);
     return g_fail > 0 ? 1 : 0;
