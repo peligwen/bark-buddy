@@ -11,10 +11,23 @@
 #include <cmath>
 #include <algorithm>
 
-// Simulated clock
+// Simulated clock (simulated by default; real-time under MOCK_REAL_TIME)
+#ifdef MOCK_REAL_TIME
+#include <chrono>
+#include <thread>
+inline uint32_t millis() {
+    static auto _start = std::chrono::steady_clock::now();
+    return (uint32_t)std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - _start).count();
+}
+inline void delay(unsigned long ms) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(ms));
+}
+#else
 static unsigned long _mock_millis = 0;
 inline unsigned long millis() { return _mock_millis; }
 inline void delay(unsigned long ms) { _mock_millis += ms; }
+#endif
 inline void mock_advance_ms(unsigned long ms) { _mock_millis += ms; }
 inline void mock_reset_clock() { _mock_millis = 0; }
 
@@ -55,12 +68,20 @@ inline void ledcDetachPin(uint8_t pin) { _servo_duty[pin] = 0; }
 
 // ledcWrite always treats the first argument as a pin number.
 // The firmware uses ledcWrite(SERVO_PINS[i], duty) — always pin-based.
+#ifdef MOCK_FIRMWARE
+namespace physics { void on_servo_duty(uint8_t pin, uint32_t duty); }
+#endif
+
 inline void ledcWrite(uint8_t pin, uint32_t duty) {
     _servo_duty[pin] = duty;
     if (_servo_log_count < MAX_CAPTURES) {
         _servo_log[_servo_log_count++] = {pin, duty, _mock_millis};
     }
+#ifdef MOCK_FIRMWARE
+    physics::on_servo_duty(pin, duty);
+#endif
 }
+
 
 // ADC stub
 inline int analogRead(uint8_t pin) { (void)pin; return 3200; } // ~7.4V with divider
