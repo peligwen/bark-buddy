@@ -98,6 +98,8 @@
   .lifecycle-badge[data-state="waking"]   { color: #f59e0b; background: rgba(245,158,11,0.1); border-color: rgba(245,158,11,0.3); }
   .lifecycle-badge[data-state="idle"]     { color: #eab308; background: rgba(234,179,8,0.1);  border-color: rgba(234,179,8,0.3); }
   .lifecycle-badge[data-state="sleeping"] { color: #f97316; background: rgba(249,115,22,0.1); border-color: rgba(249,115,22,0.3); }
+  .lifecycle-badge[data-state="resting"]  { color: #6b7280; background: rgba(107,114,128,0.1); border-color: rgba(107,114,128,0.3); }
+  .lifecycle-badge[data-state="booting"]  { color: #6b7280; background: rgba(107,114,128,0.1); border-color: rgba(107,114,128,0.3); }
 
   @keyframes lc-pulse {
     0%, 100% { opacity: 1; }
@@ -457,11 +459,13 @@
 
   // ── WebSocket ─────────────────────────────────────────────────
   function sendWake() {
+    setLifecycle('waking');
     send({ type: 'cmd_wake' });
     console.log('[TX] cmd_wake');
   }
 
   function sendSleep() {
+    setLifecycle('sleeping');
     send({ type: 'cmd_sleep' });
     console.log('[TX] cmd_sleep');
   }
@@ -482,7 +486,7 @@
           setLifecycle(msg.mode);
         }
         if (msg.type === 'ack') {
-          if (msg.status === 'waking') setLifecycle('waking');
+          if (msg.status === 'waking' && lifecycleState !== 'active') setLifecycle('waking');
           if (msg.ref_type === 'cmd_servo')     handleServoAck(msg);
           if (msg.ref_type === 'cmd_probe_pin') handleProbeAck(msg);
         }
@@ -512,6 +516,9 @@
 
   function setLifecycle(state) {
     // state is lowercase string from firmware (e.g. "active", "waking") or null for disconnected
+    const valid = ['active', 'waking', 'idle', 'sleeping', 'resting', 'booting'];
+    if (state !== null && !valid.includes(state)) state = null;
+
     lifecycleState = state;
     const badge = document.getElementById('lifecycle-badge');
     const label = document.getElementById('lifecycle-text');
