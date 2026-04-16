@@ -110,7 +110,7 @@
   }
   .servo-row {
     display: grid;
-    grid-template-columns: 100px 1fr 70px;
+    grid-template-columns: 100px 1fr 70px 60px 36px;
     align-items: center;
     gap: 12px;
     background: var(--bg-panel);
@@ -153,6 +153,153 @@
   input[type=number]::-webkit-inner-spin-button,
   input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
   input[type=number] { -moz-appearance: textfield; }
+
+  /* Ack feedback */
+  .actual-us {
+    font-size: 0.65rem;
+    color: var(--text-dim);
+    font-family: "SF Mono", "Fira Code", monospace;
+    text-align: right;
+    white-space: nowrap;
+  }
+  .wiggle-btn {
+    width: 32px;
+    font-size: 0.9rem;
+    font-weight: 700;
+    padding: 0;
+    line-height: 1;
+  }
+  .wiggle-btn.active {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent-dark);
+    pointer-events: none;
+  }
+  .servo-row { transition: background 0.15s; }
+  .servo-row.flash-ok      { background: rgba(74, 222, 128, 0.12); }
+  .servo-row.flash-clamped { background: rgba(251, 191, 36, 0.15); }
+  .servo-row.flash-error   { background: rgba(248, 113, 113, 0.18); }
+
+  /* Pin probe section */
+  .section-heading {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 10px;
+  }
+  .probe-panel {
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px;
+    margin-bottom: 20px;
+  }
+  .probe-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+    flex-wrap: wrap;
+  }
+  .probe-row label {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+  }
+  .probe-pin-input {
+    width: 72px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    color: var(--text);
+    font-family: "SF Mono", "Fira Code", monospace;
+    font-size: 0.85rem;
+    padding: 5px 8px;
+    text-align: right;
+  }
+  .probe-pin-input:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
+  .probe-pin-input::-webkit-inner-spin-button,
+  .probe-pin-input::-webkit-outer-spin-button { -webkit-appearance: none; }
+  .probe-pin-input { -moz-appearance: textfield; }
+  .probe-select {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    color: var(--text);
+    font-family: "SF Mono", "Fira Code", monospace;
+    font-size: 0.8rem;
+    padding: 5px 8px;
+    cursor: pointer;
+  }
+  .probe-select:focus { outline: 1px solid var(--accent); }
+  #probe-result {
+    font-size: 0.75rem;
+    font-family: "SF Mono", "Fira Code", monospace;
+    color: var(--text-dim);
+    min-width: 140px;
+  }
+  #probe-result.ok    { color: #4ade80; }
+  #probe-result.error { color: #f87171; }
+
+  /* Mapping table */
+  .map-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.75rem;
+    font-family: "SF Mono", "Fira Code", monospace;
+    margin-top: 10px;
+  }
+  .map-table th {
+    text-align: left;
+    color: var(--text-dim);
+    font-weight: 500;
+    padding: 4px 8px;
+    border-bottom: 1px solid var(--border);
+  }
+  .map-table td {
+    padding: 5px 8px;
+    border-bottom: 1px solid rgba(42,47,58,0.5);
+    color: var(--text);
+  }
+  .map-table tr:last-child td { border-bottom: none; }
+  .map-table .remove-btn {
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    cursor: pointer;
+    font-size: 0.75rem;
+    padding: 0 4px;
+  }
+  .map-table .remove-btn:hover { color: #f87171; }
+  .probe-hint {
+    font-size: 0.7rem;
+    color: var(--text-dim);
+    margin-top: 6px;
+    line-height: 1.5;
+  }
+  .probe-hint code { color: var(--text-muted); }
+  .copy-pins-btn {
+    font-size: 0.75rem;
+    padding: 5px 12px;
+    border-radius: 5px;
+    border: 1px solid var(--accent-dark);
+    background: var(--bg-panel);
+    color: var(--accent);
+    cursor: pointer;
+    transition: background 0.15s;
+    margin-top: 10px;
+  }
+  .copy-pins-btn:hover { background: var(--accent); color: #fff; }
+  #copy-pins-feedback {
+    font-size: 0.7rem;
+    color: #4ade80;
+    opacity: 0;
+    transition: opacity 0.3s;
+    margin-left: 8px;
+  }
+  #copy-pins-feedback.show { opacity: 1; }
 </style>
 </head>
 <body>
@@ -163,6 +310,7 @@
 <div class="status-bar">
   <div class="dot" id="ws-dot"></div>
   <span id="status-text">Connecting…</span>
+  <button class="test-btn" id="wake-btn" onclick="sendWake()">Wake Dog</button>
   <button class="test-btn" id="test-btn" onclick="toggleTestMode()">Enable Test Mode</button>
 </div>
 
@@ -174,6 +322,42 @@
   <span id="copy-feedback">Copied!</span>
 </div>
 
+<div id="diag-bar" style="font-size:0.65rem;color:var(--text-dim);font-family:'SF Mono','Fira Code',monospace;margin-bottom:20px;">TX: 0 | ACK: 0</div>
+
+<!-- Pin Probe Section -->
+<div class="probe-panel">
+  <div class="section-heading">Pin Probe</div>
+  <div class="probe-row">
+    <label for="probe-pin-input">GPIO pin</label>
+    <input type="number" id="probe-pin-input" class="probe-pin-input" min="0" max="39" placeholder="e.g. 4"
+           onkeydown="if(event.key==='Enter') probePin()">
+    <button class="test-btn" onclick="probePin()">Probe (wiggle)</button>
+    <span id="probe-result">—</span>
+  </div>
+  <div class="probe-row">
+    <label for="probe-assign-select">Assign last probed pin to</label>
+    <select id="probe-assign-select" class="probe-select">
+      <option value="">— pick role —</option>
+    </select>
+    <button class="test-btn" id="probe-assign-btn" onclick="assignPin()" disabled>Assign</button>
+  </div>
+  <div id="probe-map-container" style="display:none">
+    <table class="map-table">
+      <thead><tr><th>GPIO</th><th>Servo role</th><th>Index</th><th></th></tr></thead>
+      <tbody id="probe-map-body"></tbody>
+    </table>
+    <div style="display:flex;align-items:center;margin-top:10px;">
+      <button class="copy-pins-btn" onclick="copyServoPins()">Copy SERVO_PINS</button>
+      <span id="copy-pins-feedback">Copied!</span>
+    </div>
+  </div>
+  <p class="probe-hint">
+    Enter a GPIO, click <strong>Probe</strong> — watch which joint wiggles, then assign it to the correct role.<br>
+    Pins to try: <code>2 4 5 12 13 14 15 16 17 18 19 21 25 26 27 32 33</code>
+  </p>
+</div>
+
+<div class="section-heading">Servo Sliders</div>
 <div class="servo-grid" id="servo-grid"></div>
 
 <script>
@@ -190,17 +374,52 @@
   let testMode = false;
   const values = [...STANDING_POSE];
 
+  // Diagnostics
+  let _msgSent = 0;
+  let _ackRecv = 0;
+  function updateDiagCounter() {
+    const el = document.getElementById('diag-bar');
+    if (el) el.textContent = 'TX: ' + _msgSent + ' | ACK: ' + _ackRecv;
+  }
+
+  // Slider throttle: leading+trailing, 50ms window per servo
+  const THROTTLE_MS = 50;
+  const _lastSend    = new Array(8).fill(0);
+  const _pendingVal  = new Array(8).fill(null);
+  const _pendingTmr  = new Array(8).fill(null);
+  let _dragging = false;  // suppress ack-driven slider updates during drag
+
   // ── WebSocket ─────────────────────────────────────────────────
+  function sendWake() {
+    send({ type: 'cmd_wake' });
+    console.log('[TX] cmd_wake');
+  }
+
   function connect() {
     ws = new WebSocket('ws://' + location.host + '/ws');
-    ws.onopen  = () => setStatus('connected', 'Connected');
+    ws.onopen  = () => { setStatus('connected', 'Connected'); sendWake(); };
     ws.onclose = () => { setStatus('off', 'Disconnected — retrying…'); setTimeout(connect, 2000); };
     ws.onerror = () => setStatus('off', 'Connection error');
-    ws.onmessage = () => {};
+    ws.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        if (msg.type === 'ack' && msg.ref_type === 'cmd_servo') handleServoAck(msg);
+        if (msg.type === 'ack' && msg.ref_type === 'cmd_probe_pin') handleProbeAck(msg);
+      } catch (_) {}
+    };
   }
 
   function send(msg) {
-    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify(msg));
+      if (msg.type === 'cmd_servo') {
+        _msgSent++;
+        console.log('[TX #' + _msgSent + '] cmd_servo idx=' + msg.index + ' pulse=' + msg.pulse_us);
+        updateDiagCounter();
+      }
+    } else if (msg.type === 'cmd_servo') {
+      console.warn('[TX DROPPED] ws not open, state=' + (ws ? ws.readyState : 'null'));
+    }
   }
 
   function setStatus(state, text) {
@@ -213,7 +432,7 @@
   // ── Test mode ─────────────────────────────────────────────────
   function toggleTestMode() {
     testMode = !testMode;
-    send({ type: 'cmd_test_mode', enabled: testMode });
+    send({ type: 'cmd_test_mode', enable: testMode });
     const btn = document.getElementById('test-btn');
     btn.textContent = testMode ? 'Disable Test Mode' : 'Enable Test Mode';
     btn.classList.toggle('active', testMode);
@@ -228,6 +447,207 @@
   function sendServo(index, value) {
     values[index] = value;
     send({ type: 'cmd_servo', index, pulse_us: value });
+  }
+
+  // Throttled variant for oninput: leading send + guaranteed trailing send
+  function throttledSendServo(index, value) {
+    values[index] = value;
+    const now = Date.now();
+    if (now - _lastSend[index] >= THROTTLE_MS) {
+      _lastSend[index] = now;
+      _pendingVal[index] = null;
+      send({ type: 'cmd_servo', index, pulse_us: value });
+    } else {
+      _pendingVal[index] = value;
+      if (!_pendingTmr[index]) {
+        const remaining = THROTTLE_MS - (now - _lastSend[index]);
+        _pendingTmr[index] = setTimeout(() => {
+          _pendingTmr[index] = null;
+          if (_pendingVal[index] !== null) {
+            _lastSend[index] = Date.now();
+            send({ type: 'cmd_servo', index, pulse_us: _pendingVal[index] });
+            _pendingVal[index] = null;
+          }
+        }, remaining);
+      }
+    }
+  }
+
+  // ── Firmware ack processing ───────────────────────────────────
+  function handleServoAck(msg) {
+    _ackRecv++;
+    console.log('[RX ack #' + _ackRecv + '] idx=' + msg.index + ' ok=' + msg.ok + ' actual=' + msg.actual_us + (msg.frail ? ' (frail)' : ''));
+    updateDiagCounter();
+    const i = msg.index;
+    if (i === undefined || i < 0 || i >= 8) return;
+    const rows = document.querySelectorAll('.servo-row');
+    const row = rows[i];
+    if (!row) return;
+    const actualSpan = row.querySelector('.actual-us');
+
+    if (!msg.ok) {
+      if (actualSpan) actualSpan.textContent = msg.error || 'err';
+      flashRow(row, 'error');
+      return;
+    }
+
+    const actual = msg.actual_us;
+    if (actualSpan) actualSpan.textContent = actual + ' μs';
+
+    if (actual !== values[i]) {
+      // Frail-clamped: update UI to reflect actual position
+      flashRow(row, 'clamped');
+      if (!_dragging) {
+        values[i] = actual;
+        const s = document.getElementById('slider-' + i);
+        const n = document.getElementById('num-' + i);
+        if (s) s.value = actual;
+        if (n) n.value = actual;
+      }
+    } else {
+      flashRow(row, 'ok');
+    }
+  }
+
+  function flashRow(row, type) {
+    row.classList.remove('flash-ok', 'flash-clamped', 'flash-error');
+    row.classList.add('flash-' + type);
+    setTimeout(() => row.classList.remove('flash-' + type), 500);
+  }
+
+  // ── Wiggle servo for identification ───────────────────────────
+  function wiggleServo(index, btn) {
+    const center = STANDING_POSE[index];
+    const amplitude = 20;
+    const halfPeriod = 250;
+    const totalSteps = 8;  // 4 full cycles
+    let step = 0;
+
+    btn.classList.add('active');
+    const interval = setInterval(() => {
+      const target = (step % 2 === 0) ? center + amplitude : center - amplitude;
+      sendServo(index, target);
+      const s = document.getElementById('slider-' + index);
+      const n = document.getElementById('num-' + index);
+      if (s) s.value = target;
+      if (n) n.value = target;
+      step++;
+      if (step >= totalSteps) {
+        clearInterval(interval);
+        sendServo(index, center);
+        if (s) s.value = center;
+        if (n) n.value = center;
+        btn.classList.remove('active');
+      }
+    }, halfPeriod);
+  }
+
+  // ── Pin probe ─────────────────────────────────────────────────
+  let _lastProbedPin = null;
+  // pinMap: { gpio: number, name: string, index: number }[]
+  // Persisted to localStorage so refreshes don't lose work
+  let pinMap = JSON.parse(localStorage.getItem('bb_pin_map') || '[]');
+
+  function savePinMap() {
+    localStorage.setItem('bb_pin_map', JSON.stringify(pinMap));
+  }
+
+  function probePin() {
+    const input = document.getElementById('probe-pin-input');
+    const pin = parseInt(input.value, 10);
+    if (isNaN(pin) || pin < 0 || pin > 39) {
+      setProbeResult('error', 'invalid pin');
+      return;
+    }
+    _lastProbedPin = pin;
+    setProbeResult('', 'probing GPIO ' + pin + '…');
+    document.getElementById('probe-assign-btn').disabled = true;
+    send({ type: 'cmd_probe_pin', pin });
+  }
+
+  function handleProbeAck(msg) {
+    if (msg.ok) {
+      setProbeResult('ok', 'GPIO ' + msg.pin + ' wiggled \u2713');
+      document.getElementById('probe-assign-btn').disabled = false;
+    } else {
+      setProbeResult('error', 'error: ' + (msg.error || '?'));
+      _lastProbedPin = null;
+    }
+  }
+
+  function setProbeResult(cls, text) {
+    const el = document.getElementById('probe-result');
+    el.className = cls;
+    el.textContent = text;
+  }
+
+  function assignPin() {
+    const select = document.getElementById('probe-assign-select');
+    const roleIdx = parseInt(select.value, 10);
+    if (isNaN(roleIdx) || _lastProbedPin === null) return;
+    const name = SERVO_NAMES[roleIdx];
+    // Remove any existing mapping for this pin or this role
+    pinMap = pinMap.filter(e => e.gpio !== _lastProbedPin && e.index !== roleIdx);
+    pinMap.push({ gpio: _lastProbedPin, name, index: roleIdx });
+    pinMap.sort((a, b) => a.index - b.index);
+    savePinMap();
+    renderPinMap();
+    setProbeResult('ok', 'Assigned GPIO ' + _lastProbedPin + ' \u2192 ' + name);
+    select.value = '';
+    document.getElementById('probe-assign-btn').disabled = true;
+  }
+
+  function removePinMapping(gpio) {
+    pinMap = pinMap.filter(e => e.gpio !== gpio);
+    savePinMap();
+    renderPinMap();
+  }
+
+  function renderPinMap() {
+    const tbody = document.getElementById('probe-map-body');
+    const container = document.getElementById('probe-map-container');
+    while (tbody.firstChild) tbody.removeChild(tbody.firstChild);
+    if (pinMap.length === 0) { container.style.display = 'none'; return; }
+    container.style.display = '';
+    pinMap.forEach(({ gpio, name, index }) => {
+      const tr   = document.createElement('tr');
+      const tdGp = document.createElement('td'); tdGp.textContent = gpio;
+      const tdNm = document.createElement('td'); tdNm.textContent = name;
+      const tdIx = document.createElement('td'); tdIx.textContent = index;
+      const tdRm = document.createElement('td');
+      const rmBtn = document.createElement('button');
+      rmBtn.className = 'remove-btn';
+      rmBtn.title = 'Remove';
+      rmBtn.textContent = '\u00d7';
+      rmBtn.onclick = () => removePinMapping(gpio);
+      tdRm.appendChild(rmBtn);
+      tr.appendChild(tdGp); tr.appendChild(tdNm); tr.appendChild(tdIx); tr.appendChild(tdRm);
+      tbody.appendChild(tr);
+    });
+  }
+
+  function copyServoPins() {
+    // Build a SERVO_PINS array of size 8, filling gaps with 255 (unassigned)
+    const pins = new Array(8).fill(255);
+    pinMap.forEach(({ gpio, index }) => { pins[index] = gpio; });
+    const arr = pins.map(p => String(p).padStart(3)).join(', ');
+    const comment = '// Order: ' + SERVO_NAMES.join(', ');
+    const text = 'static const uint8_t SERVO_PINS[8] = { ' + arr + ' };\n' + comment;
+    navigator.clipboard.writeText(text).then(() => {
+      const fb = document.getElementById('copy-pins-feedback');
+      fb.classList.add('show');
+      setTimeout(() => fb.classList.remove('show'), 1500);
+    });
+  }
+
+  function buildProbeAssignSelect() {
+    const select = document.getElementById('probe-assign-select');
+    SERVO_NAMES.forEach((name, i) => {
+      const opt = document.createElement('option');
+      opt.value = i;
+      opt.textContent = name + ' (idx ' + i + ')';
+      select.appendChild(opt);
+    });
   }
 
   // ── Build slider grid ─────────────────────────────────────────
@@ -266,8 +686,15 @@
       slider.oninput = () => {
         const v = parseInt(slider.value, 10);
         numInput.value = v;
+        throttledSendServo(i, v);
+      };
+      slider.onchange = () => {
+        // Guarantee final position is sent on mouse-up
+        const v = parseInt(slider.value, 10);
         sendServo(i, v);
       };
+      slider.addEventListener('pointerdown', () => { _dragging = true; });
+      slider.addEventListener('pointerup',   () => { _dragging = false; });
 
       numInput.onchange = () => {
         let v = parseInt(numInput.value, 10);
@@ -278,9 +705,21 @@
         sendServo(i, v);
       };
 
+      const actualSpan = document.createElement('span');
+      actualSpan.className = 'actual-us';
+      actualSpan.textContent = '—';
+
+      const wiggleBtn = document.createElement('button');
+      wiggleBtn.className = 'test-btn wiggle-btn';
+      wiggleBtn.textContent = '~';
+      wiggleBtn.title = 'Wiggle ±20 μs for 2s — identifies this servo';
+      wiggleBtn.onclick = () => wiggleServo(i, wiggleBtn);
+
       row.appendChild(label);
       row.appendChild(slider);
       row.appendChild(numInput);
+      row.appendChild(actualSpan);
+      row.appendChild(wiggleBtn);
       grid.appendChild(row);
     });
   }
@@ -310,6 +749,8 @@
   }
 
   // ── Init ──────────────────────────────────────────────────────
+  buildProbeAssignSelect();
+  renderPinMap();
   buildGrid();
   connect();
 </script>
