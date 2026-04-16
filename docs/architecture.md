@@ -25,6 +25,8 @@
 └─────────────────┘
 ```
 
+> **April 2026 update:** The lifecycle FSM (BOOTING/IDLE/ACTIVE/RESTING/LOW_BATTERY states) was replaced by a simple two-state engage model. `cmd_engage {enabled:true/false}` is the operator switch. Battery cutoff latches until reboot; heartbeat detach is recoverable.
+
 ### Stock Firmware Fallback
 
 When the custom firmware isn't flashed, the Python host can talk to the stock MicroPython firmware via REPL commands over USB serial or WiFi WebREPL. This path is for bootstrapping (e.g., pin discovery, initial hardware validation) and as a fallback.

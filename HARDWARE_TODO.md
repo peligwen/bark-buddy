@@ -5,19 +5,20 @@ Ordered roughly by priority.
 
 ---
 
-## 1. Hybrid Mode Smoke Test
+## 1. Custom Firmware Smoke Test
 
 First thing to run when the dog is plugged in.
 
-- `python3 server.py --hybrid`
+- `bark` (auto-detects USB serial or mDNS WiFi)
 - Confirm boot message appears in console
 - Open web UI, verify:
   - IMU pitch/roll updating in real time
   - Sonar distance updating
   - Battery voltage/percentage shown
+- Send `cmd_engage {enabled: true}` from UI
 - Try each D-pad direction for 1-2 seconds
 - Confirm the dog actually walks (not just 3D view)
-- Check if forward still drifts left (known issue from stock firmware reflash)
+- Check if forward still drifts left (known issue from prior testing)
 
 ## 2. Validate Mock Physics Model Against Real Dog
 
@@ -45,7 +46,7 @@ The servo-to-joint mapping is **untrusted** — prior identification data was co
 
 **Pre-requisite:** Review `identify_servos.py` and `servo_test.py` before using on hardware.
 
-- With dog standing on flat surface, run `identify_servos.py` via hybrid mode's `cmd_servo`
+- With dog standing on flat surface, run `identify_servos.py` via `cmd_servo`
 - Move each servo one at a time in 5μs steps, record IMU deltas
 - Match observed pitch/roll axis + direction to FK model predictions
 - Produce a definitive mapping: servo index → joint name → polarity
@@ -57,18 +58,17 @@ The servo-to-joint mapping is **untrusted** — prior identification data was co
 
 ## 4. Movement Direction Calibration
 
-After the stock firmware reflash, movement is off:
-- Forward drifts left
-- Right turn barely turns
-- Direction signs may be wrong
+Movement direction may be off after hardware reassembly or servo replacement:
+- Forward may drift left
+- Turn rate may be asymmetric
 
 **Method:**
-- Use IMU yaw to measure actual turn rate for `move(20, -50)` and `move(20, 50)`
+- Use IMU yaw to measure actual turn rate for left/right move commands
 - Use IMU to measure forward drift angle over 2s
-- Adjust MOTION_CMDS speed/direction values in `handler.py` until:
+- Adjust gait parameters via `cmd_gait_params` until:
   - Forward goes straight (< 5° drift over 2s)
   - Left/right turn at roughly equal rates
-- Consider per-servo offset calibration via Hiwonder upper computer
+- Consider per-servo offset calibration via `cmd_offset`
 
 ## 5. Calibration Sweep for Physical Model Fitting
 
@@ -90,7 +90,6 @@ Custom firmware implements WiFi TCP on port 9000 (WIFI_ENABLED build flag, recon
 - Verify TCP connection from host to dog at port 9000
 - Test NDJSON command/telemetry flow over WiFi
 - Measure latency vs serial (expect ~5-10ms additional)
-- If WiFi works, hybrid mode could also work over WiFi (upload handler via WebREPL, then TCP for NDJSON)
 
 ## 7. Gait Engine Validation (Custom Firmware)
 
@@ -110,14 +109,13 @@ The ADC→voltage conversion uses an estimated 3.9x divider ratio.
 - Measure actual battery voltage with multimeter
 - Read ADC value at same time
 - Calculate true divider ratio
-- Update `_read_battery()` in handler.py and `imu.cpp` in custom firmware
-- Verify low-battery threshold (currently 6.8V) is appropriate
+- Update `BATTERY_DIVIDER` in `config.h` and verify `BATTERY_LOW_MV` threshold is appropriate (currently 6400mV)
 
 ---
 
 ## Notes
 
 - Servos get warm during extended testing — take breaks between tasks
-- Always return to standing pose before unplugging
-- The `manual_servo_mode` flag in custom firmware must be cleared before gait works
-- IMU returns [roll, pitch] not [pitch, roll] — already handled in handler.py
+- Always send `cmd_engage {enabled: false}` before unplugging (servos ramp to rest pose)
+- GPIO 2 (RR_knee) is a strapping pin — it is pulled low during boot by the servo PWM line. Boot diagnostic added in firmware; physical relocation to a non-strapping pin is pending.
+- IMU returns [roll, pitch] not [pitch, roll] — already handled in firmware and host

@@ -22,6 +22,10 @@ Captured during project scoping and evolution (April 2026).
 | Browser protocol | WebSocket + JSON | Clean, decoupled from firmware protocol. Same format regardless of which firmware path is active |
 | Connection loss | Heartbeat + retry with backoff | Custom FW: 5s heartbeat timeout triggers safe stop. Stock FW: 500ms serial timeout, exponential backoff retry |
 
+## Engage Switch (April 2026)
+
+The lifecycle FSM (multi-state BOOTING/IDLE/ACTIVE/RESTING/LOW_BATTERY) was replaced by a simple two-state engage model. `cmd_engage {enabled:true/false}` is the sole operator switch. Battery cutoff latches until reboot; heartbeat detach is recoverable. The old `lifecycle.cpp`/`lifecycle.h` were deleted.
+
 ## Firmware / Algorithms
 
 | Decision | Choice | Rationale |
