@@ -125,7 +125,7 @@ void servos_detach_all() {
     if (!attached) return;
     attached = false;
     for (int i = 0; i < 8; i++) {
-        ledcDetach(SERVO_PINS[i]);
+        ledcDetachPin(SERVO_PINS[i]);
         current_us[i] = 0;
     }
 }
