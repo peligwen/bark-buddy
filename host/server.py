@@ -20,42 +20,28 @@ from aiohttp import web
 from behaviors.balance import BalanceLayer
 from behaviors.map_store import MapStore
 from behaviors.scan import ScanBehavior
-from comms import DogComms, DIRECTION_MAP
-from sim.sim_transport import SimTransport
+from comms import Transport, DIRECTIONS
 
 logger = logging.getLogger(__name__)
 
-# Telemetry polling intervals
-# Note: REPL transports (USB/WiFi) are slow (~0.5s per round-trip),
-# so these rates are capped by actual throughput on real hardware.
-# Base rates — overridden for sim+ (see _telemetry_loop)
-IMU_POLL_HZ = 2
-ULTRASONIC_POLL_HZ = 2
 BATTERY_POLL_HZ = 0.2
 
 # Transport priority — higher number = higher priority for auto-switching
 _TRANSPORT_PRIORITY: dict[str, int] = {
-    "sim":      0,
-    "wifi":     1,   # WebREPL WiFi (stock firmware)
-    "hybrid":   2,   # USB stock firmware
-    "fw-wifi":  3,   # WiFi custom firmware (mDNS discovered)
-    "fw-usb":   4,   # USB custom firmware (highest priority)
+    "mock":     0,
+    "fw-wifi":  1,   # WiFi custom firmware (mDNS discovered)
+    "fw-usb":   2,   # USB custom firmware (highest priority)
 }
 
 def _transport_priority(label: str) -> int:
-    """Return priority for a transport label.
-
-    Labels: 'sim', 'wifi:{host}', 'hybrid:{port}', 'fw:{ip}' (WiFi), 'fw:{/dev/...}' (USB)
-    USB custom firmware gets priority 4 > WiFi custom firmware priority 3.
-    """
-    if ":" not in label:
-        return _TRANSPORT_PRIORITY.get(label, 0)
-    prefix, rest = label.split(":", 1)
-    if prefix == "fw":
-        # Distinguish USB fw (/dev/... or COM...) from WiFi fw
-        is_usb = rest.startswith("/dev/") or rest.startswith("COM")
-        return _TRANSPORT_PRIORITY["fw-usb" if is_usb else "fw-wifi"]
-    return _TRANSPORT_PRIORITY.get(prefix, 0)
+    if label == "mock":
+        return 0
+    if ":" in label:
+        prefix, rest = label.split(":", 1)
+        if prefix == "fw":
+            is_usb = rest.startswith("/dev/") or rest.startswith("COM")
+            return _TRANSPORT_PRIORITY["fw-usb" if is_usb else "fw-wifi"]
+    return _TRANSPORT_PRIORITY.get(label, 0)
 
 
 def _read_available_fw_version() -> str:
@@ -94,22 +80,18 @@ def find_serial_port() -> str | None:
 
 
 class Server:
-    def __init__(self, dog: DogComms, web_dir: str, transport=None, transport_label="sim",
-                 wifi_host: str | None = None, wifi_password: str | None = None,
+    def __init__(self, transport: Transport, web_dir: str, transport_label: str = "fw",
                  no_mdns: bool = False, open_browser: bool = False):
-        self._dog = dog
-        self._web_dir = web_dir
         self._transport = transport
+        self._web_dir = web_dir
         self._transport_label = transport_label
-        self._wifi_host = wifi_host
-        self._wifi_password = wifi_password or _read_config_local_value("WEBREPL_PASS", "bark")
         self._no_mdns = no_mdns
         self._ws_clients: set[web.WebSocketResponse] = set()
         self._poll_task: asyncio.Task | None = None
         self._reconnect_task: asyncio.Task | None = None
         self._detected_wifi: dict | None = None
-        self._balance = BalanceLayer(dog)
-        self._scan = ScanBehavior(dog)
+        self._balance = BalanceLayer(transport)
+        self._scan = ScanBehavior(transport)
         self._map = MapStore()
         self._mode = "remote"  # remote | scan
         self._motion = "stop"  # last motion direction
@@ -128,16 +110,25 @@ class Server:
         self._switch_lock = asyncio.Lock()
         self._mdns_browser: "MdnsBrowser | None" = None
         self._open_browser = open_browser
-        self._register_transport_callbacks(transport)
+        self._register_transport_callbacks()
 
-    def _register_transport_callbacks(self, transport):
-        """Wire ack forwarding for transports that support it."""
-        if transport and hasattr(transport, "set_ack_callback"):
-            transport.set_ack_callback(self._on_firmware_ack)
+    def _register_transport_callbacks(self):
+        """Wire ack and telem forwarding from the current transport."""
+        if self._transport and hasattr(self._transport, "set_ack_callback"):
+            self._transport.set_ack_callback(self._on_firmware_ack)
+        if self._transport and hasattr(self._transport, "set_telem_callback"):
+            self._transport.set_telem_callback(self._on_firmware_telem)
 
     def _on_firmware_ack(self, msg: dict):
         """Forward firmware acks to all WebSocket clients."""
         if self._ws_clients and msg.get("ref_type") in ("cmd_servo", "cmd_probe_pin", "cmd_balance_config"):
+            asyncio.ensure_future(self._broadcast(msg))
+
+    def _on_firmware_telem(self, msg: dict):
+        """Forward telemetry push messages directly to all WebSocket clients."""
+        msg_type = msg.get("type", "")
+        if msg_type in ("telem_sonar", "telem_battery", "telem_imu", "telem_status",
+                        "ota_status", "boot"):
             asyncio.ensure_future(self._broadcast(msg))
 
     @web.middleware
@@ -177,36 +168,18 @@ class Server:
         await asyncio.Event().wait()
 
     async def _on_startup(self, app: web.Application):
-        await self._dog.connect()
-        # Don't auto-enable homeostasis — it breaks stock firmware gait.
+        await self._transport.open()
 
-        # Check if dog has WiFi available
-        if 'usb' in self._transport_label:
-            # Stock firmware: query WiFi status via REPL
-            try:
-                wifi = await self._transport.check_wifi_status()
-                self._detected_wifi = wifi
-                if wifi.get("connected") and wifi.get("ip"):
-                    self._wifi_host = wifi["ip"]
-                    logger.info("Dog WiFi detected: %s (%s)", wifi.get("ip"), wifi.get("ssid"))
-            except Exception:
-                self._detected_wifi = {"connected": False}
-        elif 'fw' in self._transport_label:
-            # Custom firmware: WiFi info comes from boot/status messages
-            await asyncio.sleep(1)  # wait for boot message
-            fw = self._transport.firmware_info
-            if fw.get("wifi") and fw.get("wifi_ip"):
-                self._wifi_host = fw["wifi_ip"]
-                self._detected_wifi = {
-                    "connected": True,
-                    "ip": fw["wifi_ip"],
-                    "port": fw.get("tcp_port", 9000),
-                }
-                logger.info("Firmware WiFi detected: %s (TCP port %s)", fw["wifi_ip"], fw.get("tcp_port", 9000))
-
-        # Register balance event callbacks
-        self._balance.on_fall(self._on_fall)
-        self._balance.on_recovered(self._on_recovered)
+        # Read firmware WiFi info from boot/telem_status (comes via telem callback)
+        await asyncio.sleep(1)
+        fw = self._transport.firmware_info
+        if fw.get("wifi") and fw.get("wifi_ip"):
+            self._detected_wifi = {
+                "connected": True,
+                "ip": fw["wifi_ip"],
+                "port": fw.get("tcp_port", 9000),
+            }
+            logger.info("Firmware WiFi detected: %s (TCP port %s)", fw["wifi_ip"], fw.get("tcp_port", 9000))
 
         # Register scan callbacks
         self._scan.on_point(self._on_scan_point)
@@ -243,114 +216,73 @@ class Server:
                     pass
         if self._scan.running:
             await self._scan.cancel()
-        await self._balance.stop()
         for ws in set(self._ws_clients):
             await ws.close()
-        await self._dog.disconnect()
+        if self._transport and self._transport.is_open():
+            await self._transport.close()
 
     async def _replace_transport(self, new_transport, new_label: str):
-        """Teardown current transport and swap in a new one.
-
-        Acquires _switch_lock, cancels both poll_task and reconnect_task before
-        touching the transport, then reconnects and restarts both tasks.
-        This is the single canonical method for all transport switching.
-        """
+        """Teardown current transport and swap in a new one."""
         async with self._switch_lock:
-            # Cancel telemetry loop
-            if self._poll_task:
-                self._poll_task.cancel()
-                try:
-                    await self._poll_task
-                except asyncio.CancelledError:
-                    pass
-                self._poll_task = None
-            # Cancel reconnect loop — prevents racing against _dog.connect()
-            if self._reconnect_task:
-                self._reconnect_task.cancel()
-                try:
-                    await self._reconnect_task
-                except asyncio.CancelledError:
-                    pass
-                self._reconnect_task = None
-            # Graceful LED shutdown on old transport
+            for task in (self._poll_task, self._reconnect_task):
+                if task:
+                    task.cancel()
+                    try:
+                        await task
+                    except asyncio.CancelledError:
+                        pass
+            self._poll_task = None
+            self._reconnect_task = None
+
+            # Close old transport
             try:
                 if self._transport and self._transport.is_open():
-                    await self._transport.set_led_status("shutdown")
+                    await self._transport.close()
             except Exception:
                 pass
-            # Disconnect old dog
-            try:
-                await self._dog.disconnect()
-            except Exception:
-                pass
-            # Swap in new transport, dog, balance, scan
-            from comms import DogComms
+
+            # Swap in new transport, balance, scan
             from behaviors.balance import BalanceLayer
             from behaviors.scan import ScanBehavior
             self._transport = new_transport
-            self._register_transport_callbacks(new_transport)
-            self._dog = DogComms(new_transport)
-            self._balance = BalanceLayer(self._dog)
-            self._balance.on_fall(self._on_fall)
-            self._balance.on_recovered(self._on_recovered)
-            self._scan = ScanBehavior(self._dog)
+            self._register_transport_callbacks()
+            self._balance = BalanceLayer(new_transport)
+            self._scan = ScanBehavior(new_transport)
             self._scan.on_point(self._on_scan_point)
             self._scan.on_complete(self._on_scan_complete)
             self._transport_label = new_label
-            # Connect new dog
+
+            # Open new transport
             try:
-                await self._dog.connect()
+                await new_transport.open()
             except Exception as e:
-                logger.warning("_replace_transport connect failed: %s — staying on %s", e, new_label)
+                logger.warning("_replace_transport open failed: %s — staying on %s", e, new_label)
+
             # Restart tasks
             self._poll_task = asyncio.create_task(self._telemetry_loop())
             self._reconnect_task = asyncio.create_task(self._reconnect_loop())
             await self._broadcast_status()
 
     async def _switch_transport(self, mode: str) -> dict:
-        """Switch between transport modes: 'usb', 'wifi', 'sim'. Returns status dict."""
-        self._user_override_transport = (mode != "sim")
+        """Switch between transport modes: 'fw-usb', 'fw-wifi'. Returns status dict."""
+        self._user_override_transport = True
 
-        # Build the new transport object
         try:
-            if mode == "usb":
-                from repl_transport import ReplTransport
-                port = find_serial_port()
-                if not port:
-                    return {"ok": False, "error": "No USB serial device found"}
-                transport = ReplTransport(port=port)
-                label = f"usb:{port.split('/')[-1]}"
-            elif mode == "usb-fw":
-                from firmware_transport import FirmwareTransport
+            from firmware_transport import FirmwareTransport
+            if mode == "fw-usb":
                 port = find_serial_port()
                 if not port:
                     return {"ok": False, "error": "No USB serial device found"}
                 transport = FirmwareTransport(port=port)
                 label = f"fw:{port.split('/')[-1]}"
-            elif mode == "wifi-fw":
-                if not self._wifi_host:
-                    return {"ok": False, "error": "No WiFi host configured"}
-                from firmware_transport import FirmwareTransport
-                transport = FirmwareTransport(host=self._wifi_host)
-                label = f"fw:{self._wifi_host}"
-            elif mode == "wifi":
-                if not self._wifi_host:
-                    return {"ok": False, "error": "No WiFi host configured. Start with --wifi"}
-                from webrepl_transport import WebReplTransport
-                transport = WebReplTransport(
-                    host=self._wifi_host, password=self._wifi_password
-                )
-                label = f"wifi:{self._wifi_host}"
-            elif mode == "sim":
-                transport = SimTransport()
-                label = "sim"
-            elif mode == "hybrid":
-                from hybrid_transport import HybridTransport
-                port = find_serial_port()
-                if not port:
-                    return {"ok": False, "error": "No USB serial device found"}
-                transport = HybridTransport(port=port)
-                label = f"hybrid:{port.split('/')[-1]}"
+            elif mode == "fw-wifi":
+                wifi = self._detected_wifi
+                if not wifi or not wifi.get("ip"):
+                    return {"ok": False, "error": "No WiFi firmware detected"}
+                ip = wifi["ip"]
+                tcp_port = wifi.get("port", 9000)
+                transport = FirmwareTransport(host=ip, tcp_port=tcp_port)
+                label = f"fw:{ip}"
             else:
                 return {"ok": False, "error": f"Unknown mode: {mode}"}
 
@@ -360,9 +292,7 @@ class Server:
 
         except Exception as e:
             logger.exception("Failed to switch transport to %s", mode)
-            # Fall back to sim
-            await self._replace_transport(SimTransport(), "sim")
-            return {"ok": False, "error": str(e), "transport": "sim"}
+            return {"ok": False, "error": str(e)}
 
     async def _add_live_point(self, distance_mm: int) -> None:
         """Add an ultrasonic reading as a map point using current position/heading."""
@@ -387,22 +317,15 @@ class Server:
                 "confidence": round(point.confidence, 2),
             })
 
-    async def _update_led_status(self):
-        """Update sonar LED based on current state."""
-        if self._lock_holder:
-            await self._transport.set_led_status("controlled")
-        else:
-            await self._transport.set_led_status("connected")
-
-    async def _on_fall(self, imu: dict):
+    async def _on_fall(self, imu: dict = None):
         """Broadcast fall event to all clients."""
-        await self._broadcast({
-            "type": "event_fall",
-            "pitch": imu["pitch"],
-            "roll": imu["roll"],
-        })
+        msg = {"type": "event_fall"}
+        if imu:
+            msg["pitch"] = imu.get("pitch", 0)
+            msg["roll"] = imu.get("roll", 0)
+        await self._broadcast(msg)
 
-    async def _on_recovered(self, imu: dict):
+    async def _on_recovered(self, imu: dict = None):
         """Broadcast recovery event to all clients."""
         await self._broadcast({"type": "event_recovered"})
 
@@ -489,19 +412,17 @@ class Server:
         }
 
     async def _acquire_lock(self, ws: web.WebSocketResponse, name: str) -> None:
-        """Acquire the control lock for a client and wake the dog."""
+        """Acquire the control lock for a client."""
         import time as _t
         self._lock_holder = ws
         self._lock_name = name
         self._lock_time = _t.monotonic()
-        await self._dog.wake()
 
     async def _release_lock(self) -> None:
-        """Release the control lock and put the dog to sleep."""
+        """Release the control lock."""
         self._lock_holder = None
         self._lock_name = ""
         self._lock_time = 0.0
-        await self._dog.sleep()
 
     async def _broadcast_lock_status(self) -> None:
         await self._check_lock_timeout()
@@ -515,7 +436,6 @@ class Server:
             except (ConnectionError, ConnectionResetError):
                 dead.add(ws)
         self._ws_clients -= dead
-        await self._update_led_status()
 
     async def _ws_handler(self, request: web.Request) -> web.WebSocketResponse:
         ws = web.WebSocketResponse()
@@ -524,29 +444,22 @@ class Server:
         logger.info("WebSocket client connected (%d total)", len(self._ws_clients))
 
         # Send initial state
-        transport = getattr(self._dog, '_transport', None)
-        lifecycle = getattr(transport, 'get_lifecycle', lambda: 'unknown')()
         status = {
             "type": "telem_status",
             "mode": self._mode,
             "balance": self._balance.enabled,
-            "fallen": self._balance.fallen,
-            "connected": self._dog.connected,
+            "fallen": self._balance.is_fallen,
+            "connected": self._transport.is_open() if self._transport else False,
             "scanning": self._scan.running,
             "transport": self._transport_label,
-            "lifecycle": lifecycle,
+            "lifecycle": self._transport.get_lifecycle() if self._transport else "unknown",
+            "fw_version": self._transport.get_fw_version() if self._transport else "",
+            "available_fw_version": self._available_fw_version,
         }
-        fw_version_ws = getattr(transport, 'get_fw_version', lambda: '')()
-        status["fw_version"] = fw_version_ws
-        status["available_fw_version"] = self._available_fw_version
-        wifi_info = getattr(self, '_detected_wifi', None)
+        wifi_info = self._detected_wifi
         if wifi_info and wifi_info.get("connected"):
             status["wifi_available"] = True
             status["wifi_ip"] = wifi_info.get("ip", "")
-            status["wifi_ssid"] = wifi_info.get("ssid", "")
-        noise = self._transport.get_noise_params()
-        if noise is not None:
-            status["noise_params"] = noise
         await ws.send_str(json.dumps(status))
 
         # Send version hash for stale client detection
@@ -647,8 +560,9 @@ class Server:
             if self._mode == "scan":
                 return
             direction = msg.get("direction", "stop")
-            if direction in DIRECTION_MAP:
-                await self._dog.move(direction)
+            if direction in DIRECTIONS:
+                self._transport.record_motion(direction)
+                await self._transport.send_json({"type": "cmd_move", "direction": direction})
                 self._motion = direction
                 self._action = None
             else:
@@ -657,16 +571,13 @@ class Server:
         elif msg_type == "cmd_stand":
             if self._mode == "scan":
                 return
-            await self._dog.stand()
+            await self._transport.send_json({"type": "cmd_stand"})
             self._motion = "stand"
             self._action = None
 
         elif msg_type == "cmd_balance":
             enabled = msg.get("enabled", True)
-            if enabled:
-                await self._balance.start()
-            else:
-                await self._balance.stop()
+            await self._balance.set_enabled(enabled)
             await self._broadcast({
                 "type": "balance_state",
                 "enabled": self._balance.enabled,
@@ -674,18 +585,17 @@ class Server:
 
         elif msg_type == "cmd_pose":
             pose_name = msg.get("pose", "stand")
-            # On real hardware, translate to stand/sit/lie commands
-            pose_actions = {"sit": 4, "lie_down": 5, "stand": None}
-            action_code = pose_actions.get(pose_name)
-            if action_code:
-                await self._dog.action(action_code)
+            if pose_name == "sit":
+                await self._transport.send_json({"type": "cmd_action", "action": 4})
+            elif pose_name == "lie_down":
+                await self._transport.send_json({"type": "cmd_action", "action": 5})
             else:
-                await self._dog.stand()
+                await self._transport.send_json({"type": "cmd_stand"})
             self._motion = "stop"
 
         elif msg_type == "cmd_action":
             code = msg.get("action", 1)
-            await self._dog.action(code)
+            await self._transport.send_json({"type": "cmd_action", "action": code})
             self._action = code
             self._motion = "stop"
 
@@ -727,18 +637,6 @@ class Server:
                     **self._map.to_dict(),
                 })
 
-        elif msg_type == "cmd_sim_noise":
-            if self._transport.get_noise_params() is not None:
-                self._transport.set_noise_params(msg.get("params", {}))
-                await ws.send_str(json.dumps({
-                    "type": "sim_noise_ack", "ok": True,
-                    "params": self._transport.get_noise_params(),
-                }))
-            else:
-                await ws.send_str(json.dumps({
-                    "type": "sim_noise_ack", "ok": False, "error": "Not in sim mode",
-                }))
-
         elif msg_type == "cmd_reset":
             if self._transport:
                 self._transport.reset()
@@ -767,20 +665,17 @@ class Server:
             if msg_type == "cmd_servo":
                 logger.debug("Passthrough cmd_servo idx=%s pulse=%s",
                              msg.get("index"), msg.get("pulse_us"))
-            if hasattr(self._transport, "send_json"):
+            if self._transport:
                 try:
                     await self._transport.send_json(msg)
                 except Exception as e:
                     logger.warning("Passthrough send failed (%s): %s", msg_type, e)
-            else:
-                logger.warning("Transport has no send_json — cannot passthrough %s", msg_type)
 
         else:
             logger.warning("Unknown WS message type: %s", msg_type)
 
     async def _handle_firmware_status(self, request: web.Request) -> web.Response:
-        transport = getattr(self._dog, '_transport', None)
-        current = getattr(transport, 'get_fw_version', lambda: '')()
+        current = self._transport.get_fw_version() if self._transport else ""
         available = self._available_fw_version
         is_wifi = 'fw:' in self._transport_label and '/dev/' not in self._transport_label
         binary_path = _firmware_binary_path()
@@ -859,11 +754,10 @@ class Server:
         sha256_hex = _compute_sha256(_firmware_binary_path())
         self._binary_sha256 = sha256_hex
         # 4. Send OTA command
-        transport = getattr(self._dog, '_transport', None)
-        if not transport or not hasattr(transport, 'send_json'):
+        if not self._transport:
             return web.json_response({"ok": False, "error": "No firmware transport"}, status=400)
         try:
-            await transport.send_json({
+            await self._transport.send_json({
                 "type": "cmd_ota_update",
                 "url": binary_url,
                 "sha256": sha256_hex,
@@ -879,28 +773,26 @@ class Server:
 
     async def _broadcast_status(self, battery_mv=None):
         """Broadcast current status to all clients."""
-        transport = getattr(self._dog, '_transport', None)
-        lifecycle = getattr(transport, 'get_lifecycle', lambda: 'unknown')()
         status = {
             "type": "telem_status",
             "mode": self._mode,
             "balance": self._balance.enabled,
-            "fallen": self._balance.fallen,
-            "connected": self._dog.connected,
+            "fallen": self._balance.is_fallen,
+            "connected": self._transport.is_open() if self._transport else False,
             "scanning": self._scan.running,
             "battery_mv": battery_mv,
-            "lifecycle": lifecycle,
+            "lifecycle": self._transport.get_lifecycle() if self._transport else "unknown",
+            "fw_version": self._transport.get_fw_version() if self._transport else "",
+            "available_fw_version": self._available_fw_version,
+            "transport": self._transport_label,
         }
         if self._scan.running:
             status["scan_progress"] = self._scan.progress
-        fw_version = getattr(transport, 'get_fw_version', lambda: '')()
-        status["fw_version"] = fw_version
-        status["available_fw_version"] = self._available_fw_version
-        ota_status = (getattr(getattr(self._dog, '_transport', None), 'firmware_info', {}) or {}).get('ota_status')
+        ota_status = (self._transport.firmware_info if self._transport else {}).get('ota_status')
         if ota_status:
             status["ota_status"] = ota_status
             if ota_status == "complete":
-                self._detected_wifi = None  # Allow re-discovery after reboot
+                self._detected_wifi = None
         await self._broadcast(status)
 
     async def _broadcast(self, msg: dict):
@@ -915,77 +807,52 @@ class Server:
         self._ws_clients -= dead
 
     async def _telemetry_loop(self):
-        """Poll IMU, ultrasonic, and battery, broadcast to browser clients."""
-        # Use firmware-rate polling for transports with push telemetry
-        from firmware_transport import FirmwareTransport
-        from hybrid_transport import HybridTransport
-        is_fast = isinstance(self._transport, (SimTransport, FirmwareTransport, HybridTransport))
-        imu_interval = 1.0 / (20 if is_fast else IMU_POLL_HZ)
-        ultra_interval = 1.0 / (20 if is_fast else ULTRASONIC_POLL_HZ)
+        """Run odometry + balance checks; firmware pushes telem via set_telem_callback."""
+        imu_interval = 0.05   # 20 Hz odometry/balance check
         battery_interval = 1.0 / BATTERY_POLL_HZ
         wall_regen_interval = 1.0
-        last_ultra = 0.0
         last_battery = 0.0
         last_wall_regen = 0.0
-        last_point_count = 0
 
         while True:
             try:
                 now = asyncio.get_running_loop().time()
 
-                # IMU polling via balance layer (handles fall detection too)
-                imu = await self._balance.update()
-                if imu and self._ws_clients:
-                    imu_msg = {
-                        "type": "telem_imu",
-                        "pitch": imu["pitch"],
-                        "roll": imu["roll"],
-                    }
-                    # Include sim joint data when available (diagnostic only)
-                    if self._transport:
-                        joints = self._transport.get_joint_states()
-                        if joints:
-                            imu_msg["joints"] = joints
-                    await self._broadcast(imu_msg)
+                # Balance check (reads cached IMU — no I/O)
+                balance_event = self._balance.check()
+                if balance_event["fallen"]:
+                    await self._broadcast({
+                        "type": "event_fall",
+                        "imu": balance_event["imu"],
+                    })
+                elif balance_event["recovered"]:
+                    await self._broadcast({"type": "event_recovered"})
 
-                    # Odometry: dead-reckoned position + heading (separate from IMU)
-                    if self._transport and self._ws_clients:
-                        odom = {"type": "telem_odometry", "motion": self._motion}
-                        pos = self._transport.get_position()
-                        heading = self._transport.get_heading()
-                        if pos is not None:
-                            odom["x"] = round(pos[0], 4)
-                            odom["y"] = round(pos[1], 4)
-                        if heading is not None:
-                            odom["heading"] = round(heading, 1)
-                        await self._broadcast(odom)
+                # Odometry broadcast
+                if self._transport and self._ws_clients:
+                    odom = {"type": "telem_odometry", "motion": self._motion}
+                    pos = self._transport.get_position()
+                    heading = self._transport.get_heading()
+                    if pos is not None:
+                        odom["x"] = round(pos[0], 4)
+                        odom["y"] = round(pos[1], 4)
+                    if heading is not None:
+                        odom["heading"] = round(heading, 1)
+                    await self._broadcast(odom)
 
-                # Ultrasonic polling — continues during scan for live mapping
-                if now - last_ultra >= ultra_interval:
-                    dist = await self._dog.read_ultrasonic()
-                    if dist is not None and self._ws_clients:
-                        await self._broadcast({
-                            "type": "telem_ultrasonic",
-                            "distance_mm": dist,
-                        })
-                        # Continuous mapping: add each reading as a point
-                        if dist < 3000 and self._transport:
-                            await self._add_live_point(dist)
-                    last_ultra = now
-
-                # Battery polling (0.2 Hz = 5s interval)
+                # Battery status broadcast
                 if now - last_battery >= battery_interval:
-                    battery = await self._dog.read_battery()
-                    if battery is not None and self._ws_clients:
+                    battery = self._transport.get_battery_mv() if self._transport else None
+                    if battery is not None:
                         await self._broadcast_status(battery_mv=battery)
                     last_battery = now
 
-                # Point cloud maintenance (skip during scan)
+                # Point cloud maintenance
                 if not self._scan.running:
                     self._map.consolidate()
                     self._map.decay_tick()
 
-                # Regenerate walls every second
+                # Wall regen broadcast
                 if now - last_wall_regen >= wall_regen_interval and self._ws_clients:
                     await self._broadcast({
                         "type": "map_data",
@@ -1008,13 +875,13 @@ class Server:
         while True:
             try:
                 await asyncio.sleep(2)
-                if not self._dog.connected:
+                if self._transport and not self._transport.is_open():
                     logger.warning("Connection lost — attempting reconnect (backoff=%ds)", backoff)
                     await self._broadcast_status()
                     try:
-                        await self._dog.disconnect()
+                        await self._transport.close()
                         await asyncio.sleep(backoff)
-                        await self._dog.connect()
+                        await self._transport.open()
                         backoff = 1
                         logger.info("Reconnected successfully")
                         await self._broadcast_status()
@@ -1029,13 +896,12 @@ class Server:
 
     async def _on_mdns_found(self, ip: str, port: int, props: dict):
         """Called when a MechDog is discovered via mDNS."""
-        # Suppress re-announcements for the same device
         if self._detected_wifi and self._detected_wifi.get("ip") == ip:
             return
         self._detected_wifi = {"connected": True, "ip": ip, "port": port,
                                "fw_version": props.get("fw_version", "")}
         current_priority = _transport_priority(self._transport_label)
-        wifi_priority = _TRANSPORT_PRIORITY["fw-wifi"]  # mDNS-discovered = custom firmware over WiFi
+        wifi_priority = _TRANSPORT_PRIORITY["fw-wifi"]
         if not self._user_override_transport and wifi_priority > current_priority:
             logger.info("mDNS: auto-connecting to %s:%d", ip, port)
             try:
@@ -1055,9 +921,8 @@ class Server:
             return
         self._detected_wifi = None
         if ip in self._transport_label:
-            logger.warning("mDNS: active device lost (%s) — falling back to sim", ip)
-            from sim.sim_transport import SimTransport
-            await self._replace_transport(SimTransport(), "sim")
+            logger.warning("mDNS: active device lost (%s) — disconnected", ip)
+            await self._broadcast_status()
 
     async def _on_device_added(self, port: str):
         """Called when a USB serial device is plugged in."""
@@ -1082,13 +947,11 @@ class Server:
 
     async def _on_device_removed(self, port: str):
         """Called when a USB serial device is unplugged."""
-        # Only act if the removed port matches the active transport
         if port not in self._transport_label:
             return
-        logger.warning("Hot-plug: active device removed: %s — falling back", port)
-        # User's chosen device is gone — clear the override
+        logger.warning("Hot-plug: active device removed: %s", port)
         self._user_override_transport = False
-        # Fall back: mDNS-discovered WiFi (if available), else sim
+        # Fall back to WiFi firmware if available
         if self._detected_wifi and self._detected_wifi.get("ip"):
             ip = self._detected_wifi["ip"]
             tcp_port = self._detected_wifi.get("port", 9000)
@@ -1099,8 +962,8 @@ class Server:
                 return
             except Exception as e:
                 logger.warning("Hot-plug: WiFi fallback failed: %s", e)
-        from sim.sim_transport import SimTransport
-        await self._replace_transport(SimTransport(), "sim")
+        logger.warning("Hot-plug: no fallback transport available — disconnected")
+        await self._broadcast_status()
 
 
 def _restart_server():
@@ -1112,20 +975,16 @@ def _restart_server():
     os.kill(os.getpid(), signal.SIGTERM)
 
 
-def _probe_serial_sync(port: str) -> str:
+def _probe_serial_sync(port: str) -> bool:
     """Blocking serial probe — runs in a thread via asyncio.to_thread.
 
-    Returns 'fw', 'hybrid', or 'fallback'.
+    Returns True if custom firmware (JSON pong) detected.
     """
     import serial
     import time
     try:
         ser = serial.Serial(port, 115200, timeout=2)
-        # Custom firmware takes up to 2.5s to boot (500ms settle + 2000ms softstart).
-        # Wait long enough to catch a response even after DTR reset.
         time.sleep(3.0)
-
-        # Try JSON ping first (custom firmware) — retry a few times in case of timing
         resp = ""
         for _ in range(3):
             ser.write(b'{"type":"ping"}\n')
@@ -1133,94 +992,60 @@ def _probe_serial_sync(port: str) -> str:
             resp += ser.read(ser.in_waiting).decode(errors="replace")
             if '"pong"' in resp:
                 break
-        if '"pong"' in resp:
-            ser.close()
-            return "fw"
-
-        # Try Ctrl+C for MicroPython REPL → use hybrid mode
-        ser.write(b'\x03\x03\r\n')
-        time.sleep(0.5)
-        resp = ser.read(ser.in_waiting).decode(errors="replace")
         ser.close()
-
-        if ">>>" in resp or "MicroPython" in resp:
-            return "hybrid"
-
+        return '"pong"' in resp
     except Exception as e:
-        logger.warning("Detection failed: %s", e)
-
-    return "fallback"
+        logger.warning("Serial probe failed: %s", e)
+        return False
 
 
 async def _detect_serial_transport(port: str):
-    """Auto-detect firmware type on a serial port.
-
-    Detection order:
-    1. JSON ping → custom firmware (FirmwareTransport)
-    2. Ctrl+C → MicroPython → hybrid mode (HybridTransport)
-    3. Fallback → hybrid mode (best-effort)
-
-    The blocking serial I/O is run off the event loop via asyncio.to_thread.
-    """
-    logger.info("Auto-detecting firmware on %s...", port)
-    result = await asyncio.to_thread(_probe_serial_sync, port)
-
-    if result == "fw":
-        from firmware_transport import FirmwareTransport
-        transport = FirmwareTransport(port=port)
-        label = f"fw:{port.split('/')[-1]}"
-        logger.info("Detected custom firmware on %s", port)
-        return transport, label
-
-    if result == "hybrid":
-        from hybrid_transport import HybridTransport
-        transport = HybridTransport(port=port)
-        label = f"hybrid:{port.split('/')[-1]}"
-        logger.info("Detected MicroPython on %s, using hybrid mode", port)
-        return transport, label
-
-    # Fallback to hybrid (most likely stock firmware)
-    from hybrid_transport import HybridTransport
-    transport = HybridTransport(port=port)
-    label = f"hybrid:{port.split('/')[-1]}"
-    logger.info("Defaulting to hybrid transport for %s", port)
+    """Probe a serial port for custom firmware. Raises ConnectionError if not found."""
+    logger.info("Probing %s for custom firmware...", port)
+    found = await asyncio.to_thread(_probe_serial_sync, port)
+    if not found:
+        raise ConnectionError(f"No custom firmware response on {port}")
+    from firmware_transport import FirmwareTransport
+    transport = FirmwareTransport(port=port)
+    label = f"fw:{port.split('/')[-1]}"
+    logger.info("Detected custom firmware on %s", port)
     return transport, label
 
 
 async def main(args):
-    wifi_host = None
-    wifi_password = args.wifi_password or _read_config_local_value("WEBREPL_PASS", "bark")
+    from firmware_transport import FirmwareTransport
 
-    if args.sim:
-        transport = SimTransport()
-        transport_label = "sim"
-        logger.info("Using physics simulation")
-    elif args.wifi:
-        # WiFi to real hardware
-        host_port = args.wifi.split(":")
-        wifi_host = host_port[0]
-        port = int(host_port[1]) if len(host_port) > 1 else 8266
-        from webrepl_transport import WebReplTransport
-        transport = WebReplTransport(host=wifi_host, port=port, password=wifi_password)
-        transport_label = f"wifi:{wifi_host}"
-        logger.info("Using WebREPL transport: %s:%d", wifi_host, port)
+    fw_tcp = getattr(args, 'fw_tcp', None)
+    if fw_tcp:
+        # Explicit TCP connection (mock or remote WiFi)
+        parts = fw_tcp.split(":")
+        host = parts[0]
+        tcp_port = int(parts[1]) if len(parts) > 1 else 9000
+        transport = FirmwareTransport(host=host, tcp_port=tcp_port)
+        is_local = host in ("127.0.0.1", "localhost")
+        transport_label = "mock" if is_local else f"fw-wifi:{host}"
+        logger.info("Using TCP firmware transport: %s:%d", host, tcp_port)
     else:
-        # Auto-detect: USB serial → hybrid/custom/stock, fallback → sim
-        serial_port = args.serial if args.serial else find_serial_port()
+        # Auto-detect USB serial
+        serial_port = getattr(args, 'serial', None) or find_serial_port()
         if serial_port:
             logger.info("Found serial port: %s", serial_port)
-            transport, transport_label = await _detect_serial_transport(serial_port)
+            try:
+                transport, transport_label = await _detect_serial_transport(serial_port)
+            except ConnectionError as e:
+                logger.error("%s", e)
+                print(f"\nNo MechDog detected on {serial_port}.\n"
+                      "Plug in a device or run 'bark mock'.")
+                import sys
+                sys.exit(1)
         else:
-            transport = SimTransport()
-            transport_label = "sim"
-            logger.info("No hardware found, using physics simulation")
+            print("\nNo MechDog detected. Plug in a device or run 'bark mock'.")
+            import sys
+            sys.exit(1)
 
-    dog = DogComms(transport)
-    web_dir = os.path.join(os.path.dirname(__file__), "..", "web")
-    web_dir = os.path.abspath(web_dir)
-    server = Server(dog, web_dir, transport=transport, transport_label=transport_label,
-                    wifi_host=wifi_host, wifi_password=wifi_password,
-                    no_mdns=args.no_mdns,
+    web_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "web"))
+    server = Server(transport, web_dir, transport_label=transport_label,
+                    no_mdns=getattr(args, 'no_mdns', False),
                     open_browser=getattr(args, 'open_browser', False))
     await server.start(host=args.host, port=args.port)
 
@@ -1233,14 +1058,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Bark-Buddy web server")
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8456)
-    parser.add_argument("--sim", action="store_true",
-                        help="Force PyBullet simulation (default if no hardware found)")
     parser.add_argument("--serial", default=None,
                         help="Serial port (e.g. /dev/cu.usbserial-10). Auto-detected if omitted.")
-    parser.add_argument("--wifi", default=None,
-                        help="WiFi address (e.g. 192.168.1.163)")
-    parser.add_argument("--wifi-password", default=None,
-                        help="WebREPL password (default: WEBREPL_PASS from config_local.h, or 'bark')")
+    parser.add_argument("--fw-tcp", default=None, metavar="HOST[:PORT]",
+                        help="Connect to firmware over TCP (e.g. 127.0.0.1:9001 for bark mock)")
     parser.add_argument("--no-mdns", action="store_true",
                         help="Disable mDNS auto-discovery")
     parser.add_argument("--restart", action="store_true",
