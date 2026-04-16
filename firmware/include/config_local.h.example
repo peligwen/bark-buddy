@@ -5,4 +5,3 @@
 
 #define WIFI_SSID "your_network_name"
 #define WIFI_PASS "your_password"
-#define WEBREPL_PASS "your_webrepl_password"
