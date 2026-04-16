@@ -100,7 +100,7 @@ class FirmwareTransport(DeadReckoningMixin, Transport):
         if self._open and self._writer:
             try:
                 await self._send_json({"type": "cmd_engage", "enabled": False})
-                await self.recv_ack("cmd_engage", timeout=3.0)
+                await self.recv_ack("cmd_engage", timeout=1.0)
             except Exception:
                 pass
         for task in (self._reader_task, self._keepalive_task):

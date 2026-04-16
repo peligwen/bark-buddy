@@ -95,7 +95,6 @@ class Server:
         self._map = MapStore()
         self._mode = "remote"  # remote | scan
         self._motion = "stop"  # last motion direction
-        self._action = None    # last action code or None
         self._web_hash = self._compute_web_hash(web_dir)
         # Control lock
         self._lock_holder: web.WebSocketResponse | None = None
@@ -567,7 +566,6 @@ class Server:
                 self._transport.record_motion(direction)
                 await self._transport.send_json({"type": "cmd_move", "direction": direction})
                 self._motion = direction
-                self._action = None
             else:
                 logger.warning("Unknown direction: %s", direction)
 
@@ -576,7 +574,6 @@ class Server:
                 return
             await self._transport.send_json({"type": "cmd_stand"})
             self._motion = "stand"
-            self._action = None
 
         elif msg_type == "cmd_balance":
             enabled = msg.get("enabled", True)
@@ -651,7 +648,8 @@ class Server:
         elif msg_type in ("cmd_engage", "cmd_ota_update", "cmd_servo", "cmd_transform",
                           "cmd_gait_params", "cmd_probe_pin",
                           "cmd_balance_config"):
-            # Firmware-direct passthrough — forward as-is
+            # Firmware-direct passthrough — forward as-is.
+            # cmd_engage: lock gating already ran in the block above; forwarding here.
             if msg_type == "cmd_servo":
                 logger.debug("Passthrough cmd_servo idx=%s pulse=%s",
                              msg.get("index"), msg.get("pulse_us"))

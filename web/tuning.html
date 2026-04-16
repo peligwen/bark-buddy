@@ -856,6 +856,7 @@
           if (msg.event === 'engage_complete')    { _tuningEngaged = true;  setLifecycle('active'); }
           if (msg.event === 'disengage_complete') { _tuningEngaged = false; setLifecycle('resting'); }
           if (msg.event === 'battery_cutoff_detach') { _tuningEngaged = false; setLifecycle('resting'); }
+          if (msg.event === 'heartbeat_detach')      { _tuningEngaged = false; setLifecycle('resting'); }
         }
         if (msg.type === 'ack') {
           // Show waking banner when a command is rejected because firmware isn't engaged yet

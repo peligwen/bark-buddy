@@ -67,7 +67,7 @@ function updateStatus(msg) {
     if (msg.lifecycle != null) {
         updateLifecycleIndicator(msg.lifecycle);
     }
-    if (msg.engaged != null || msg.ramping != null) {
+    if (msg.engaged != null || msg.ramping != null || msg.battery_cutoff != null) {
         var engaged = msg.engaged === true;
         var ramping = msg.ramping === true;
         var cutoff = msg.battery_cutoff === true;
