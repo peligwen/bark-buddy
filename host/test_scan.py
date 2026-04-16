@@ -1,15 +1,5 @@
 """
 Tests for ultrasonic scan behavior and map store.
-
-Checks:
-- scan_execute: ScanBehavior completes a full 360° sweep and returns points
-- scan_cancel: ScanBehavior can be cancelled mid-scan
-- scan_points_have_coords: Each scan point has valid x/y coordinates
-- map_add_scan: MapStore accumulates scan results
-- map_clear: MapStore.clear() removes all data
-- map_bounds: MapStore computes correct bounding box
-- ws_scan_command: WebSocket scan start/stop commands work
-- ws_map_data: WebSocket map data request returns map
 """
 
 import asyncio
@@ -17,31 +7,100 @@ import json
 import logging
 import sys
 import os
+import socket
+import threading
 
 sys.path.insert(0, os.path.dirname(__file__))
 
 from behaviors.scan import ScanBehavior, ScanResult, SCAN_STEP_DEG
 from behaviors.map_store import MapStore
-from comms import DogComms
-from sim.sim_transport import SimTransport
 
 logging.basicConfig(level=logging.WARNING, format="%(name)s %(message)s")
 logger = logging.getLogger("test_scan")
 logger.setLevel(logging.INFO)
 
 
+class MockTransport:
+    """Minimal transport for unit tests — no I/O."""
+    def __init__(self):
+        self._open = True
+        self.sent = []
+
+    def is_open(self): return self._open
+    async def open(self): self._open = True
+    async def close(self): self._open = False
+    async def send_json(self, msg): self.sent.append(msg)
+    def get_imu(self): return {"pitch": 0.0, "roll": 0.0, "yaw": 0.0}
+    def get_sonar_mm(self): return 300
+    def get_battery_mv(self): return 7400
+    def get_lifecycle(self): return "active"
+    def get_fw_version(self): return "mock"
+    def get_position(self): return (0.0, 0.0)
+    def get_heading(self): return 0.0
+    def get_joint_states(self): return [1500.0] * 8
+    async def recv_ack(self, ref_type, timeout=2.0): return None
+    def set_ack_callback(self, cb): pass
+    def set_telem_callback(self, cb): pass
+    def record_motion(self, direction): pass
+    @property
+    def firmware_info(self): return {}
+
+
+def _start_mock_firmware_tcp(port: int) -> threading.Thread:
+    """Minimal TCP server that answers ping with pong, cmd_shutdown with ack."""
+    def _serve():
+        srv = socket.socket()
+        srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        srv.bind(("127.0.0.1", port))
+        srv.listen(1)
+        srv.settimeout(10)
+        try:
+            conn, _ = srv.accept()
+            conn.settimeout(0.5)
+            conn.sendall((json.dumps({
+                "type": "boot", "fw_version": "mock-test",
+                "imu": True, "sonar": True, "servos": True, "pins_verified": True
+            }) + "\n").encode())
+            while True:
+                try:
+                    data = b""
+                    while not data.endswith(b"\n"):
+                        chunk = conn.recv(256)
+                        if not chunk:
+                            return
+                        data += chunk
+                    msg = json.loads(data.strip())
+                    if msg.get("type") == "ping":
+                        conn.sendall((json.dumps({"type": "pong"}) + "\n").encode())
+                    elif msg.get("type") == "cmd_shutdown":
+                        conn.sendall((json.dumps(
+                            {"type": "ack", "ref_type": "cmd_shutdown", "ok": True}
+                        ) + "\n").encode())
+                        return
+                except socket.timeout:
+                    pass
+        except Exception:
+            pass
+        finally:
+            try:
+                srv.close()
+            except Exception:
+                pass
+    t = threading.Thread(target=_serve, daemon=True)
+    t.start()
+    return t
+
+
 async def run_tests():
 
     results = {}
+    transport = MockTransport()
 
     # --- Unit tests: ScanBehavior ---
-    transport = SimTransport()
-    dog = DogComms(transport)
-    await dog.connect()
 
     # Test: scan_execute
     try:
-        scan = ScanBehavior(dog)
+        scan = ScanBehavior(transport)
         points_received = []
         scan.on_point(lambda p, pct: points_received.append((p, pct)))
 
@@ -73,7 +132,7 @@ async def run_tests():
 
     # Test: scan_cancel
     try:
-        scan2 = ScanBehavior(dog)
+        scan2 = ScanBehavior(transport)
         cancel_task = asyncio.create_task(scan2.execute())
         await asyncio.sleep(0.5)
         await scan2.cancel()
@@ -95,8 +154,6 @@ async def run_tests():
     except Exception as e:
         results["scan_result_serializes"] = False
         logger.info("scan_result_serializes: FAIL (%s)", e)
-
-    await dog.disconnect()
 
     # --- Unit tests: MapStore ---
 
@@ -152,12 +209,16 @@ async def run_tests():
     try:
         from aiohttp import web, ClientSession
         from server import Server
+        from firmware_transport import FirmwareTransport
 
-        transport2 = SimTransport()
-        dog2 = DogComms(transport2)
-        web_dir = os.path.join(os.path.dirname(__file__), "..", "web")
+        mock_port = 19999
+        _start_mock_firmware_tcp(mock_port)
+        await asyncio.sleep(0.2)
 
-        srv = Server(dog2, os.path.abspath(web_dir))
+        fw_transport = FirmwareTransport(host="127.0.0.1", tcp_port=mock_port)
+        web_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "web"))
+
+        srv = Server(fw_transport, web_dir, transport_label="mock")
         app = web.Application()
         app.router.add_get("/ws", srv._ws_handler)
         app.on_startup.append(srv._on_startup)
@@ -170,14 +231,11 @@ async def run_tests():
 
         async with ClientSession() as session:
             async with session.ws_connect("http://127.0.0.1:8099/ws") as ws:
-                # Read initial status
-                raw = await asyncio.wait_for(ws.receive_str(), timeout=2)
+                raw = await asyncio.wait_for(ws.receive_str(), timeout=5)
                 status = json.loads(raw)
 
-                # Send scan start
                 await ws.send_str(json.dumps({"type": "cmd_scan", "action": "start"}))
 
-                # Collect messages until scan_complete or timeout
                 scan_points = 0
                 scan_complete = False
                 try:
@@ -197,9 +255,7 @@ async def run_tests():
                 logger.info("ws_scan_command: %d points, complete=%s -> %s",
                              scan_points, scan_complete, "PASS" if ok else "FAIL")
 
-                # Request map data
                 await ws.send_str(json.dumps({"type": "cmd_map", "action": "get"}))
-                # Read until we get map_data
                 map_ok = False
                 try:
                     for _ in range(20):
