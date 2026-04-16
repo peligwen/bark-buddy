@@ -4,6 +4,8 @@
 #include "servos.h"
 #include "balance.h"
 #include "offsets.h"
+#include "comms.h"
+#include "protocol.h"
 #include <Arduino.h>
 #include <math.h>
 
@@ -238,6 +240,20 @@ void lifecycle_execute_pending() {
 // Lifecycle state machine
 // ============================================================
 
+static void set_lifecycle(LifecycleState new_state) {
+    if (new_state == s_lifecycle) return;
+    const char* from = lifecycle_state_name();
+    s_lifecycle = new_state;
+    const char* to = lifecycle_state_name();
+    JsonDocument evt;
+    evt["type"]  = MSG_TELEM_EVENT;
+    evt["event"] = "lifecycle";
+    evt["t"]     = (uint32_t)millis();
+    evt["from"]  = from;
+    evt["to"]    = to;
+    send_json(evt);
+}
+
 void lifecycle_init(unsigned long now_ms) {
     s_lifecycle = LifecycleState::BOOTING;
     s_lifecycle_idle_start = 0;
@@ -259,7 +275,7 @@ void lifecycle_update(unsigned long now_ms) {
                 for (int i = 0; i < 8; i++) {
                     servo_write_us(i, s_lifecycle_ramp_target[i]);
                 }
-                s_lifecycle = LifecycleState::ACTIVE;
+                set_lifecycle(LifecycleState::ACTIVE);
                 lifecycle_execute_pending();
             } else {
                 // Interpolate
@@ -285,7 +301,7 @@ void lifecycle_update(unsigned long now_ms) {
                 }
                 s_lifecycle_ramp_start = now_ms;
                 s_lifecycle_ramp_ms = SHUTDOWN_RAMP_MS;
-                s_lifecycle = LifecycleState::SLEEPING;
+                set_lifecycle(LifecycleState::SLEEPING);
             }
             break;
         }
@@ -300,7 +316,7 @@ void lifecycle_update(unsigned long now_ms) {
             if (elapsed >= total) {
                 // Ramp + settle complete, detach
                 servos_detach_all();
-                s_lifecycle = LifecycleState::RESTING;
+                set_lifecycle(LifecycleState::RESTING);
             } else if (elapsed < s_lifecycle_ramp_ms) {
                 // Still ramping
                 float t = (float)elapsed / (float)s_lifecycle_ramp_ms;
@@ -330,7 +346,7 @@ void lifecycle_cmd_wake(unsigned long now_ms) {
         case LifecycleState::IDLE:
             // Already standing, just go active
             s_lifecycle_idle_start = 0;
-            s_lifecycle = LifecycleState::ACTIVE;
+            set_lifecycle(LifecycleState::ACTIVE);
             lifecycle_execute_pending();
             break;
 
@@ -343,7 +359,7 @@ void lifecycle_cmd_wake(unsigned long now_ms) {
             }
             s_lifecycle_ramp_start = now_ms;
             s_lifecycle_ramp_ms = SOFTSTART_DURATION_MS;
-            s_lifecycle = LifecycleState::WAKING;
+            set_lifecycle(LifecycleState::WAKING);
             break;
 
         case LifecycleState::SLEEPING: {
@@ -356,7 +372,7 @@ void lifecycle_cmd_wake(unsigned long now_ms) {
             }
             s_lifecycle_ramp_start = now_ms;
             s_lifecycle_ramp_ms = SOFTSTART_DURATION_MS;
-            s_lifecycle = LifecycleState::WAKING;
+            set_lifecycle(LifecycleState::WAKING);
             break;
         }
 
@@ -374,7 +390,7 @@ void lifecycle_cmd_sleep(unsigned long now_ms) {
             gait_set_state(GaitState::STOP, 0.0f);  // stop any in-progress gait
             // Enter IDLE first (grace period before full sleep)
             s_lifecycle_idle_start = now_ms;
-            s_lifecycle = LifecycleState::IDLE;
+            set_lifecycle(LifecycleState::IDLE);
             break;
 
         case LifecycleState::WAKING: {
@@ -389,7 +405,7 @@ void lifecycle_cmd_sleep(unsigned long now_ms) {
             }
             s_lifecycle_ramp_start = now_ms;
             s_lifecycle_ramp_ms = SHUTDOWN_RAMP_MS;
-            s_lifecycle = LifecycleState::SLEEPING;
+            set_lifecycle(LifecycleState::SLEEPING);
             break;
         }
 
@@ -418,7 +434,7 @@ void lifecycle_heartbeat_lost(unsigned long now_ms) {
     }
     s_lifecycle_ramp_start = now_ms;
     s_lifecycle_ramp_ms = SHUTDOWN_RAMP_MS;
-    s_lifecycle = LifecycleState::SLEEPING;
+    set_lifecycle(LifecycleState::SLEEPING);
 }
 
 LifecycleState lifecycle_current() {
@@ -445,7 +461,7 @@ bool lifecycle_can_command() {
 void lifecycle_boot_complete(unsigned long now_ms) {
     // Called by main.cpp after the blocking servo init ramp completes.
     // Transitions from BOOTING to IDLE and starts the idle countdown.
-    s_lifecycle = LifecycleState::IDLE;
+    set_lifecycle(LifecycleState::IDLE);
     s_lifecycle_idle_start = now_ms;
 }
 
@@ -460,7 +476,7 @@ void lifecycle_cmd_shutdown(unsigned long now_ms) {
     }
     s_lifecycle_ramp_start = now_ms;
     s_lifecycle_ramp_ms = SHUTDOWN_RAMP_MS;
-    s_lifecycle = LifecycleState::SLEEPING;
+    set_lifecycle(LifecycleState::SLEEPING);
 }
 
 void lifecycle_cmd_update(unsigned long now_ms) {
@@ -474,7 +490,7 @@ void lifecycle_cmd_update(unsigned long now_ms) {
     }
     s_lifecycle_ramp_start = now_ms;
     s_lifecycle_ramp_ms = SHUTDOWN_RAMP_MS;
-    s_lifecycle = LifecycleState::UPDATING;
+    set_lifecycle(LifecycleState::UPDATING);
 }
 
 bool lifecycle_is_updating() {

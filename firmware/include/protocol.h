@@ -26,6 +26,7 @@ constexpr const char* MSG_TELEM_IMU     = "telem_imu";
 constexpr const char* MSG_TELEM_SONAR   = "telem_sonar";
 constexpr const char* MSG_TELEM_BATTERY = "telem_battery";
 constexpr const char* MSG_TELEM_STATUS  = "telem_status";
+constexpr const char* MSG_TELEM_EVENT   = "telem_event";  // edge-triggered: lifecycle, timeout, rejected cmds
 constexpr const char* MSG_ACK           = "ack";
 constexpr const char* MSG_PONG          = "pong";
 

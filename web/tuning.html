@@ -131,6 +131,65 @@
     animation: lc-pulse 1.2s ease-in-out infinite;
   }
 
+  /* Test-mode indicator */
+  .test-mode-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--text-dim);
+    flex-shrink: 0;
+    transition: background 0.3s;
+  }
+  .test-mode-dot.active { background: var(--accent); animation: lc-pulse 1.4s ease-in-out infinite; }
+
+  /* Event log */
+  .event-log-section { margin-top: 28px; }
+  .event-log-wrap {
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .event-log-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.72rem;
+    color: var(--text-muted);
+  }
+  .event-log-clear {
+    font-size: 0.68rem;
+    padding: 2px 8px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+  }
+  .event-log-clear:hover { background: var(--border); }
+  #event-log {
+    height: 180px;
+    overflow-y: auto;
+    font-family: "SF Mono", "Fira Code", monospace;
+    font-size: 0.7rem;
+    padding: 6px 0;
+  }
+  .ev-row {
+    display: grid;
+    grid-template-columns: 80px 120px 1fr;
+    gap: 8px;
+    padding: 2px 14px;
+    line-height: 1.5;
+    color: var(--text-muted);
+  }
+  .ev-row:hover { background: rgba(255,255,255,0.03); }
+  .ev-ts { color: var(--text-dim); }
+  .ev-name { color: var(--text); font-weight: 600; }
+  .ev-row.evt-warn .ev-name { color: #f97316; }
+  .ev-row.evt-lifecycle .ev-name { color: #60a5fa; }
+  .ev-detail { color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
   /* Presets */
   .presets {
     display: flex;
@@ -522,12 +581,13 @@
   <div class="dot" id="ws-dot"></div>
   <span id="status-text">Connecting…</span>
   <div class="lifecycle-badge" id="lifecycle-badge" data-state="unknown"><span class="lc-dot"></span><span id="lifecycle-text">–</span></div>
+  <div class="test-mode-dot" id="test-mode-dot" title="Test mode"></div>
   <button class="test-btn" id="wake-btn" onclick="sendWake()" disabled>Wake</button>
   <button class="test-btn" id="sleep-btn" onclick="sendSleep()" disabled>Sleep</button>
   <button class="test-btn" id="test-btn" onclick="toggleTestMode()">Enable Test Mode</button>
 </div>
 
-<div id="waking-banner"><span class="lc-dot"></span><span>Waking up — command queued</span></div>
+<div id="waking-banner"><span class="lc-dot"></span><span>Waking up — resend your command once active</span></div>
 
 <div class="presets">
   <button class="preset-btn" onclick="loadPreset(STANDING_POSE)">Standing</button>
@@ -538,6 +598,16 @@
 </div>
 
 <div id="diag-bar" style="font-size:0.65rem;color:var(--text-dim);font-family:'SF Mono','Fira Code',monospace;margin-bottom:20px;">TX: 0 | ACK: 0</div>
+
+<div class="event-log-section">
+  <div class="event-log-wrap">
+    <div class="event-log-header">
+      <span>Firmware Event Log</span>
+      <button class="event-log-clear" onclick="clearEventLog()">Clear</button>
+    </div>
+    <div id="event-log"></div>
+  </div>
+</div>
 
 <!-- Pin Probe Section -->
 <div class="probe-panel">
@@ -771,11 +841,21 @@
     ws.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data);
-        if (msg.type === 'telem_status' && msg.mode) {
-          setLifecycle(msg.mode);
+        if (msg.type === 'telem_status') {
+          if (msg.lifecycle) setLifecycle(msg.lifecycle);
+          setTestModeDot(!!msg.test_mode);
+        }
+        if (msg.type === 'telem_event') {
+          handleFwEvent(msg);
+          if (msg.event === 'lifecycle' && msg.to) setLifecycle(msg.to);
+          if (msg.event === 'test_mode_timeout') setTestModeDot(false);
         }
         if (msg.type === 'ack') {
-          if (msg.status === 'waking' && lifecycleState !== 'active') setLifecycle('waking');
+          // Show waking banner when a command is rejected because firmware isn't active yet
+          if (!msg.ok && msg.error === 'not_active') {
+            const banner = document.getElementById('waking-banner');
+            if (banner) banner.classList.add('show');
+          }
           if (msg.ref_type === 'cmd_servo')     handleServoAck(msg);
           if (msg.ref_type === 'cmd_probe_pin') handleProbeAck(msg);
           if (msg.ref_type === 'cmd_offset')    handleOffsetAck(msg);
@@ -859,6 +939,22 @@
     if (ws && ws.readyState === WebSocket.OPEN) dot.classList.add(testMode ? 'test-mode' : 'connected');
     document.getElementById('status-text').textContent =
       testMode ? 'Test mode active' : 'Connected';
+    setTestModeDot(testMode);
+  }
+
+  function setTestModeDot(active) {
+    const dot = document.getElementById('test-mode-dot');
+    if (!dot) return;
+    dot.classList.toggle('active', active);
+    // Sync local flag if firmware confirms test mode is off (e.g. timeout)
+    if (!active && testMode) {
+      testMode = false;
+      const btn = document.getElementById('test-btn');
+      if (btn) { btn.textContent = 'Enable Test Mode'; btn.classList.remove('active'); }
+      const wsDot = document.getElementById('ws-dot');
+      if (wsDot) { wsDot.className = 'dot'; wsDot.classList.add('connected'); }
+      document.getElementById('status-text').textContent = 'Connected (test mode timed out)';
+    }
   }
 
   // ── Send single servo ─────────────────────────────────────────
@@ -1475,6 +1571,57 @@
       fb.classList.add('show');
       setTimeout(() => fb.classList.remove('show'), 1500);
     });
+  }
+
+  // ── Firmware event log ────────────────────────────────────────
+  const MAX_LOG_ROWS = 200;
+
+  function handleFwEvent(msg) {
+    const log = document.getElementById('event-log');
+    if (!log) return;
+
+    const ts = new Date();
+    const hh = String(ts.getHours()).padStart(2,'0');
+    const mm = String(ts.getMinutes()).padStart(2,'0');
+    const ss = String(ts.getSeconds()).padStart(2,'0');
+    const ms = String(ts.getMilliseconds()).padStart(3,'0');
+    const timeStr = hh+':'+mm+':'+ss+'.'+ms;
+
+    const evName = msg.event || '?';
+    const extra  = Object.entries(msg)
+      .filter(([k]) => !['type','event','t'].includes(k))
+      .map(([k,v]) => k+'='+v)
+      .join('  ');
+
+    const row = document.createElement('div');
+    const isWarn = /timeout|lost|rejected|low_battery/.test(evName);
+    const isLc   = evName === 'lifecycle';
+    row.className = 'ev-row' + (isWarn ? ' evt-warn' : '') + (isLc ? ' evt-lifecycle' : '');
+
+    const tsEl = document.createElement('span');
+    tsEl.className = 'ev-ts';
+    tsEl.textContent = timeStr;
+
+    const nameEl = document.createElement('span');
+    nameEl.className = 'ev-name';
+    nameEl.textContent = evName;
+
+    const detailEl = document.createElement('span');
+    detailEl.className = 'ev-detail';
+    detailEl.textContent = extra;
+
+    row.appendChild(tsEl);
+    row.appendChild(nameEl);
+    row.appendChild(detailEl);
+
+    log.appendChild(row);
+    while (log.children.length > MAX_LOG_ROWS) log.removeChild(log.firstChild);
+    log.scrollTop = log.scrollHeight;
+  }
+
+  function clearEventLog() {
+    const log = document.getElementById('event-log');
+    if (log) log.textContent = '';
   }
 
   // ── Init ──────────────────────────────────────────────────────

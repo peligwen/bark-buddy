@@ -1,8 +1,8 @@
 // firmware/src/command_handlers.cpp
 #include "command_handlers.h"
 #include "comms.h"
-#include "sensor_task.h"
 #include "protocol.h"
+#include "sensor_task.h"
 #include "config.h"
 #include "gait.h"
 #include "servos.h"
@@ -169,18 +169,25 @@ static void handle_cmd_servo(const JsonDocument& doc) {
 #if PINS_VERIFIED
     if (!lifecycle_can_command()) {
         lifecycle_cmd_wake(millis());
-        // Don't queue — tuning UI will resend once it sees waking→active transition
+        JsonDocument evt;
+        evt["type"]      = MSG_TELEM_EVENT;
+        evt["event"]     = "command_rejected";
+        evt["t"]         = (uint32_t)millis();
+        evt["cmd"]       = MSG_CMD_SERVO;
+        evt["reason"]    = "not_active";
+        evt["lifecycle"] = lifecycle_state_name();
+        send_json(evt);
         JsonDocument resp;
-        resp["type"]     = MSG_ACK;
-        resp["ref_type"] = MSG_CMD_SERVO;
-        resp["ok"]       = true;
-        resp["status"]   = "waking";
+        resp["type"]      = MSG_ACK;
+        resp["ref_type"]  = MSG_CMD_SERVO;
+        resp["ok"]        = false;
+        resp["error"]     = "not_active";
+        resp["lifecycle"] = lifecycle_state_name();
         send_json(resp);
         return;
     }
 
     s_manual_servo_mode = true;
-    if (s_test_mode) s_last_test_cmd = millis();
 
     uint8_t  idx = doc["index"]    | 0;
     uint16_t us  = doc["pulse_us"] | 1500;
@@ -204,12 +211,20 @@ static void handle_cmd_test_mode(const JsonDocument& doc) {
     if (enable) {
         if (!lifecycle_can_command()) {
             lifecycle_cmd_wake(millis());
-            // Don't queue — user will re-send cmd_test_mode once active
+            JsonDocument evt;
+            evt["type"]      = MSG_TELEM_EVENT;
+            evt["event"]     = "command_rejected";
+            evt["t"]         = (uint32_t)millis();
+            evt["cmd"]       = MSG_CMD_TEST_MODE;
+            evt["reason"]    = "not_active";
+            evt["lifecycle"] = lifecycle_state_name();
+            send_json(evt);
             JsonDocument resp;
-            resp["type"]          = MSG_ACK;
-            resp["ref_type"]      = MSG_CMD_TEST_MODE;
-            resp["ok"]            = true;
-            resp["status"]        = "waking";
+            resp["type"]      = MSG_ACK;
+            resp["ref_type"]  = MSG_CMD_TEST_MODE;
+            resp["ok"]        = false;
+            resp["error"]     = "not_active";
+            resp["lifecycle"] = lifecycle_state_name();
             send_json(resp);
             return;
         }
@@ -606,7 +621,13 @@ void handle_message(const JsonDocument& doc) {
     const char* type = doc["type"];
     if (!type) return;
     for (const auto& h : k_handlers) {
-        if (strcmp(type, h.type) == 0) { h.fn(doc); return; }
+        if (strcmp(type, h.type) == 0) {
+            h.fn(doc);
+            // Refresh test-mode heartbeat for any command received while in test mode.
+            // Done after the handler so cmd_test_mode{enable:true} is already applied.
+            if (s_test_mode) s_last_test_cmd = millis();
+            return;
+        }
     }
     send_ack(type, false, "unknown_type");
 }
@@ -614,6 +635,13 @@ void handle_message(const JsonDocument& doc) {
 void handlers_check_timeout(unsigned long now_ms) {
     if (!s_test_mode) return;
     if (now_ms - s_last_test_cmd <= TEST_HEARTBEAT_MS) return;
+
+    JsonDocument evt;
+    evt["type"]              = MSG_TELEM_EVENT;
+    evt["event"]             = "test_mode_timeout";
+    evt["t"]                 = (uint32_t)now_ms;
+    evt["ms_since_last_cmd"] = (uint32_t)(now_ms - s_last_test_cmd);
+    send_json(evt);
 
     s_test_mode         = false;
     s_manual_servo_mode = false;

@@ -120,15 +120,15 @@ class Server:
             self._transport.set_telem_callback(self._on_firmware_telem)
 
     def _on_firmware_ack(self, msg: dict):
-        """Forward firmware acks to all WebSocket clients."""
-        if self._ws_clients and msg.get("ref_type") in ("cmd_servo", "cmd_probe_pin", "cmd_balance_config"):
+        """Forward all firmware acks to WebSocket clients."""
+        if self._ws_clients:
             asyncio.ensure_future(self._broadcast(msg))
 
     def _on_firmware_telem(self, msg: dict):
         """Forward telemetry push messages directly to all WebSocket clients."""
         msg_type = msg.get("type", "")
         if msg_type in ("telem_sonar", "telem_battery", "telem_imu", "telem_status",
-                        "ota_status", "boot"):
+                        "telem_event", "ota_status", "boot"):
             asyncio.ensure_future(self._broadcast(msg))
 
     @web.middleware

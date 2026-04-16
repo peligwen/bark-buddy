@@ -240,6 +240,12 @@ void loop() {
     // Heartbeat watchdog (skip during OTA — blocking handler holds loop())
     if (connected && !lifecycle_is_updating() && (now - last_msg_received > HEARTBEAT_TIMEOUT_MS)) {
         connected = false;
+        JsonDocument hb_evt;
+        hb_evt["type"]               = MSG_TELEM_EVENT;
+        hb_evt["event"]              = "heartbeat_lost";
+        hb_evt["t"]                  = (uint32_t)now;
+        hb_evt["ms_since_last_msg"]  = (uint32_t)(now - last_msg_received);
+        send_json(hb_evt);
         lifecycle_heartbeat_lost(now);
         sensor_led_set(1, LED_R_LAVENDER, LED_G_LAVENDER, LED_B_LAVENDER);
         sensor_led_set(2, LED_R_LAVENDER, LED_G_LAVENDER, LED_B_LAVENDER);
@@ -252,6 +258,12 @@ void loop() {
         int   mv      = (int)(voltage * 1000);
         if (mv < BATTERY_LOW_MV && mv > 1000 && !low_battery) {
             low_battery = true;
+            JsonDocument lb_evt;
+            lb_evt["type"]  = MSG_TELEM_EVENT;
+            lb_evt["event"] = "low_battery_detach";
+            lb_evt["t"]     = (uint32_t)now;
+            lb_evt["mv"]    = mv;
+            send_json(lb_evt);
             servos_detach_all();
             gait_set_state(GaitState::STOP);
         }
@@ -302,12 +314,17 @@ void loop() {
     // Status streaming
     if (connected && now - last_status >= 1000 / TELEM_STATUS_HZ) {
         JsonDocument doc;
-        doc["type"]        = MSG_TELEM_STATUS;
-        doc["mode"]        = "idle";
-        doc["lifecycle"]   = lifecycle_state_name();
-        doc["balance"]     = balance_is_enabled();
-        doc["servos"]      = servos_active();
-        doc["low_battery"] = low_battery;
+        doc["type"]                  = MSG_TELEM_STATUS;
+        doc["lifecycle"]             = lifecycle_state_name();
+        doc["balance"]               = balance_is_enabled();
+        doc["servos"]                = servos_active();
+        doc["low_battery"]           = low_battery;
+        doc["test_mode"]             = handlers_test_mode();
+        doc["manual_servo_mode"]     = handlers_manual_servo_mode();
+        doc["ms_since_last_host_msg"] = (uint32_t)(now - last_msg_received);
+        if (handlers_test_mode()) {
+            doc["ms_since_last_test_cmd"] = (uint32_t)(now - handlers_last_test_cmd());
+        }
 #if WIFI_ENABLED
         doc["wifi"] = wifi_connected;
         if (wifi_connected) {
