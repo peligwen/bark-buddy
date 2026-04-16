@@ -173,7 +173,7 @@
   }
   .servo-row {
     display: grid;
-    grid-template-columns: 100px 1fr 70px 60px 36px;
+    grid-template-columns: 100px 1fr 70px 60px 80px 36px;
     align-items: center;
     gap: 12px;
     background: var(--bg-panel);
@@ -181,6 +181,33 @@
     border-radius: 8px;
     padding: 10px 14px;
   }
+  .offset-cell {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 70px;
+  }
+  .offset-label {
+    font-size: 0.65rem;
+    color: var(--text-dim);
+    font-family: "SF Mono", "Fira Code", monospace;
+    text-align: center;
+  }
+  .offset-input {
+    width: 100%;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    color: var(--accent);
+    font-family: "SF Mono", "Fira Code", monospace;
+    font-size: 0.8rem;
+    padding: 3px 5px;
+    text-align: right;
+  }
+  .offset-input:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
+  .offset-input::-webkit-inner-spin-button,
+  .offset-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+  .offset-input { -moz-appearance: textfield; }
   .servo-label { display: flex; flex-direction: column; gap: 2px; }
   .servo-name {
     font-size: 0.8rem;
@@ -363,6 +390,50 @@
     margin-left: 8px;
   }
   #copy-pins-feedback.show { opacity: 1; }
+
+  /* Gait / Balance PID panels */
+  .param-panel {
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px;
+    margin-bottom: 20px;
+  }
+  .param-row {
+    display: grid;
+    grid-template-columns: 130px 1fr 60px;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+  .param-row:last-child { margin-bottom: 0; }
+  .param-row label {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+  }
+  .param-val {
+    font-size: 0.75rem;
+    font-family: "SF Mono", "Fira Code", monospace;
+    color: var(--text);
+    text-align: right;
+    min-width: 50px;
+  }
+  /* Balance PID two-column layout */
+  .pid-cols {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0 24px;
+  }
+  .pid-col-heading {
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 8px;
+    margin-top: 4px;
+  }
 </style>
 </head>
 <body>
@@ -427,6 +498,78 @@
 <div class="section-heading">Servo Sliders</div>
 <div class="servo-grid" id="servo-grid"></div>
 
+<!-- Gait Parameters Section -->
+<div class="section-heading" style="margin-top:24px;">Gait Parameters</div>
+<div class="param-panel">
+  <div class="param-row">
+    <label for="gait-stride-height">Stride Height</label>
+    <input type="range" id="gait-stride-height" class="gait-slider" min="5" max="30" step="1" value="15" disabled
+           oninput="onGaitSliderInput('gait-stride-height','gait-stride-height-val','mm')">
+    <span class="param-val" id="gait-stride-height-val">15 mm</span>
+  </div>
+  <div class="param-row">
+    <label for="gait-stride-length">Stride Length</label>
+    <input type="range" id="gait-stride-length" class="gait-slider" min="10" max="50" step="1" value="25" disabled
+           oninput="onGaitSliderInput('gait-stride-length','gait-stride-length-val','mm')">
+    <span class="param-val" id="gait-stride-length-val">25 mm</span>
+  </div>
+  <div class="param-row">
+    <label for="gait-frequency">Frequency</label>
+    <input type="range" id="gait-frequency" class="gait-slider" min="0.5" max="3.0" step="0.1" value="1.0" disabled
+           oninput="onGaitSliderInput('gait-frequency','gait-frequency-val','Hz')">
+    <span class="param-val" id="gait-frequency-val">1.0 Hz</span>
+  </div>
+</div>
+
+<!-- Balance PID Section -->
+<div class="section-heading">Balance PID</div>
+<div class="param-panel">
+  <div class="pid-cols">
+    <div>
+      <div class="pid-col-heading">Pitch</div>
+      <div class="param-row">
+        <label for="pid-pitch-kp">Kp</label>
+        <input type="range" id="pid-pitch-kp" class="pid-slider" min="0.0" max="5.0" step="0.05" value="0.8" disabled
+               oninput="onPidSliderInput('pid-pitch-kp','pid-pitch-kp-val')">
+        <span class="param-val" id="pid-pitch-kp-val">0.800</span>
+      </div>
+      <div class="param-row">
+        <label for="pid-pitch-ki">Ki</label>
+        <input type="range" id="pid-pitch-ki" class="pid-slider" min="0.0" max="0.5" step="0.005" value="0.01" disabled
+               oninput="onPidSliderInput('pid-pitch-ki','pid-pitch-ki-val')">
+        <span class="param-val" id="pid-pitch-ki-val">0.010</span>
+      </div>
+      <div class="param-row">
+        <label for="pid-pitch-kd">Kd</label>
+        <input type="range" id="pid-pitch-kd" class="pid-slider" min="0.0" max="1.0" step="0.01" value="0.05" disabled
+               oninput="onPidSliderInput('pid-pitch-kd','pid-pitch-kd-val')">
+        <span class="param-val" id="pid-pitch-kd-val">0.050</span>
+      </div>
+    </div>
+    <div>
+      <div class="pid-col-heading">Roll</div>
+      <div class="param-row">
+        <label for="pid-roll-kp">Kp</label>
+        <input type="range" id="pid-roll-kp" class="pid-slider" min="0.0" max="5.0" step="0.05" value="0.8" disabled
+               oninput="onPidSliderInput('pid-roll-kp','pid-roll-kp-val')">
+        <span class="param-val" id="pid-roll-kp-val">0.800</span>
+      </div>
+      <div class="param-row">
+        <label for="pid-roll-ki">Ki</label>
+        <input type="range" id="pid-roll-ki" class="pid-slider" min="0.0" max="0.5" step="0.005" value="0.01" disabled
+               oninput="onPidSliderInput('pid-roll-ki','pid-roll-ki-val')">
+        <span class="param-val" id="pid-roll-ki-val">0.010</span>
+      </div>
+      <div class="param-row">
+        <label for="pid-roll-kd">Kd</label>
+        <input type="range" id="pid-roll-kd" class="pid-slider" min="0.0" max="1.0" step="0.01" value="0.05" disabled
+               oninput="onPidSliderInput('pid-roll-kd','pid-roll-kd-val')">
+        <span class="param-val" id="pid-roll-kd-val">0.050</span>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
   // ── Servo config (mirrors config.h) ──────────────────────────
   const SERVO_NAMES   = ['FL_hip','FL_knee','FR_hip','FR_knee','RL_hip','RL_knee','RR_hip','RR_knee'];
@@ -457,6 +600,37 @@
   const _pendingTmr  = new Array(8).fill(null);
   let _dragging = false;  // suppress ack-driven slider updates during drag
 
+  // Per-servo offset state
+  const offsets = new Array(8).fill(0);
+
+  // Generic throttle state for gait/pid (keyed by string id)
+  const _throttleLastSend = {};
+  const _throttlePendingVal = {};
+  const _throttlePendingTmr = {};
+
+  function throttledSendParam(key, buildMsg) {
+    const now = Date.now();
+    const last = _throttleLastSend[key] || 0;
+    if (now - last >= THROTTLE_MS) {
+      _throttleLastSend[key] = now;
+      _throttlePendingVal[key] = null;
+      send(buildMsg());
+    } else {
+      _throttlePendingVal[key] = buildMsg;
+      if (!_throttlePendingTmr[key]) {
+        const remaining = THROTTLE_MS - (now - last);
+        _throttlePendingTmr[key] = setTimeout(() => {
+          _throttlePendingTmr[key] = null;
+          if (_throttlePendingVal[key] !== null) {
+            _throttleLastSend[key] = Date.now();
+            send(_throttlePendingVal[key]());
+            _throttlePendingVal[key] = null;
+          }
+        }, remaining);
+      }
+    }
+  }
+
   // ── WebSocket ─────────────────────────────────────────────────
   function sendWake() {
     setLifecycle('waking');
@@ -472,7 +646,7 @@
 
   function connect() {
     ws = new WebSocket('ws://' + location.host + '/ws');
-    ws.onopen  = () => { setStatus('connected', 'Connected'); sendWake(); };
+    ws.onopen  = () => { setStatus('connected', 'Connected'); sendWake(); queryAllOffsets(); };
     ws.onclose = () => {
       setStatus('off', 'Disconnected — retrying…');
       setLifecycle(null);
@@ -489,6 +663,7 @@
           if (msg.status === 'waking' && lifecycleState !== 'active') setLifecycle('waking');
           if (msg.ref_type === 'cmd_servo')     handleServoAck(msg);
           if (msg.ref_type === 'cmd_probe_pin') handleProbeAck(msg);
+          if (msg.ref_type === 'cmd_offset')    handleOffsetAck(msg);
         }
       } catch (_) {}
     };
@@ -549,6 +724,12 @@
     } else {
       banner.classList.remove('show');
     }
+
+    // Enable/disable gait and PID sliders based on lifecycle
+    const isActive = (state === 'active');
+    document.querySelectorAll('.gait-slider, .pid-slider').forEach(el => {
+      el.disabled = !isActive;
+    });
   }
 
   // ── Test mode ─────────────────────────────────────────────────
@@ -662,6 +843,65 @@
         btn.classList.remove('active');
       }
     }, halfPeriod);
+  }
+
+  // ── Per-servo offsets ─────────────────────────────────────────
+  function queryAllOffsets() {
+    for (let i = 0; i < 8; i++) {
+      send({ type: 'cmd_offset', index: i });
+    }
+  }
+
+  function sendOffset(index, value) {
+    offsets[index] = value;
+    send({ type: 'cmd_offset', index, offset_us: value });
+  }
+
+  function handleOffsetAck(msg) {
+    const i = msg.index;
+    if (i === undefined || i < 0 || i >= 8) return;
+    if (msg.offset_us !== undefined) {
+      offsets[i] = msg.offset_us;
+      const el = document.getElementById('offset-' + i);
+      if (el) el.value = msg.offset_us;
+    }
+  }
+
+  // ── Gait parameters ───────────────────────────────────────────
+  function buildGaitMsg() {
+    return {
+      type: 'cmd_gait_params',
+      stride_height: parseFloat(document.getElementById('gait-stride-height').value),
+      stride_length: parseFloat(document.getElementById('gait-stride-length').value),
+      frequency:     parseFloat(document.getElementById('gait-frequency').value)
+    };
+  }
+
+  function onGaitSliderInput(id, valId, suffix) {
+    const el = document.getElementById(id);
+    const val = parseFloat(el.value);
+    document.getElementById(valId).textContent = val.toFixed(id === 'gait-frequency' ? 1 : 0) + ' ' + suffix;
+    throttledSendParam('gait', buildGaitMsg);
+  }
+
+  // ── Balance PID ───────────────────────────────────────────────
+  function buildPidMsg() {
+    return {
+      type: 'cmd_balance_config',
+      pitch_kp: parseFloat(document.getElementById('pid-pitch-kp').value),
+      pitch_ki: parseFloat(document.getElementById('pid-pitch-ki').value),
+      pitch_kd: parseFloat(document.getElementById('pid-pitch-kd').value),
+      roll_kp:  parseFloat(document.getElementById('pid-roll-kp').value),
+      roll_ki:  parseFloat(document.getElementById('pid-roll-ki').value),
+      roll_kd:  parseFloat(document.getElementById('pid-roll-kd').value)
+    };
+  }
+
+  function onPidSliderInput(id, valId) {
+    const el = document.getElementById(id);
+    const val = parseFloat(el.value);
+    document.getElementById(valId).textContent = val.toFixed(3);
+    throttledSendParam('pid', buildPidMsg);
   }
 
   // ── Pin probe ─────────────────────────────────────────────────
@@ -831,6 +1071,32 @@
       actualSpan.className = 'actual-us';
       actualSpan.textContent = '—';
 
+      const offsetCell = document.createElement('div');
+      offsetCell.className = 'offset-cell';
+      const offsetLbl = document.createElement('span');
+      offsetLbl.className = 'offset-label';
+      offsetLbl.textContent = '± offset';
+      const offsetInput = document.createElement('input');
+      offsetInput.type = 'number';
+      offsetInput.className = 'offset-input';
+      offsetInput.id = 'offset-' + i;
+      offsetInput.min = -200;
+      offsetInput.max = 200;
+      offsetInput.step = 5;
+      offsetInput.value = offsets[i];
+      offsetInput.title = 'Offset µs (±200, step 5)';
+      offsetInput.onchange = () => {
+        let v = parseInt(offsetInput.value, 10);
+        if (isNaN(v)) v = 0;
+        v = Math.max(-200, Math.min(200, v));
+        // Snap to step of 5
+        v = Math.round(v / 5) * 5;
+        offsetInput.value = v;
+        sendOffset(i, v);
+      };
+      offsetCell.appendChild(offsetLbl);
+      offsetCell.appendChild(offsetInput);
+
       const wiggleBtn = document.createElement('button');
       wiggleBtn.className = 'test-btn wiggle-btn';
       wiggleBtn.textContent = '~';
@@ -841,6 +1107,7 @@
       row.appendChild(slider);
       row.appendChild(numInput);
       row.appendChild(actualSpan);
+      row.appendChild(offsetCell);
       row.appendChild(wiggleBtn);
       grid.appendChild(row);
     });
