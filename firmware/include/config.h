@@ -11,9 +11,9 @@
 #include <stdint.h>
 
 // ============================================================
-// Hardware Configuration — Hiwonder MechDog (ESP32-S / D0WD)
+// Hardware Configuration — Hiwonder MechDog (ESP32-WROOM-32D / D0WD chip)
 // ============================================================
-// Main controller: ESP32-S dual-mode SoC (D0WD). The separate
+// Main controller: ESP32-WROOM-32D module (D0WD chip). The separate
 // ESP32-S3 on the vision module is for the camera only and is
 // not connected in the current configuration.
 // All pin assignments verified via stock firmware REPL.

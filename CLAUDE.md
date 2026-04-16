@@ -10,6 +10,7 @@ Semi-autonomous control system for Hiwonder MechDog robot dog. Stock hardware (n
 - **Milestone 4** (Wall Mesh & 3D Visualization) — complete
 - **Firmware Foundation Refactor** (FreeRTOS sensor task, command handler dispatch, WiFi reconnect) — complete
 - **Custom-Firmware-Only Refactor** (deleted stock/hybrid paths, collapsed CMD protocol, replaced Python sim with Mock Firmware) — complete
+- **Engage Switch Refactor** (master engage/disengage, deleted lifecycle FSM, cmd_engage) — complete
 - **Current work** — IK-based gait pipeline (foot-position IK, body transforms, active balance, stride config)
 - **Next milestone** — SLAM-based localization, composite multi-scan mapping, waypoint navigation UI
 
@@ -17,7 +18,7 @@ Semi-autonomous control system for Hiwonder MechDog robot dog. Stock hardware (n
 
 Single firmware path:
 
-- **Custom firmware:** C++ on ESP32-S (D0WD), JSON/NDJSON over WiFi TCP (port 9000) or USB serial. Full servo control, IK gait engine, FreeRTOS sensor task, command handler dispatch table, IMU/sonar streaming, heartbeat.
+- **Custom firmware:** C++ on ESP32-WROOM-32D (D0WD chip), JSON/NDJSON over WiFi TCP (port 9000) or USB serial. Full servo control, IK gait engine, FreeRTOS sensor task, command handler dispatch table, IMU/sonar streaming, heartbeat.
 - **Mock Firmware:** same C++ source compiled as a native binary (`firmware/test/bark-mock`) with thin platform shims. Launched via `bark mock`. Host connects via `FirmwareTransport` over local TCP — identical to real hardware path.
 
 Components:
@@ -33,7 +34,7 @@ Flow: Browser → WebSocket (JSON) → Python host → JSON/NDJSON (USB serial o
 - **Single transport:** `FirmwareTransport` is the only transport class. `send_json(msg: dict)` is the sole command path — no CMD text protocol.
 - **Auto-detect hardware:** USB serial JSON ping → mDNS `_mechdog._tcp` → exit with guidance. No silent fallback.
 - **`bark mock`:** spawns `firmware/test/bark-mock --tcp-port 9001`, waits for port, starts server with `--fw-tcp 127.0.0.1:9001`.
-- **Firmware API:** JSON messages — `cmd_move`, `cmd_stand`, `cmd_balance`, `cmd_servo`, `cmd_led`, `cmd_transform`, `cmd_gait_params`, `cmd_test_mode`, `cmd_offset`. Firmware streams telemetry (`telem_imu`, `telem_sonar`, `telem_battery`, `telem_status`).
+- **Firmware API:** JSON messages — `cmd_move`, `cmd_stand`, `cmd_balance`, `cmd_servo`, `cmd_led`, `cmd_transform`, `cmd_gait_params`, `cmd_engage`, `cmd_offset`. Firmware streams telemetry (`telem_imu`, `telem_sonar`, `telem_battery`, `telem_status`).
 - **Browser protocol:** WebSocket + JSON
 - **Behaviors:** Composable layers — `BalanceLayer` and `ScanBehavior` take `Transport` directly.
 - **Web UI:** Dark theme, D-pad controls, 3D dog view + scan map, vanilla JS (ES modules)
@@ -72,7 +73,7 @@ Flow: Browser → WebSocket (JSON) → Python host → JSON/NDJSON (USB serial o
 
 ## Conventions
 
-- Firmware: C++ (PlatformIO), ArduinoJson, ESP32-S (D0WD)
+- Firmware: C++ (PlatformIO), ArduinoJson, ESP32-WROOM-32D (D0WD chip)
 - Mock firmware build: `cd firmware/test && make bark-mock` (clang++, C++17, MOCK_FIRMWARE=1)
 - Host: Python 3.11+, asyncio, pyserial-asyncio, websockets
 - Web: Vanilla HTML/CSS/JS (ES modules), Three.js r128 via CDN
@@ -96,7 +97,7 @@ Commands (host → firmware):
 - `{"type": "cmd_led", "led": 1, "r": 0, "g": 15, "b": 0}`
 - `{"type": "cmd_transform", "roll": 0.0, "pitch": 0.0, "yaw": 0.0, "x": 0.0, "y": 0.0, "z": 0.0}`
 - `{"type": "cmd_gait_params", "stride_length": 20, "stride_height": 10, "speed": 1.0}`
-- `{"type": "cmd_test_mode", "enabled": true}`
+- `{"type": "cmd_engage", "enabled": true}`
 - `{"type": "cmd_offset", "index": 0, "offset_us": 0}`
 - `{"type": "ping"}`
 
@@ -104,7 +105,7 @@ Telemetry (firmware → host):
 - `{"type": "telem_imu", "pitch": 2.1, "roll": -0.3, "yaw": 45.0, ...}`
 - `{"type": "telem_sonar", "distance_mm": 250}`
 - `{"type": "telem_battery", "voltage_mv": 7400, "pct": 80, "low": false}`
-- `{"type": "telem_status", "mode": "idle", "balance": true, "servos": true}`
+- `{"type": "telem_status", "engaged": true, "ramping": false, "balance": true, "battery_cutoff": false}`
 - `{"type": "ack", "ref_type": "cmd_move", "ok": true}`
 
 ## Workflow Guidelines
