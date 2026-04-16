@@ -83,6 +83,39 @@ def cmd_test(args):
     print(f"\nAll {ran} test(s) passed.")
 
 
+def cmd_kill(args):
+    """Kill a running bark-buddy server by port."""
+    import os
+    import signal
+    import subprocess
+    import time
+
+    port = args.port
+    result = subprocess.run(
+        ["lsof", "-ti", f":{port}"],
+        capture_output=True, text=True,
+    )
+    pids = [int(p) for p in result.stdout.split() if p.strip()]
+    if not pids:
+        print(f"No server found on port {port}")
+        return
+
+    for pid in pids:
+        print(f"Killing PID {pid} (port {port})...")
+        os.kill(pid, signal.SIGTERM)
+
+    time.sleep(1)
+    for pid in pids:
+        try:
+            os.kill(pid, 0)
+            print(f"PID {pid} still alive, sending SIGKILL...")
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+
+    print("Done.")
+
+
 def cmd_wifi_setup(args):
     _ensure_host_importable()
     from setup_wifi import main as wifi_main
@@ -116,6 +149,11 @@ def main():
     # bark test
     sub.add_parser("test", help="Build and run firmware native tests")
 
+    # bark kill
+    p_kill = sub.add_parser("kill", help="Stop a running bark-buddy server")
+    p_kill.add_argument("--port", type=int, default=8456,
+                        help="Port the server is listening on (default: 8456)")
+
     # bark wifi-setup
     sub.add_parser("wifi-setup", help="Interactive WiFi + WebREPL setup")
 
@@ -125,6 +163,8 @@ def main():
         cmd_flash(args)
     elif args.command == "test":
         cmd_test(args)
+    elif args.command == "kill":
+        cmd_kill(args)
     elif args.command == "wifi-setup":
         cmd_wifi_setup(args)
     else:
