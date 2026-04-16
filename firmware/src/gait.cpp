@@ -4,8 +4,11 @@
 #include "servos.h"
 #include "balance.h"
 #include "offsets.h"
+// comms.h and protocol.h need ArduinoJson — skip in bare unit-test builds.
+#if defined(MOCK_FIRMWARE) || defined(ARDUINO)
 #include "comms.h"
 #include "protocol.h"
+#endif
 #include <Arduino.h>
 #include <math.h>
 
@@ -245,6 +248,7 @@ static void set_lifecycle(LifecycleState new_state) {
     const char* from = lifecycle_state_name();
     s_lifecycle = new_state;
     const char* to = lifecycle_state_name();
+#if defined(MOCK_FIRMWARE) || defined(ARDUINO)
     JsonDocument evt;
     evt["type"]  = MSG_TELEM_EVENT;
     evt["event"] = "lifecycle";
@@ -252,6 +256,9 @@ static void set_lifecycle(LifecycleState new_state) {
     evt["from"]  = from;
     evt["to"]    = to;
     send_json(evt);
+#else
+    (void)from; (void)to;  // suppress unused-variable warning in unit-test builds
+#endif
 }
 
 void lifecycle_init(unsigned long now_ms) {
