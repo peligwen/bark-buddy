@@ -26,4 +26,8 @@ firmware/test/test_offsets
 firmware/test/test_gait_ik
 firmware/test/test_servos
 firmware/test/test_lifecycle
+firmware/test/test_engage
+firmware/test/bark-mock
+firmware/test/bark-mock-dbg
+firmware/test/bark-mock-dbg.dSYM/
 bark_buddy.egg-info/
