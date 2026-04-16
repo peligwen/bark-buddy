@@ -115,6 +115,12 @@ The ADC→voltage conversion uses an estimated 3.9x divider ratio.
 
 ## Notes
 
+- Stock firmware binary analysis completed (Phase A): see `docs/stock-firmware-analysis.md`.
+  Recovered: full action list (15 actions + 2 bonus), confirmed `set_gait_params` takes
+  `stride_height` + `swing_time` + `stand_time` (integers), `leg_set_ik` requires 6 args
+  (`leg_index` 1–4 + 5 more), QMI8658 is pure Python. Battery divider + IK args +
+  homeostasis algorithm still need Phase B (MPY v6 bytecode disassembly).
+
 - Servos get warm during extended testing — take breaks between tasks
 - Always send `cmd_engage {enabled: false}` before unplugging (servos ramp to rest pose)
 - GPIO 2 (RR_knee) is a strapping pin — it is pulled low during boot by the servo PWM line. Boot diagnostic added in firmware; physical relocation to a non-strapping pin is pending.
