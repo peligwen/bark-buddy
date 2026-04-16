@@ -31,11 +31,14 @@ static uint32_t expected_duty(uint16_t us) {
 
 // Run the non-blocking engage ramp to completion in a simulated clock.
 // Steps the mock clock forward and calls servos_ramp_tick() each step.
-static void run_ramp_to_completion() {
+// Returns the RampResult from the completing tick.
+static RampResult run_ramp_to_completion() {
+    RampResult result = RampResult::NONE;
     while (servos_is_ramping()) {
         mock_advance_ms(20);
-        servos_ramp_tick((uint32_t)millis());
+        result = servos_ramp_tick((uint32_t)millis());
     }
+    return result;
 }
 
 // ------------------------------------------------------------------ //
@@ -51,7 +54,6 @@ static void test_engage_attaches_at_rest() {
     check(ok, "servos_engage_start returns true from detached state");
     check(servos_engaged(), "servos_engaged() true after engage_start");
     check(servos_is_ramping(), "servos_is_ramping() true after engage_start");
-    check(servos_last_ramp_was_engage(), "last ramp marked as engage");
 
     // All servos should be at REST_POSE on the initial write
     bool all_correct = true;
@@ -79,8 +81,9 @@ static void test_engage_ramp_reaches_standing() {
     servos_detach_all();
 
     servos_engage_start();
-    run_ramp_to_completion();
+    RampResult engage_result = run_ramp_to_completion();
 
+    check(engage_result == RampResult::ENGAGE_COMPLETE, "ramp completion signals ENGAGE_COMPLETE");
     check(!servos_is_ramping(), "ramp no longer in progress");
     check(servos_engaged(), "servos still engaged after ramp");
 
@@ -212,9 +215,9 @@ static void test_disengage_ramp() {
     // Now disengage
     servos_disengage_start();
     check(servos_is_ramping(), "ramping true after disengage_start");
-    check(!servos_last_ramp_was_engage(), "last ramp marked as disengage");
 
-    run_ramp_to_completion();
+    RampResult result = run_ramp_to_completion();
+    check(result == RampResult::DISENGAGE_COMPLETE, "ramp completion signals DISENGAGE_COMPLETE");
 
     check(!servos_engaged(), "servos disengaged after ramp");
     check(!servos_is_ramping(), "ramping false after completion");
@@ -296,9 +299,9 @@ static void test_disengage_mid_engage() {
     // Kick off disengage — should use current position as ramp start
     servos_disengage_start();
     check(servos_is_ramping(), "still ramping after disengage");
-    check(!servos_last_ramp_was_engage(), "ramp direction flipped to disengage");
 
-    run_ramp_to_completion();
+    RampResult result = run_ramp_to_completion();
+    check(result == RampResult::DISENGAGE_COMPLETE, "ramp direction flipped to disengage");
 
     check(!servos_engaged(), "servos disengaged after ramp");
 }

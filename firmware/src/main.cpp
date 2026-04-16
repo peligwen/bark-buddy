@@ -241,6 +241,9 @@ void loop() {
 #endif
 
     // Heartbeat watchdog — if the host goes quiet, detach servos + stop gait.
+    // If host goes quiet during an engage ramp, cut power immediately rather than
+    // completing the ramp. The 10s heartbeat timeout is much longer than the 2s
+    // engage ramp, so this only fires if the host is genuinely gone.
     if (connected && (now - last_msg_received > HEARTBEAT_TIMEOUT_MS)) {
         connected = false;
         JsonDocument hb_evt;
@@ -339,12 +342,12 @@ void loop() {
 
     // Drive engage/disengage ramp. Emit event on completion.
     {
-        bool was_engage = servos_last_ramp_was_engage();
-        if (servos_ramp_tick(now)) {
+        RampResult ramp = servos_ramp_tick(now);
+        if (ramp != RampResult::NONE) {
             JsonDocument evt;
             evt["type"]  = MSG_TELEM_EVENT;
             evt["t"]     = (uint32_t)now;
-            evt["event"] = was_engage ? "engage_complete" : "disengage_complete";
+            evt["event"] = (ramp == RampResult::ENGAGE_COMPLETE) ? "engage_complete" : "disengage_complete";
             send_json(evt);
         }
     }

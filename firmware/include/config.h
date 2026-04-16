@@ -55,16 +55,12 @@ static const uint8_t SERVO_PINS[8] = {
 
 // --- Servo Soft-Start ---
 #define SOFTSTART_DURATION_MS   2000    // ramp from lying-down to standing over 2s
-#define SOFTSTART_STEPS         50      // interpolation steps
 
-// --- Shutdown / Boot Timing ---
-#define SHUTDOWN_RAMP_MS    1500    // ramp to lying-down on shutdown
-#define SHUTDOWN_RAMP_STEPS 40      // used only by the blocking servos_ramp_to() call; not used by the lifecycle state machine's millis-based interpolation
-#define SHUTDOWN_SETTLE_MS  500     // pause after lying-down before detach
-#define BOOT_SETTLE_MS      500     // pause at lying-down before ramping to standing
+// --- Shutdown Timing ---
+#define SHUTDOWN_RAMP_MS    1500    // ramp to rest pose on disengage (non-blocking, millis-based)
 
 // --- Engage/Disengage Timing ---
-#define REST_SETTLE_MS      500  // pause at rest pose before detaching servos
+#define REST_SETTLE_MS      500  // pause at rest pose before detaching servos (used by lifecycle)
 
 // --- Standing Pose (servo pulse widths in μs) ---
 // Captured from stock firmware set_default_pose() + offsets

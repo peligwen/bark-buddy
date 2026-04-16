@@ -60,6 +60,7 @@ bool servos_engage_start() {
 
 void servos_disengage_start() {
     if (!s_engaged && !s_ramping) return;
+    if (s_ramping && !s_ramp_is_engage) return;  // already disengaging — do not restart ramp
     // If mid-engage-ramp, freeze current position as start of disengage ramp
     for (int i = 0; i < 8; i++) {
         s_ramp_from[i] = (current_us[i] > 0) ? current_us[i] : STANDING_POSE[i];
@@ -71,20 +72,21 @@ void servos_disengage_start() {
     s_ramping = true;
 }
 
-bool servos_ramp_tick(uint32_t now_ms) {
-    if (!s_ramping) return false;
+RampResult servos_ramp_tick(uint32_t now_ms) {
+    if (!s_ramping) return RampResult::NONE;
     uint32_t elapsed = now_ms - s_ramp_start_ms;
     if (elapsed >= s_ramp_duration_ms) {
         // Write final target
         for (int i = 0; i < 8; i++) {
             servo_write_us(i, s_ramp_to_pose[i]);
         }
+        bool was_engage = s_ramp_is_engage;
         s_ramping = false;
-        if (!s_ramp_is_engage) {
+        if (!was_engage) {
             // Disengage complete — detach
             servos_detach_all();
         }
-        return true;  // ramp completed this tick
+        return was_engage ? RampResult::ENGAGE_COMPLETE : RampResult::DISENGAGE_COMPLETE;
     }
     float t = (float)elapsed / (float)s_ramp_duration_ms;
     for (int i = 0; i < 8; i++) {
@@ -93,7 +95,7 @@ bool servos_ramp_tick(uint32_t now_ms) {
         uint16_t pos = (uint16_t)(s + (int16_t)((float)(e - s) * t));
         servo_write_us(i, pos);
     }
-    return false;
+    return RampResult::NONE;
 }
 
 bool servos_is_ramping() {
@@ -102,10 +104,6 @@ bool servos_is_ramping() {
 
 bool servos_engaged() {
     return s_engaged;
-}
-
-bool servos_last_ramp_was_engage() {
-    return s_ramp_is_engage;
 }
 
 void servo_write_us(uint8_t index, uint16_t pulse_us) {

@@ -416,6 +416,15 @@ static void handle_cmd_probe_pin(const JsonDocument& doc) {
         send_ack(MSG_CMD_PROBE_PIN, false, "invalid_pin");
         return;
     }
+    // Reject if this pin is currently driving a live servo
+    if (servos_engaged()) {
+        for (int i = 0; i < 8; i++) {
+            if (SERVO_PINS[i] == pin) {
+                send_ack(MSG_CMD_PROBE_PIN, false, "servo_pin_engaged");
+                return;
+            }
+        }
+    }
     if (center < 500)  center = 500;
     if (center > 2500) center = 2500;
 

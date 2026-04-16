@@ -122,6 +122,7 @@ GaitState gait_current_state() {
 
 void gait_update(unsigned long now_ms) {
     if (!servos_engaged()) return;
+    if (servos_is_ramping()) return;  // defense-in-depth: never fight a ramp
     if (s_paused) return;
 
     float dt = (now_ms - s_last_update) / 1000.0f;
