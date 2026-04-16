@@ -128,6 +128,17 @@ class Server:
         self._switch_lock = asyncio.Lock()
         self._mdns_browser: "MdnsBrowser | None" = None
         self._open_browser = open_browser
+        self._register_transport_callbacks(transport)
+
+    def _register_transport_callbacks(self, transport):
+        """Wire ack forwarding for transports that support it."""
+        if transport and hasattr(transport, "set_ack_callback"):
+            transport.set_ack_callback(self._on_firmware_ack)
+
+    def _on_firmware_ack(self, msg: dict):
+        """Forward firmware acks to all WebSocket clients."""
+        if self._ws_clients and msg.get("ref_type") in ("cmd_servo", "cmd_probe_pin"):
+            asyncio.ensure_future(self._broadcast(msg))
 
     @web.middleware
     async def _no_cache_middleware(self, request, handler):
@@ -277,6 +288,7 @@ class Server:
             from behaviors.balance import BalanceLayer
             from behaviors.scan import ScanBehavior
             self._transport = new_transport
+            self._register_transport_callbacks(new_transport)
             self._dog = DogComms(new_transport)
             self._balance = BalanceLayer(self._dog)
             self._balance.on_fall(self._on_fall)
@@ -748,8 +760,12 @@ class Server:
             _restart_server()
 
         elif msg_type in ("cmd_test_mode", "cmd_servo", "cmd_transform",
-                          "cmd_gait_params", "cmd_shutdown"):
+                          "cmd_gait_params", "cmd_shutdown",
+                          "cmd_wake", "cmd_sleep", "cmd_probe_pin"):
             # Firmware-direct passthrough — forward as-is
+            if msg_type == "cmd_servo":
+                logger.debug("Passthrough cmd_servo idx=%s pulse=%s",
+                             msg.get("index"), msg.get("pulse_us"))
             if hasattr(self._transport, "send_json"):
                 try:
                     await self._transport.send_json(msg)

@@ -49,6 +49,9 @@ class JsonStreamTransport(DeadReckoningMixin, Transport):
         # Ack queue for tools that need to wait on specific ack messages
         self._ack_queue: asyncio.Queue = asyncio.Queue()
 
+        # Optional callback invoked on every firmware ack (e.g. to forward to WebSocket clients)
+        self._ack_callback = None
+
         self._init_dead_reckoning()
 
     @property
@@ -134,6 +137,10 @@ class JsonStreamTransport(DeadReckoningMixin, Transport):
     def get_fw_version(self) -> str:
         """Current firmware version string, or '' if unknown."""
         return self._firmware_info.get("fw_version", "")
+
+    def set_ack_callback(self, cb):
+        """Register a callback invoked for every firmware ack. cb(msg: dict) -> None."""
+        self._ack_callback = cb
 
     async def send_json(self, msg: dict) -> None:
         """Send a raw JSON message to firmware. For tools that speak JSON directly."""
@@ -237,6 +244,11 @@ class JsonStreamTransport(DeadReckoningMixin, Transport):
             logger.info("%s boot: %s", self.log_prefix, msg)
         elif msg_type == "ack":
             self._ack_queue.put_nowait(msg)
+            if self._ack_callback:
+                try:
+                    self._ack_callback(msg)
+                except Exception:
+                    pass
             if not msg.get("ok"):
                 logger.warning("%s NACK: %s — %s", self.log_prefix,
                                msg.get("ref_type", "?"), msg.get("error", "?"))
