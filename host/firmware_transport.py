@@ -45,6 +45,9 @@ class FirmwareTransport(DeadReckoningMixin, Transport):
         self._battery_mv = 7400
         self._firmware_info = {}
         self._lifecycle = "unknown"
+        self._engaged = False
+        self._ramping = False
+        self._battery_cutoff = False
 
         # Ack queue for tools that need to wait on specific ack messages
         self._ack_queue: asyncio.Queue = asyncio.Queue()
@@ -96,8 +99,8 @@ class FirmwareTransport(DeadReckoningMixin, Transport):
     async def close(self) -> None:
         if self._open and self._writer:
             try:
-                await self._send_json({"type": "cmd_shutdown"})
-                await self.recv_ack("cmd_shutdown", timeout=5.0)
+                await self._send_json({"type": "cmd_engage", "enabled": False})
+                await self.recv_ack("cmd_engage", timeout=3.0)
             except Exception:
                 pass
         for task in (self._reader_task, self._keepalive_task):
@@ -140,7 +143,21 @@ class FirmwareTransport(DeadReckoningMixin, Transport):
         return self._battery_mv
 
     def get_lifecycle(self) -> str:
-        return self._lifecycle
+        """Backwards-compat shim: returns synthetic lifecycle string."""
+        if self._ramping:
+            return "ramping"
+        if self._engaged:
+            return "active"
+        return "disengaged"
+
+    def get_engaged(self) -> bool:
+        return self._engaged
+
+    def get_ramping(self) -> bool:
+        return self._ramping
+
+    def get_battery_cutoff(self) -> bool:
+        return self._battery_cutoff
 
     def get_fw_version(self) -> str:
         return self._firmware_info.get("fw_version", "")
@@ -220,7 +237,9 @@ class FirmwareTransport(DeadReckoningMixin, Transport):
         elif msg_type == "telem_battery":
             self._battery_mv = msg.get("voltage_mv", 7400)
         elif msg_type == "telem_status":
-            self._lifecycle = msg.get("lifecycle", self._lifecycle)
+            self._engaged = msg.get("engaged", self._engaged)
+            self._ramping = msg.get("ramping", self._ramping)
+            self._battery_cutoff = msg.get("battery_cutoff", self._battery_cutoff)
             if msg.get("wifi") and msg.get("wifi_ip"):
                 self._firmware_info["wifi_ip"] = msg["wifi_ip"]
                 self._firmware_info["tcp_port"] = msg.get("tcp_port", 9000)

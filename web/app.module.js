@@ -2,7 +2,7 @@
 import Dog3D from './dog3d/index.js';
 import { updateLifecycleIndicator } from './dog3d/overlay.js';
 import { connect, send, setMessageHandler } from './modules/ws.js';
-import { setupDpad, setupKeyboard, setupActions, setCanControl, setLifecycle } from './modules/controls.js';
+import { setupDpad, setupKeyboard, setupActions, setCanControl, setEngaged } from './modules/controls.js';
 import { dogMapState, addScanPoint, renderFullMap, drawMap, setupScan } from './modules/map.js';
 import { setupBatteryGraph, recordBattery,
          setupOtaPanel, updateOtaStatus } from './modules/panels.js';
@@ -65,8 +65,14 @@ function updateStatus(msg) {
     }
     if (msg.balance != null && actionsCtrl) actionsCtrl.setBalanceState(msg.balance);
     if (msg.lifecycle != null) {
-        setLifecycle(msg.lifecycle);
         updateLifecycleIndicator(msg.lifecycle);
+    }
+    if (msg.engaged != null || msg.ramping != null) {
+        var engaged = msg.engaged === true;
+        var ramping = msg.ramping === true;
+        var cutoff = msg.battery_cutoff === true;
+        setEngaged(engaged, ramping);
+        updateEngageToggle(engaged, ramping, cutoff);
     }
     if (msg.fallen != null) showFallAlert(msg.fallen);
     if (msg.transport != null) {
@@ -95,6 +101,31 @@ function updateStatus(msg) {
         document.getElementById("scan-progress-fill").style.width = msg.scan_progress + "%";
         document.getElementById("scan-progress-text").textContent = msg.scan_progress + "%";
     }
+}
+
+// --- Engage toggle UI ---
+function updateEngageToggle(engaged, ramping, cutoff) {
+    var btn = document.getElementById("btn-engage");
+    if (!btn) return;
+    btn.disabled = ramping || cutoff;
+    if (cutoff) {
+        btn.textContent = "BATTERY CUTOFF \u2014 REBOOT";
+        btn.className = "engage-toggle cutoff";
+    } else if (ramping) {
+        btn.textContent = "RAMPING\u2026";
+        btn.className = "engage-toggle ramping";
+    } else if (engaged) {
+        btn.textContent = "SERVOS: ENGAGED";
+        btn.className = "engage-toggle engaged";
+    } else {
+        btn.textContent = "SERVOS: DISENGAGED";
+        btn.className = "engage-toggle disengaged";
+    }
+    // Disable/enable action buttons
+    var motionBtns = document.querySelectorAll(".dpad-btn, .action-btn[data-action]:not([data-action='balance-toggle'])");
+    motionBtns.forEach(function(b) {
+        b.disabled = !engaged || ramping || cutoff;
+    });
 }
 
 // --- Lock UI ---
@@ -163,6 +194,21 @@ function handleMessage(msg) {
         el.textContent = msg.operator ? "Control held by " + msg.operator : "Control request denied";
         el.classList.remove("hidden");
         setTimeout(function() { el.classList.add("hidden"); }, 3000);
+    } else if (msg.type === "telem_event") {
+        var ev = msg.event;
+        if (ev === "battery_cutoff_detach") {
+            updateEngageToggle(false, false, true);
+            setEngaged(false, false);
+        } else if (ev === "heartbeat_detach") {
+            updateEngageToggle(false, false, false);
+            setEngaged(false, false);
+        } else if (ev === "engage_complete") {
+            updateEngageToggle(true, false, false);
+            setEngaged(true, false);
+        } else if (ev === "disengage_complete") {
+            updateEngageToggle(false, false, false);
+            setEngaged(false, false);
+        }
     } else if (msg.type === "reset") {
         Dog3D.reset(); scanCtrl.setScanRunning(false);
     } else if (msg.type === "version") {
@@ -185,16 +231,27 @@ function setupReset() {
     });
 }
 
+function setupEngage() {
+    var btn = document.getElementById("btn-engage");
+    if (!btn) return;
+    btn.addEventListener("click", function () {
+        var engaged = btn.classList.contains("engaged");
+        send({ type: "cmd_engage", enabled: !engaged });
+    });
+}
+
 // --- Init ---
 Dog3D.init("dog-3d-container");
 setMessageHandler(handleMessage);
 
 actionsCtrl = setupActions(Dog3D);
 setupDpad();
-setLifecycle('booting');  // dim D-pad until lifecycle becomes active
+setEngaged(false, false);  // dim D-pad until engaged
+updateEngageToggle(false, false, false);
 setupKeyboard();
 var scanCtrl = setupScan(send);
 setupLock();
+setupEngage();
 setupReset();
 setupBatteryGraph();
 setupOtaPanel();

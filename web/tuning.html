@@ -575,16 +575,13 @@
 <body>
 
 <h1>Servo Tuning</h1>
-<p class="subtitle">Send <code>cmd_servo</code> to individual servos. Enable test mode first.</p>
+<p class="subtitle">Send <code>cmd_servo</code> to individual servos. Engage servos first.</p>
 
 <div class="status-bar">
   <div class="dot" id="ws-dot"></div>
   <span id="status-text">Connecting…</span>
   <div class="lifecycle-badge" id="lifecycle-badge" data-state="unknown"><span class="lc-dot"></span><span id="lifecycle-text">–</span></div>
-  <div class="test-mode-dot" id="test-mode-dot" title="Test mode"></div>
-  <button class="test-btn" id="wake-btn" onclick="sendWake()" disabled>Wake</button>
-  <button class="test-btn" id="sleep-btn" onclick="sendSleep()" disabled>Sleep</button>
-  <button class="test-btn" id="test-btn" onclick="toggleTestMode()">Enable Test Mode</button>
+  <button class="test-btn" id="engage-btn" onclick="toggleEngage()" disabled>Engage Servos</button>
 </div>
 
 <div id="waking-banner"><span class="lc-dot"></span><span>Waking up — resend your command once active</span></div>
@@ -764,8 +761,8 @@
 
   // ── State ─────────────────────────────────────────────────────
   let ws = null;
-  let testMode = false;
-  let lifecycleState = null;   // last known firmware lifecycle state string (lowercase)
+  let _tuningEngaged = false;
+  let lifecycleState = null;   // synthetic lifecycle state for badge display
   const values = [...STANDING_POSE];
 
   // Diagnostics
@@ -817,21 +814,13 @@
   }
 
   // ── WebSocket ─────────────────────────────────────────────────
-  function sendWake() {
-    setLifecycle('waking');
-    send({ type: 'cmd_wake' });
-    console.log('[TX] cmd_wake');
-  }
-
-  function sendSleep() {
-    setLifecycle('sleeping');
-    send({ type: 'cmd_sleep' });
-    console.log('[TX] cmd_sleep');
+  function toggleEngage() {
+    ws.send(JSON.stringify({ type: 'cmd_engage', enabled: !_tuningEngaged }));
   }
 
   function connect() {
     ws = new WebSocket('ws://' + location.host + '/ws');
-    ws.onopen  = () => { setStatus('connected', 'Connected'); sendWake(); queryAllOffsets(); }; // queryAllOffsets() safe: send() guards against non-OPEN states
+    ws.onopen  = () => { setStatus('connected', 'Connected'); queryAllOffsets(); }; // queryAllOffsets() safe: send() guards against non-OPEN states
     ws.onclose = () => {
       setStatus('off', 'Disconnected — retrying…');
       setLifecycle(null);
@@ -842,17 +831,35 @@
       try {
         const msg = JSON.parse(event.data);
         if (msg.type === 'telem_status') {
-          if (msg.lifecycle) setLifecycle(msg.lifecycle);
-          setTestModeDot(!!msg.test_mode);
+          // Update engage button from status
+          if (msg.engaged != null) {
+            _tuningEngaged = msg.engaged;
+            const btn = document.getElementById('engage-btn');
+            if (btn) {
+              btn.textContent = msg.ramping ? 'Ramping\u2026' : (msg.engaged ? 'Disengage' : 'Engage Servos');
+              btn.disabled = !!msg.ramping || !!msg.battery_cutoff;
+              btn.classList.toggle('active', !!msg.engaged && !msg.ramping);
+            }
+            document.querySelectorAll('input[type=range], .wiggle-btn').forEach(function(el) {
+              el.disabled = !msg.engaged || !!msg.ramping;
+            });
+          }
+          // Map new engage states to lifecycle badge
+          if (msg.engaged != null) {
+            if (msg.ramping) setLifecycle('waking');
+            else if (msg.engaged) setLifecycle('active');
+            else setLifecycle('resting');
+          }
         }
         if (msg.type === 'telem_event') {
           handleFwEvent(msg);
-          if (msg.event === 'lifecycle' && msg.to) setLifecycle(msg.to);
-          if (msg.event === 'test_mode_timeout') setTestModeDot(false);
+          if (msg.event === 'engage_complete')    { _tuningEngaged = true;  setLifecycle('active'); }
+          if (msg.event === 'disengage_complete') { _tuningEngaged = false; setLifecycle('resting'); }
+          if (msg.event === 'battery_cutoff_detach') { _tuningEngaged = false; setLifecycle('resting'); }
         }
         if (msg.type === 'ack') {
-          // Show waking banner when a command is rejected because firmware isn't active yet
-          if (!msg.ok && msg.error === 'not_active') {
+          // Show waking banner when a command is rejected because firmware isn't engaged yet
+          if (!msg.ok && (msg.error === 'not_active' || msg.error === 'not_engaged')) {
             const banner = document.getElementById('waking-banner');
             if (banner) banner.classList.add('show');
           }
@@ -880,27 +887,23 @@
   function setStatus(state, text) {
     const dot = document.getElementById('ws-dot');
     dot.className = 'dot';
-    if (state === 'connected') dot.classList.add(testMode ? 'test-mode' : 'connected');
+    if (state === 'connected') dot.classList.add('connected');
     document.getElementById('status-text').textContent = text;
   }
 
   function setLifecycle(state) {
-    // state is lowercase string from firmware (e.g. "active", "waking") or null for disconnected
+    // state: "active", "waking", "resting", "booting", or null for disconnected
     const valid = ['active', 'waking', 'idle', 'sleeping', 'resting', 'booting'];
     if (state !== null && !valid.includes(state)) state = null;
 
     lifecycleState = state;
     const badge = document.getElementById('lifecycle-badge');
     const label = document.getElementById('lifecycle-text');
-    const wakeBtn  = document.getElementById('wake-btn');
-    const sleepBtn = document.getElementById('sleep-btn');
-    const banner   = document.getElementById('waking-banner');
+    const banner = document.getElementById('waking-banner');
 
     if (!state) {
       badge.setAttribute('data-state', 'unknown');
       label.textContent = '–';
-      wakeBtn.disabled  = true;
-      sleepBtn.disabled = true;
       banner.classList.remove('show');
       return;
     }
@@ -908,12 +911,7 @@
     badge.setAttribute('data-state', state);
     label.textContent = state.toUpperCase();
 
-    // Wake button disabled when already waking or active
-    wakeBtn.disabled  = (state === 'active' || state === 'waking');
-    // Sleep button disabled when already resting, sleeping, or booting
-    sleepBtn.disabled = (state === 'resting' || state === 'sleeping' || state === 'booting');
-
-    // Waking banner: show when waking, dismiss when active
+    // Waking banner: show when waking (ramping), dismiss otherwise
     if (state === 'waking') {
       banner.classList.add('show');
     } else {
@@ -925,36 +923,6 @@
     document.querySelectorAll('.gait-slider, .pid-slider').forEach(el => {
       el.disabled = !isActive;
     });
-  }
-
-  // ── Test mode ─────────────────────────────────────────────────
-  function toggleTestMode() {
-    testMode = !testMode;
-    send({ type: 'cmd_test_mode', enable: testMode });
-    const btn = document.getElementById('test-btn');
-    btn.textContent = testMode ? 'Disable Test Mode' : 'Enable Test Mode';
-    btn.classList.toggle('active', testMode);
-    const dot = document.getElementById('ws-dot');
-    dot.className = 'dot';
-    if (ws && ws.readyState === WebSocket.OPEN) dot.classList.add(testMode ? 'test-mode' : 'connected');
-    document.getElementById('status-text').textContent =
-      testMode ? 'Test mode active' : 'Connected';
-    setTestModeDot(testMode);
-  }
-
-  function setTestModeDot(active) {
-    const dot = document.getElementById('test-mode-dot');
-    if (!dot) return;
-    dot.classList.toggle('active', active);
-    // Sync local flag if firmware confirms test mode is off (e.g. timeout)
-    if (!active && testMode) {
-      testMode = false;
-      const btn = document.getElementById('test-btn');
-      if (btn) { btn.textContent = 'Enable Test Mode'; btn.classList.remove('active'); }
-      const wsDot = document.getElementById('ws-dot');
-      if (wsDot) { wsDot.className = 'dot'; wsDot.classList.add('connected'); }
-      document.getElementById('status-text').textContent = 'Connected (test mode timed out)';
-    }
   }
 
   // ── Send single servo ─────────────────────────────────────────

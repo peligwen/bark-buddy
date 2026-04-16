@@ -453,6 +453,9 @@ class Server:
             "scanning": self._scan.running,
             "transport": self._transport_label,
             "lifecycle": self._transport.get_lifecycle() if self._transport else "unknown",
+            "engaged": self._transport.get_engaged() if self._transport else False,
+            "ramping": self._transport.get_ramping() if self._transport else False,
+            "battery_cutoff": self._transport.get_battery_cutoff() if self._transport else False,
             "fw_version": self._transport.get_fw_version() if self._transport else "",
             "available_fw_version": self._available_fw_version,
         }
@@ -540,7 +543,7 @@ class Server:
 
         # --- Control commands (gated by lock) ---
         if msg_type in ("cmd_move", "cmd_stand", "cmd_balance",
-                         "cmd_action", "cmd_scan"):
+                         "cmd_engage", "cmd_scan"):
             await self._check_lock_timeout()
             if not self._can_control(ws):
                 await ws.send_str(json.dumps({
@@ -584,19 +587,7 @@ class Server:
             })
 
         elif msg_type == "cmd_pose":
-            pose_name = msg.get("pose", "stand")
-            if pose_name == "sit":
-                await self._transport.send_json({"type": "cmd_action", "action": 4})
-            elif pose_name == "lie_down":
-                await self._transport.send_json({"type": "cmd_action", "action": 5})
-            else:
-                await self._transport.send_json({"type": "cmd_stand"})
-            self._motion = "stop"
-
-        elif msg_type == "cmd_action":
-            code = msg.get("action", 1)
-            await self._transport.send_json({"type": "cmd_action", "action": code})
-            self._action = code
+            await self._transport.send_json({"type": "cmd_stand"})
             self._motion = "stop"
 
         elif msg_type == "cmd_scan":
@@ -657,9 +648,8 @@ class Server:
                 pass
             _restart_server()
 
-        elif msg_type in ("cmd_test_mode", "cmd_servo", "cmd_transform",
-                          "cmd_gait_params", "cmd_shutdown",
-                          "cmd_wake", "cmd_sleep", "cmd_probe_pin",
+        elif msg_type in ("cmd_engage", "cmd_ota_update", "cmd_servo", "cmd_transform",
+                          "cmd_gait_params", "cmd_probe_pin",
                           "cmd_balance_config"):
             # Firmware-direct passthrough — forward as-is
             if msg_type == "cmd_servo":
@@ -782,6 +772,9 @@ class Server:
             "scanning": self._scan.running,
             "battery_mv": battery_mv,
             "lifecycle": self._transport.get_lifecycle() if self._transport else "unknown",
+            "engaged": self._transport.get_engaged() if self._transport else False,
+            "ramping": self._transport.get_ramping() if self._transport else False,
+            "battery_cutoff": self._transport.get_battery_cutoff() if self._transport else False,
             "fw_version": self._transport.get_fw_version() if self._transport else "",
             "available_fw_version": self._available_fw_version,
             "transport": self._transport_label,
