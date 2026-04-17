@@ -157,9 +157,6 @@ static const int8_t SERVO_POLARITY_OVERRIDE[8] = {
 #define BUTTON_PIN                  5
 #define BUTTON_DEBOUNCE_MS          20
 #define BUTTON_LONG_PRESS_MS        1000
-// Set to 1 to toggle engage on short press when host has no lock.
-#define BUTTON_LOCAL_ENGAGE_TOGGLE  0
-
 // --- IMU Interrupt ---
 // QMI8658 INT2 (data-ready) wired to GPIO 35 (input-only). Confirmed V1.2 schematic.
 #define IMU_INT_PIN              35

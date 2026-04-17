@@ -95,7 +95,12 @@ class Server:
         self._scan = ScanBehavior(transport)
         self._map = MapStore()
         self._engaged: bool = False
-        self._button_engage = ButtonEngageBehavior(transport, lambda: self._engaged)
+        self._button_engage = ButtonEngageBehavior(
+            transport,
+            lambda: self._engaged,
+            lambda v: setattr(self, '_engaged', v),
+            lambda: self._lock_holder,
+        )
         self._mode = "remote"  # remote | scan
         self._motion = "stop"  # last motion direction
         self._web_hash = self._compute_web_hash(web_dir)
@@ -258,7 +263,12 @@ class Server:
             self._register_transport_callbacks()
             self._balance = BalanceLayer(new_transport)
             self._scan = ScanBehavior(new_transport)
-            self._button_engage = ButtonEngageBehavior(new_transport, lambda: self._engaged)
+            self._button_engage = ButtonEngageBehavior(
+                new_transport,
+                lambda: self._engaged,
+                lambda v: setattr(self, '_engaged', v),
+                lambda: self._lock_holder,
+            )
             self._scan.on_point(self._on_scan_point)
             self._scan.on_complete(self._on_scan_complete)
             self._transport_label = new_label
