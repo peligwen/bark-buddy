@@ -99,7 +99,7 @@ class Server:
             transport,
             lambda: self._engaged,
             lambda v: setattr(self, '_engaged', v),
-            lambda: self._lock_holder,
+            self._is_locked,
         )
         self._mode = "remote"  # remote | scan
         self._motion = "stop"  # last motion direction
@@ -267,7 +267,7 @@ class Server:
                 new_transport,
                 lambda: self._engaged,
                 lambda v: setattr(self, '_engaged', v),
-                lambda: self._lock_holder,
+                self._is_locked,
             )
             self._scan.on_point(self._on_scan_point)
             self._scan.on_complete(self._on_scan_complete)

@@ -29,14 +29,6 @@ class MockTransport:
         self.calls.append(msg)
 
 
-class _MockLockHolder:
-    """Truthy placeholder for a WebSocket lock holder."""
-    def __repr__(self):
-        return "<MockLockHolder>"
-
-
-LOCK_HOLDER = _MockLockHolder()
-
 # ============================================================
 # Test infrastructure
 # ============================================================
@@ -70,7 +62,7 @@ async def test_release_no_lock_sends_engage():
         transport,
         get_engaged_fn=lambda: engaged_state[0],
         set_engaged_fn=lambda v: engaged_state.__setitem__(0, v),
-        get_lock_holder_fn=lambda: None,
+        get_lock_held_fn=lambda: False,
     )
     await behavior.on_button_event("release")
     _check("test_release_no_lock_sends_engage — send_json called",
@@ -89,7 +81,7 @@ async def test_release_with_lock_is_noop():
         transport,
         get_engaged_fn=lambda: engaged_state[0],
         set_engaged_fn=lambda v: engaged_state.__setitem__(0, v),
-        get_lock_holder_fn=lambda: LOCK_HOLDER,
+        get_lock_held_fn=lambda: True,
     )
     await behavior.on_button_event("release")
     _check("test_release_with_lock_is_noop — send_json not called",
@@ -106,7 +98,7 @@ async def test_long_press_always_disengages():
         transport,
         get_engaged_fn=lambda: engaged_state[0],
         set_engaged_fn=lambda v: engaged_state.__setitem__(0, v),
-        get_lock_holder_fn=lambda: LOCK_HOLDER,  # lock is held
+        get_lock_held_fn=lambda: True,  # lock is held
     )
     await behavior.on_button_event("long_press")
     _check("test_long_press_always_disengages — send_json called despite lock",
@@ -129,7 +121,7 @@ async def test_optimistic_update_on_fast_double_tap():
         transport,
         get_engaged_fn=lambda: engaged_state[0],
         set_engaged_fn=lambda v: engaged_state.__setitem__(0, v),
-        get_lock_holder_fn=lambda: None,
+        get_lock_held_fn=lambda: False,
     )
     # First press
     await behavior.on_button_event("release")
@@ -154,7 +146,7 @@ async def test_press_is_ignored():
         transport,
         get_engaged_fn=lambda: engaged_state[0],
         set_engaged_fn=lambda v: engaged_state.__setitem__(0, v),
-        get_lock_holder_fn=lambda: None,
+        get_lock_held_fn=lambda: False,
     )
     await behavior.on_button_event("press")
     _check("test_press_is_ignored — send_json not called",
@@ -169,7 +161,7 @@ async def test_long_press_optimistic_update():
         transport,
         get_engaged_fn=lambda: engaged_state[0],
         set_engaged_fn=lambda v: engaged_state.__setitem__(0, v),
-        get_lock_holder_fn=lambda: None,
+        get_lock_held_fn=lambda: False,
     )
     await behavior.on_button_event("long_press")
     _check("test_long_press_optimistic_update — setter called with False",
