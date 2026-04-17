@@ -191,14 +191,14 @@ static void sensor_task_fn(void*) {
         }
 
         // Poll button every loop pass; function handles debounce timing
-        ButtonEvent btn = button_update((uint32_t)millis());
-        if (btn != ButtonEvent::NONE) {
+        ButtonResult br = button_update((uint32_t)millis());
+        if (br.event != ButtonEvent::NONE) {
             JsonDocument ev;
             ev["type"]    = MSG_TELEM_BUTTON;
-            ev["event"]   = (btn == ButtonEvent::PRESS)      ? "press"
-                          : (btn == ButtonEvent::RELEASE)    ? "release"
-                          :                                    "long_press";
-            ev["held_ms"] = button_held_ms();
+            ev["event"]   = (br.event == ButtonEvent::PRESS)      ? "press"
+                          : (br.event == ButtonEvent::RELEASE)    ? "release"
+                          :                                          "long_press";
+            ev["held_ms"] = br.held_ms;
             comms_emit_json_from_task(ev);
         }
 

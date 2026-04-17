@@ -2,5 +2,5 @@
 #include "button.h"
 
 void button_init() {}
-ButtonEvent button_update(uint32_t) { return ButtonEvent::NONE; }
+ButtonResult button_update(uint32_t) { return ButtonResult{ButtonEvent::NONE, 0}; }
 uint32_t button_held_ms() { return 0; }

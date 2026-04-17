@@ -77,8 +77,8 @@ static void test_press_no_event_before_debounce() {
     // Advance just under the debounce window — should still get NONE
     for (int ms = 1; ms < BUTTON_DEBOUNCE_MS; ms++) {
         mock_advance_ms(1);
-        ButtonEvent ev = button_update((uint32_t)millis());
-        if (ev != ButtonEvent::NONE) {
+        ButtonResult r = button_update((uint32_t)millis());
+        if (r.event != ButtonEvent::NONE) {
             printf("  unexpected event at %d ms\n", ms);
             check(false, "no event before debounce window");
             return;
@@ -97,13 +97,13 @@ static void test_press_fires_after_debounce() {
     mock_button_raw_pressed = true;
 
     // Advance up through the debounce window
-    ButtonEvent ev = ButtonEvent::NONE;
+    ButtonResult r = {ButtonEvent::NONE, 0};
     for (int ms = 0; ms <= BUTTON_DEBOUNCE_MS; ms++) {
         mock_advance_ms(1);
-        ev = button_update((uint32_t)millis());
-        if (ev != ButtonEvent::NONE) break;
+        r = button_update((uint32_t)millis());
+        if (r.event != ButtonEvent::NONE) break;
     }
-    check(ev == ButtonEvent::PRESS, "PRESS event fires after debounce window");
+    check(r.event == ButtonEvent::PRESS, "PRESS event fires after debounce window");
 }
 
 // ------------------------------------------------------------------ //
@@ -125,10 +125,10 @@ static void test_no_duplicate_press_while_held() {
     bool got_extra = false;
     for (int ms = 0; ms < 200; ms++) {
         mock_advance_ms(1);
-        ButtonEvent ev = button_update((uint32_t)millis());
-        if (ev != ButtonEvent::NONE) {
+        ButtonResult r = button_update((uint32_t)millis());
+        if (r.event != ButtonEvent::NONE) {
             got_extra = true;
-            printf("  unexpected event %d at +%d ms\n", (int)ev, ms);
+            printf("  unexpected event %d at +%d ms\n", (int)r.event, ms);
         }
     }
     check(!got_extra, "NONE on all ticks while button is held stable");
@@ -154,13 +154,13 @@ static void test_short_press_release() {
 
     // Release
     mock_button_raw_pressed = false;
-    ButtonEvent ev = ButtonEvent::NONE;
+    ButtonResult r = {ButtonEvent::NONE, 0};
     for (int ms = 0; ms <= BUTTON_DEBOUNCE_MS; ms++) {
         mock_advance_ms(1);
-        ev = button_update((uint32_t)millis());
-        if (ev != ButtonEvent::NONE) break;
+        r = button_update((uint32_t)millis());
+        if (r.event != ButtonEvent::NONE) break;
     }
-    check(ev == ButtonEvent::RELEASE, "RELEASE event on short press release");
+    check(r.event == ButtonEvent::RELEASE, "RELEASE event on short press release");
 }
 
 // ------------------------------------------------------------------ //
@@ -183,13 +183,13 @@ static void test_long_press() {
 
     // Release
     mock_button_raw_pressed = false;
-    ButtonEvent ev = ButtonEvent::NONE;
+    ButtonResult r = {ButtonEvent::NONE, 0};
     for (int ms = 0; ms <= BUTTON_DEBOUNCE_MS; ms++) {
         mock_advance_ms(1);
-        ev = button_update((uint32_t)millis());
-        if (ev != ButtonEvent::NONE) break;
+        r = button_update((uint32_t)millis());
+        if (r.event != ButtonEvent::NONE) break;
     }
-    check(ev == ButtonEvent::LONG_PRESS, "LONG_PRESS event when held >= BUTTON_LONG_PRESS_MS");
+    check(r.event == ButtonEvent::LONG_PRESS, "LONG_PRESS event when held >= BUTTON_LONG_PRESS_MS");
 }
 
 // ------------------------------------------------------------------ //
@@ -203,15 +203,15 @@ static void test_bounce_suppression() {
     mock_button_raw_pressed = true;
     for (int ms = 0; ms < BUTTON_DEBOUNCE_MS - 1; ms++) {
         mock_advance_ms(1);
-        ButtonEvent ev = button_update((uint32_t)millis());
-        check(ev == ButtonEvent::NONE, "no event during bounce glitch");
+        ButtonResult r = button_update((uint32_t)millis());
+        check(r.event == ButtonEvent::NONE, "no event during bounce glitch");
     }
 
     // Release before debounce completes
     mock_button_raw_pressed = false;
     mock_advance_ms(1);
-    ButtonEvent ev = button_update((uint32_t)millis());
-    check(ev == ButtonEvent::NONE, "no event after bounce release");
+    ButtonResult r = button_update((uint32_t)millis());
+    check(r.event == ButtonEvent::NONE, "no event after bounce release");
 }
 
 // ------------------------------------------------------------------ //
@@ -247,10 +247,80 @@ static void test_none_after_release() {
     bool got_extra = false;
     for (int ms = 0; ms < 100; ms++) {
         mock_advance_ms(1);
-        ButtonEvent ev = button_update((uint32_t)millis());
-        if (ev != ButtonEvent::NONE) got_extra = true;
+        ButtonResult r = button_update((uint32_t)millis());
+        if (r.event != ButtonEvent::NONE) got_extra = true;
     }
     check(!got_extra, "NONE on all ticks after release settles");
+}
+
+// ------------------------------------------------------------------ //
+// Test: RELEASE event carries correct held_ms for a short press
+// ------------------------------------------------------------------ //
+static void test_short_press_release_reports_held_ms() {
+    printf("\nTest: short_press_release_reports_held_ms\n");
+    reset_button();
+
+    // Press and settle debounce
+    mock_button_raw_pressed = true;
+    ButtonResult pr = {ButtonEvent::NONE, 0};
+    for (int ms = 0; ms <= BUTTON_DEBOUNCE_MS; ms++) {
+        mock_advance_ms(1);
+        pr = button_update((uint32_t)millis());
+        if (pr.event != ButtonEvent::NONE) break;
+    }
+    check(pr.event == ButtonEvent::PRESS, "got PRESS before hold");
+
+    // Hold for 500 ms more
+    mock_advance_ms(500);
+    button_update((uint32_t)millis());
+
+    // Release and settle debounce
+    mock_button_raw_pressed = false;
+    ButtonResult rr = {ButtonEvent::NONE, 0};
+    for (int ms = 0; ms <= BUTTON_DEBOUNCE_MS; ms++) {
+        mock_advance_ms(1);
+        rr = button_update((uint32_t)millis());
+        if (rr.event != ButtonEvent::NONE) break;
+    }
+    check(rr.event == ButtonEvent::RELEASE, "RELEASE event for short press");
+    // held_ms should be approximately debounce(21) + 500 + debounce(~1..21)
+    // generous window: [500, 525]
+    check(rr.held_ms >= 500 && rr.held_ms < 525,
+          "held_ms in range [500, 525) for short press");
+}
+
+// ------------------------------------------------------------------ //
+// Test: LONG_PRESS event carries correct held_ms
+// ------------------------------------------------------------------ //
+static void test_long_press_reports_held_ms() {
+    printf("\nTest: long_press_reports_held_ms\n");
+    reset_button();
+
+    // Press and settle debounce
+    mock_button_raw_pressed = true;
+    ButtonResult pr = {ButtonEvent::NONE, 0};
+    for (int ms = 0; ms <= BUTTON_DEBOUNCE_MS; ms++) {
+        mock_advance_ms(1);
+        pr = button_update((uint32_t)millis());
+        if (pr.event != ButtonEvent::NONE) break;
+    }
+    check(pr.event == ButtonEvent::PRESS, "got PRESS before long hold");
+
+    // Hold for BUTTON_LONG_PRESS_MS + 100 ms
+    mock_advance_ms(BUTTON_LONG_PRESS_MS + 100);
+    button_update((uint32_t)millis());
+
+    // Release and settle debounce
+    mock_button_raw_pressed = false;
+    ButtonResult rr = {ButtonEvent::NONE, 0};
+    for (int ms = 0; ms <= BUTTON_DEBOUNCE_MS; ms++) {
+        mock_advance_ms(1);
+        rr = button_update((uint32_t)millis());
+        if (rr.event != ButtonEvent::NONE) break;
+    }
+    check(rr.event == ButtonEvent::LONG_PRESS, "LONG_PRESS event for long hold");
+    check(rr.held_ms >= (uint32_t)BUTTON_LONG_PRESS_MS,
+          "held_ms >= BUTTON_LONG_PRESS_MS for long press");
 }
 
 // ------------------------------------------------------------------ //
@@ -268,6 +338,8 @@ int main() {
     test_bounce_suppression();
     test_held_ms_idle();
     test_none_after_release();
+    test_short_press_release_reports_held_ms();
+    test_long_press_reports_held_ms();
 
     printf("\n%d passed, %d failed\n", g_pass, g_fail);
     return g_fail > 0 ? 1 : 0;

@@ -24,10 +24,10 @@ void button_init() {
     s_press_time = 0;
 }
 
-ButtonEvent button_update(uint32_t now_ms) {
+ButtonResult button_update(uint32_t now_ms) {
 #ifdef MOCK_FIRMWARE
     (void)now_ms;
-    return ButtonEvent::NONE;
+    return ButtonResult{ButtonEvent::NONE, 0};
 #else
     // LOW = pressed (active-LOW with pullup)
     bool raw_pressed = (digitalRead(BUTTON_PIN) == LOW);
@@ -40,20 +40,26 @@ ButtonEvent button_update(uint32_t now_ms) {
 
     // Only act once the level has been stable for BUTTON_DEBOUNCE_MS
     if ((now_ms - s_since_ms) >= BUTTON_DEBOUNCE_MS && raw_pressed != s_stable) {
-        s_stable = raw_pressed;
-        if (s_stable) {
+        if (raw_pressed) {
             // Stable transition: not-pressed → pressed
+            s_stable     = raw_pressed;
             s_press_time = now_ms;
-            return ButtonEvent::PRESS;
+            return ButtonResult{ButtonEvent::PRESS, 0};
         } else {
             // Stable transition: pressed → not-pressed
+            // Snapshot held duration BEFORE flipping s_stable so button_held_ms()
+            // still sees the press as active if called on the same tick.
             uint32_t held = now_ms - s_press_time;
-            return (held >= BUTTON_LONG_PRESS_MS) ? ButtonEvent::LONG_PRESS
-                                                  : ButtonEvent::RELEASE;
+            s_stable      = raw_pressed;   // flip AFTER snapshot
+            return ButtonResult{
+                (held >= BUTTON_LONG_PRESS_MS) ? ButtonEvent::LONG_PRESS
+                                               : ButtonEvent::RELEASE,
+                held
+            };
         }
     }
 
-    return ButtonEvent::NONE;
+    return ButtonResult{ButtonEvent::NONE, 0};
 #endif
 }
 
