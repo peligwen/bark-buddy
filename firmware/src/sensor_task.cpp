@@ -2,7 +2,10 @@
 #include "sensor_task.h"
 #include "imu.h"
 #include "sonar.h"
+#include "button.h"
 #include "config.h"
+#include "protocol.h"
+#include "comms.h"
 #include <Arduino.h>
 #include <Wire.h>
 #include <freertos/FreeRTOS.h>
@@ -22,6 +25,8 @@ static void sensor_task_fn(void*) {
     // Take ownership of the I2C bus. Short timeout prevents sonar read stalls
     // from blocking the task for >1s on the rare occasion the module is busy.
     Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN, I2C_FREQ);
+
+    button_init();
 
     bool imu_ok   = imu_init(Wire);
     bool sonar_ok = sonar_init(Wire);
@@ -87,6 +92,18 @@ static void sensor_task_fn(void*) {
             Wire.write(i2c.val);
             s_i2c_write_result = (Wire.endTransmission() == 0);
             xSemaphoreGive(s_i2c_write_done);
+        }
+
+        // Poll button every loop pass (~1ms resolution); function handles debounce timing
+        ButtonEvent btn = button_update((uint32_t)millis());
+        if (btn != ButtonEvent::NONE) {
+            JsonDocument ev;
+            ev["type"]    = MSG_TELEM_BUTTON;
+            ev["event"]   = (btn == ButtonEvent::PRESS)      ? "press"
+                          : (btn == ButtonEvent::RELEASE)    ? "release"
+                          :                                    "long_press";
+            ev["held_ms"] = button_held_ms();
+            send_json(ev);
         }
 
         vTaskDelay(pdMS_TO_TICKS(1));

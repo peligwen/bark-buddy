@@ -145,6 +145,14 @@ static const int8_t SERVO_POLARITY_OVERRIDE[8] = {
 #endif
 // clang-format on
 
+// --- User Button ---
+// K1 SW-PB_3x6x4.3, GPIO 5, active-LOW, 10K pullup to 3V3. Confirmed V1.2 schematic.
+#define BUTTON_PIN                  5
+#define BUTTON_DEBOUNCE_MS          20
+#define BUTTON_LONG_PRESS_MS        1000
+// Set to 1 to toggle engage on short press when host has no lock.
+#define BUTTON_LOCAL_ENGAGE_TOGGLE  0
+
 // --- Buzzer ---
 // GPIO 21, driven via S8050 NPN transistor. HIGH = buzzer on. Confirmed V1.2 schematic.
 #define BUZZER_PIN          21

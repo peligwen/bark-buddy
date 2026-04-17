@@ -1,6 +1,6 @@
 CXX = clang++
 CXXFLAGS = -std=c++17 -O2 -Wall -Wno-absolute-value -I. -I../include
-TARGETS = test_ik test_transform test_balance test_offsets test_gait_ik test_servos test_engage test_buzzer
+TARGETS = test_ik test_transform test_balance test_offsets test_gait_ik test_servos test_engage test_buzzer test_button
 
 # Mock firmware build
 MOCK_FLAGS = -std=c++17 -O2 -Wall \
@@ -16,6 +16,7 @@ MOCK_SRC = \
 	../mock/mock_sensor_task.cpp \
 	../mock/imu_mock.cpp \
 	../mock/sonar_mock.cpp \
+	../mock/button_mock.cpp \
 	../mock/physics.cpp \
 	../mock/net_tcp.cpp \
 	../mock/mock_globals.cpp \
@@ -58,5 +59,8 @@ test_engage: test_engage.cpp mock_arduino.h mock_preferences.h ../include/servos
 
 test_buzzer: test_buzzer.cpp ../mock/buzzer_mock.cpp mock_arduino.h ../include/buzzer.h ../include/config.h
 	$(CXX) $(CXXFLAGS) -o $@ test_buzzer.cpp ../mock/buzzer_mock.cpp
+
+test_button: test_button.cpp mock_arduino.h ../include/button.h ../include/config.h ../src/button.cpp
+	$(CXX) $(CXXFLAGS) -o $@ test_button.cpp
 
 .PHONY: all clean

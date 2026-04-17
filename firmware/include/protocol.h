@@ -24,6 +24,7 @@ constexpr const char* MSG_TELEM_SONAR   = "telem_sonar";
 constexpr const char* MSG_TELEM_BATTERY = "telem_battery";
 constexpr const char* MSG_TELEM_STATUS  = "telem_status";
 constexpr const char* MSG_TELEM_EVENT   = "telem_event";  // edge-triggered: engage, disengage, heartbeat, battery
+constexpr const char* MSG_TELEM_BUTTON  = "telem_button";
 constexpr const char* MSG_ACK           = "ack";
 constexpr const char* MSG_PONG          = "pong";
 
