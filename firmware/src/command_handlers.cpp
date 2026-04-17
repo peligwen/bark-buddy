@@ -551,7 +551,7 @@ static void handle_cmd_gpio(const JsonDocument& doc) {
 
     } else if (strcmp(op_str, "read") == 0) {
         int digital_val = gpio_aux_read_digital(pin);
-        int analog_val  = -1;
+        int analog_val  = (pin == 32 || pin == 33) ? gpio_aux_read_analog(pin) : -1;
         JsonDocument resp;
         resp["type"]    = MSG_TELEM_GPIO;
         resp["pin"]     = pin;
