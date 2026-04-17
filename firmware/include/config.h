@@ -153,6 +153,10 @@ static const int8_t SERVO_POLARITY_OVERRIDE[8] = {
 // Set to 1 to toggle engage on short press when host has no lock.
 #define BUTTON_LOCAL_ENGAGE_TOGGLE  0
 
+// --- Onboard Blue LED ---
+// GPIO 18, active-LOW. max(r,g,b)>0 = on via cmd_led {led:0,...}. Confirmed V1.2 schematic.
+#define ONBOARD_LED_PIN     18
+
 // --- Buzzer ---
 // GPIO 21, driven via S8050 NPN transistor. HIGH = buzzer on. Confirmed V1.2 schematic.
 #define BUZZER_PIN          21

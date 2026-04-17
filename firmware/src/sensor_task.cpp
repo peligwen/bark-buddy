@@ -28,6 +28,11 @@ static void sensor_task_fn(void*) {
 
     button_init();
 
+#ifndef MOCK_FIRMWARE
+    pinMode(ONBOARD_LED_PIN, OUTPUT);
+    digitalWrite(ONBOARD_LED_PIN, HIGH);  // HIGH = off (active-LOW)
+#endif
+
     bool imu_ok   = imu_init(Wire);
     bool sonar_ok = sonar_init(Wire);
 
@@ -81,7 +86,17 @@ static void sensor_task_fn(void*) {
         // Drain LED queue — process all pending colour changes
         LedCmd led;
         while (xQueueReceive(s_led_queue, &led, 0)) {
-            sonar_set_rgb(led.led, led.r, led.g, led.b);
+            if (led.led == 0) {
+                // Onboard blue LED, active-LOW
+                bool on = (led.r || led.g || led.b);
+#ifndef MOCK_FIRMWARE
+                digitalWrite(ONBOARD_LED_PIN, on ? LOW : HIGH);
+#else
+                printf("[mock] onboard_led %s\n", on ? "on" : "off");
+#endif
+            } else {
+                sonar_set_rgb(led.led, led.r, led.g, led.b);
+            }
         }
 
         // Service a pending raw I2C write (debug only)
