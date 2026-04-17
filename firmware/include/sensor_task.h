@@ -19,20 +19,22 @@ struct I2cWriteCmd { uint8_t addr, reg, val; };  // kept for internal use
 enum class I2cOp : uint8_t { WRITE, READ, SCAN };
 
 struct I2cCmd {
-    I2cOp   op;
-    uint8_t bus;   // 1 or 2
-    uint8_t addr;
-    uint8_t reg;
-    uint8_t val;   // for WRITE
-    uint8_t len;   // for READ (max 32)
+    I2cOp    op;
+    uint8_t  bus;   // 1 or 2
+    uint8_t  addr;
+    uint8_t  reg;
+    uint8_t  val;   // for WRITE
+    uint8_t  len;   // for READ (max 32)
+    uint16_t seq;   // sequence number; copied into I2cResult for stale-result detection
 };
 
 struct I2cResult {
-    bool    ok;
-    uint8_t data[32];
-    uint8_t data_len;
-    uint8_t addrs[16]; // for SCAN
-    uint8_t addr_count;
+    bool     ok;
+    uint8_t  data[32];
+    uint8_t  data_len;
+    uint8_t  addrs[16]; // for SCAN
+    uint8_t  addr_count;
+    uint16_t seq;       // echoed from I2cCmd; mismatched seq means result is stale
 };
 
 // Start the FreeRTOS sensor task. Initialises I2C, IMU, and sonar inside the

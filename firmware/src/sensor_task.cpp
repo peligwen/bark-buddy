@@ -186,6 +186,7 @@ static void sensor_task_fn(void*) {
                     res.ok = (wire.endTransmission() == 0);
                     break;
             }
+            res.seq = i2ccmd.seq;
             s_i2c_result = res;
             xSemaphoreGive(s_i2c_done);
         }
@@ -260,9 +261,14 @@ void sensor_led_set(uint8_t led, uint8_t r, uint8_t g, uint8_t b) {
     xQueueSend(s_led_queue, &cmd, 0);  // non-blocking; drops if queue full
 }
 
-bool sensor_i2c_op(const I2cCmd& cmd, I2cResult& out) {
+bool sensor_i2c_op(const I2cCmd& cmd_in, I2cResult& out) {
+    static uint16_t s_next_seq = 0;
+    I2cCmd cmd = cmd_in;
+    cmd.seq = ++s_next_seq;
+    xSemaphoreTake(s_i2c_done, 0);  // drain any stale signal from a previous timeout
     if (!xQueueSend(s_i2c_cmd_queue, &cmd, pdMS_TO_TICKS(100))) return false;
-    if (!xSemaphoreTake(s_i2c_done, pdMS_TO_TICKS(200))) return false;
+    if (!xSemaphoreTake(s_i2c_done, pdMS_TO_TICKS(500))) return false;  // 200→500ms
+    if (s_i2c_result.seq != cmd.seq) return false;
     out = s_i2c_result;
     return true;
 }

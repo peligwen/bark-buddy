@@ -78,6 +78,7 @@ bool sensor_i2c_op(const I2cCmd& cmd, I2cResult& out) {
     // Mock: Wire/Wire1 are no-op stubs. Scan always returns empty (no real devices on dev
     // machine). Write returns ok=true (silent no-op). Read returns 0 bytes.
     out = I2cResult{};
+    out.seq = cmd.seq;  // echo seq so callers can verify the result is not stale
     TwoWire& wire = (cmd.bus == 2) ? Wire1 : Wire;
     switch (cmd.op) {
         case I2cOp::SCAN:
