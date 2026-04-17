@@ -75,12 +75,52 @@ def cmd_mock(args):
             proc.kill()
 
 
-def cmd_flash(args):
+def _do_usb_flash():
     result = subprocess.run(
         ["pio", "run", "-t", "upload"],
         cwd=FIRMWARE_DIR,
     )
     sys.exit(result.returncode)
+
+
+def _do_wifi_flash(args):
+    import asyncio
+    _ensure_host_importable()
+    fw_tcp = getattr(args, 'fw_tcp', None)
+    host = None
+    tcp_port = 9000
+    if fw_tcp:
+        if ":" in fw_tcp:
+            host, port_str = fw_tcp.rsplit(":", 1)
+            tcp_port = int(port_str)
+        else:
+            host = fw_tcp
+    from ota_flash import flash_wifi
+    rc = asyncio.run(flash_wifi(host=host, tcp_port=tcp_port))
+    sys.exit(rc)
+
+
+def cmd_flash(args):
+    # --fw-tcp implies wifi
+    if getattr(args, 'fw_tcp', None):
+        _do_wifi_flash(args)
+        return
+
+    use_usb = getattr(args, 'usb', False)
+    use_wifi = getattr(args, 'wifi', False)
+
+    if use_usb:
+        _do_usb_flash()
+    elif use_wifi:
+        _do_wifi_flash(args)
+    else:
+        # Auto-detect: USB first
+        _ensure_host_importable()
+        from server import find_serial_port
+        if find_serial_port():
+            _do_usb_flash()
+        else:
+            _do_wifi_flash(args)
 
 
 def cmd_test(args):
@@ -168,7 +208,14 @@ def main():
     _add_server_flags(p_mock)
 
     # bark flash
-    sub.add_parser("flash", help="Build + upload firmware via PlatformIO")
+    p_flash = sub.add_parser("flash", help="Build + upload firmware via PlatformIO")
+    _flash_group = p_flash.add_mutually_exclusive_group()
+    _flash_group.add_argument("--usb", action="store_true",
+                              help="Force USB upload via PlatformIO")
+    _flash_group.add_argument("--wifi", action="store_true",
+                              help="Force WiFi OTA flash")
+    p_flash.add_argument("--fw-tcp", default=None, metavar="HOST[:PORT]",
+                         help="Target firmware TCP address (implies --wifi; default port 9000)")
 
     # bark test
     sub.add_parser("test", help="Build and run firmware native tests")
