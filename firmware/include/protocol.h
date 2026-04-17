@@ -5,6 +5,7 @@ constexpr const char* MSG_CMD_MOVE      = "cmd_move";
 constexpr const char* MSG_CMD_STAND     = "cmd_stand";
 constexpr const char* MSG_CMD_BALANCE   = "cmd_balance";
 constexpr const char* MSG_CMD_LED       = "cmd_led";
+constexpr const char* MSG_CMD_BUZZER    = "cmd_buzzer";
 constexpr const char* MSG_CMD_SERVO     = "cmd_servo";
 constexpr const char* MSG_CMD_ENGAGE    = "cmd_engage";
 constexpr const char* MSG_CMD_I2C_WRITE = "cmd_i2c_write";   // raw I2C probe — debug only

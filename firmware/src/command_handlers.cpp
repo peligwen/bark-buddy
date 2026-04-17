@@ -9,6 +9,7 @@
 #include "balance.h"
 #include "offsets.h"
 #include "update_led.h"
+#include "buzzer.h"
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <string.h>
@@ -453,6 +454,13 @@ static void handle_cmd_probe_pin(const JsonDocument& doc) {
     send_json(resp);
 }
 
+static void handle_cmd_buzzer(const JsonDocument& doc) {
+    uint16_t freq = doc["freq_hz"]     | 2400;
+    uint32_t dur  = doc["duration_ms"] | 200;
+    buzzer_tone(freq, dur);
+    send_ack(MSG_CMD_BUZZER, true);
+}
+
 static void handle_cmd_balance_config(const JsonDocument& doc) {
     float pitch_kp, pitch_ki, pitch_kd, roll_kp, roll_ki, roll_kd;
     balance_get_gains(&pitch_kp, &pitch_ki, &pitch_kd, &roll_kp, &roll_ki, &roll_kd);
@@ -499,6 +507,7 @@ static const Handler k_handlers[] = {
     { MSG_CMD_OTA_UPDATE,     handle_cmd_ota_update     },
     { MSG_CMD_PROBE_PIN,      handle_cmd_probe_pin      },
     { MSG_CMD_BALANCE_CONFIG, handle_cmd_balance_config },
+    { MSG_CMD_BUZZER,         handle_cmd_buzzer         },
 };
 
 void handlers_init() {

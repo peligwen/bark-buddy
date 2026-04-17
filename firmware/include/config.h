@@ -145,6 +145,11 @@ static const int8_t SERVO_POLARITY_OVERRIDE[8] = {
 #endif
 // clang-format on
 
+// --- Buzzer ---
+// GPIO 21, driven via S8050 NPN transistor. HIGH = buzzer on. Confirmed V1.2 schematic.
+#define BUZZER_PIN          21
+#define BUZZER_LEDC_CH      9   // LEDC channel — 0-7 leg servos, 8 probe, 9 buzzer
+
 // --- LED Brightness ---
 // Scale is 0-255. Stock firmware uses full 0-255 range.
 #define LED_BRIGHTNESS  40  // dim but clearly visible at ~16% max
