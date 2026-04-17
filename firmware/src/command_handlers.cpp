@@ -203,6 +203,11 @@ static void handle_cmd_i2c(const JsonDocument& doc) {
     if      (strcmp(op_str, "scan") == 0) op = I2cOp::SCAN;
     else if (strcmp(op_str, "read") == 0) op = I2cOp::READ;
 
+    if (op == I2cOp::SCAN && (balance_is_enabled() || gait_current_state() != GaitState::STOP)) {
+        send_ack(MSG_CMD_I2C, false, "scan_blocked_during_motion");
+        return;
+    }
+
     I2cCmd cmd = {};
     cmd.op   = op;
     cmd.bus  = bus;
@@ -238,7 +243,10 @@ static void handle_cmd_i2c(const JsonDocument& doc) {
 
 static void handle_cmd_i2c_write(const JsonDocument& doc) {
     // Deprecated: use cmd_i2c with op="write". Kept for one release cycle.
-    handle_cmd_i2c(doc);
+    JsonDocument d2;
+    d2.set(doc);
+    d2["op"] = "write";
+    handle_cmd_i2c(d2);
 }
 
 static void handle_cmd_offset(const JsonDocument& doc) {

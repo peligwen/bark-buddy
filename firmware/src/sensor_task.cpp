@@ -227,6 +227,10 @@ static void sensor_task_fn(void*) {
                 send_json(telem);
             }
         }
+
+#ifndef MOCK_FIRMWARE
+        vTaskDelay(1);  // yield to idle task to feed watchdog when INT2 is very active
+#endif
     }
 }
 
@@ -280,13 +284,19 @@ void sensor_imu_signal_ready() {
 
 bool sensor_gpio_subscribe(uint8_t pin, GpioMode mode) {
     if (!gpio_aux_allowlisted(pin)) return false;
+    uint8_t set_pin = 0;
+    GpioMode set_mode = GpioMode::FLOATING;
+    bool do_set_mode = false;
     GPIO_SUB_ENTER_CRITICAL();
     // Check if already subscribed — update mode in place
     for (uint8_t i = 0; i < s_gpio_sub_count; i++) {
         if (s_gpio_subs[i].pin == pin) {
             s_gpio_subs[i].mode = mode;
-            gpio_aux_set_mode(pin, mode);
+            set_pin = pin;
+            set_mode = mode;
+            do_set_mode = true;
             GPIO_SUB_EXIT_CRITICAL();
+            gpio_aux_set_mode(set_pin, set_mode);
             return true;
         }
     }
@@ -295,8 +305,11 @@ bool sensor_gpio_subscribe(uint8_t pin, GpioMode mode) {
         return false;
     }
     s_gpio_subs[s_gpio_sub_count++] = {pin, mode};
-    gpio_aux_set_mode(pin, mode);
+    set_pin = pin;
+    set_mode = mode;
+    do_set_mode = true;
     GPIO_SUB_EXIT_CRITICAL();
+    if (do_set_mode) gpio_aux_set_mode(set_pin, set_mode);
     return true;
 }
 

@@ -12,6 +12,7 @@
 #include "balance.h"
 #include "offsets.h"
 #include "update_led.h"
+#include "buzzer.h"
 #ifndef WIFI_ENABLED
 #define WIFI_ENABLED 0
 #endif
@@ -152,6 +153,9 @@ void setup() {
     // Sensor task starts I2C, probes IMU + sonar, sets boot LED.
     // Blocks until first init pass completes (<=1s).
     sensor_task_start();
+#ifndef MOCK_FIRMWARE
+    buzzer_init();
+#endif
 
     // Boot rainbow — runs briefly on every boot, confirms firmware is alive after a flash
     s_update_led_active = true;

@@ -186,7 +186,7 @@ function buildI2C() {
                 send({ type: 'cmd_i2c', op: 'read', bus: bus(), addr: parseInt(addrIn.value, 10), reg: parseInt(regIn.value, 10) });
             }),
             btn('Write', function() {
-                send({ type: 'cmd_i2c', op: 'write', bus: bus(), addr: parseInt(addrIn.value, 10), reg: parseInt(regIn.value, 10), value: parseInt(valIn.value, 10) });
+                send({ type: 'cmd_i2c', op: 'write', bus: bus(), addr: parseInt(addrIn.value, 10), reg: parseInt(regIn.value, 10), val: parseInt(valIn.value, 10) });
             })
         ]),
         readout
