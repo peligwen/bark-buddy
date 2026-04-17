@@ -71,14 +71,15 @@ static void test_read_digital_invalid() {
 }
 
 // ------------------------------------------------------------------ //
-// Test: read_analog returns 0 in mock
+// Test: read_analog returns 0 for ADC-capable pins (32, 33 only)
+//       and -1 for UART pins (1, 3) which are not ADC-safe.
 // ------------------------------------------------------------------ //
 static void test_read_analog_mock() {
     printf("\nTest: read_analog_mock\n");
-    check(gpio_aux_read_analog(32) == 0, "read_analog(32) == 0 in mock");
-    check(gpio_aux_read_analog(33) == 0, "read_analog(33) == 0 in mock");
-    check(gpio_aux_read_analog(1)  == 0, "read_analog(1) == 0 in mock");
-    check(gpio_aux_read_analog(3)  == 0, "read_analog(3) == 0 in mock");
+    check(gpio_aux_read_analog(32) == 0,  "read_analog(32) == 0 in mock");
+    check(gpio_aux_read_analog(33) == 0,  "read_analog(33) == 0 in mock");
+    check(gpio_aux_read_analog(1)  == -1, "read_analog(1) == -1 (UART pin, not ADC-safe)");
+    check(gpio_aux_read_analog(3)  == -1, "read_analog(3) == -1 (UART pin, not ADC-safe)");
 }
 
 // ------------------------------------------------------------------ //

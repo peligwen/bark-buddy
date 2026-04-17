@@ -551,7 +551,7 @@ static void handle_cmd_gpio(const JsonDocument& doc) {
 
     } else if (strcmp(op_str, "read") == 0) {
         int digital_val = gpio_aux_read_digital(pin);
-        int analog_val  = (pin == 32 || pin == 33) ? gpio_aux_read_analog(pin) : -1;
+        int analog_val  = gpio_aux_read_analog(pin);
         JsonDocument resp;
         resp["type"]    = MSG_TELEM_GPIO;
         resp["pin"]     = pin;
@@ -560,7 +560,7 @@ static void handle_cmd_gpio(const JsonDocument& doc) {
         send_json(resp);
 
     } else if (strcmp(op_str, "analog") == 0) {
-        int analog_val  = (pin == 32 || pin == 33) ? gpio_aux_read_analog(pin) : -1;
+        int analog_val  = gpio_aux_read_analog(pin);
         int digital_val = gpio_aux_read_digital(pin);
         JsonDocument resp;
         resp["type"]    = MSG_TELEM_GPIO;
@@ -586,7 +586,7 @@ static void handle_cmd_gpio(const JsonDocument& doc) {
         send_ack(MSG_CMD_GPIO, true);
 
     } else {
-        send_ack(MSG_CMD_GPIO, false, "missing op");
+        send_ack(MSG_CMD_GPIO, false, "unknown_op");
     }
 }
 

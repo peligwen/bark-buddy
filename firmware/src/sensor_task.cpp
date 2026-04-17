@@ -218,8 +218,7 @@ static void sensor_task_fn(void*) {
             for (uint8_t i = 0; i < sub_count_snap; i++) {
                 uint8_t pin = subs_snap[i].pin;
                 int digital_val = gpio_aux_read_digital(pin);
-                // ADC is only valid on GPIO 32 and 33
-                int analog_val  = (pin == 32 || pin == 33) ? gpio_aux_read_analog(pin) : -1;
+                int analog_val  = gpio_aux_read_analog(pin);
                 JsonDocument telem;
                 telem["type"]    = MSG_TELEM_GPIO;
                 telem["pin"]     = pin;
@@ -286,8 +285,8 @@ bool sensor_gpio_subscribe(uint8_t pin, GpioMode mode) {
     for (uint8_t i = 0; i < s_gpio_sub_count; i++) {
         if (s_gpio_subs[i].pin == pin) {
             s_gpio_subs[i].mode = mode;
-            GPIO_SUB_EXIT_CRITICAL();
             gpio_aux_set_mode(pin, mode);
+            GPIO_SUB_EXIT_CRITICAL();
             return true;
         }
     }
@@ -296,8 +295,8 @@ bool sensor_gpio_subscribe(uint8_t pin, GpioMode mode) {
         return false;
     }
     s_gpio_subs[s_gpio_sub_count++] = {pin, mode};
-    GPIO_SUB_EXIT_CRITICAL();
     gpio_aux_set_mode(pin, mode);
+    GPIO_SUB_EXIT_CRITICAL();
     return true;
 }
 

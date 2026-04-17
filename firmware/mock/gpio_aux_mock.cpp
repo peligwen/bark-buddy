@@ -22,6 +22,7 @@ int gpio_aux_read_digital(uint8_t pin) {
 }
 
 int gpio_aux_read_analog(uint8_t pin) {
+    if (!gpio_aux_allowlisted(pin)) return -1;
     (void)pin;
     return 0;
 }

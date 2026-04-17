@@ -40,6 +40,7 @@ int gpio_aux_read_digital(uint8_t pin) {
 }
 
 int gpio_aux_read_analog(uint8_t pin) {
+    if (pin != 32 && pin != 33) return -1;  // only ADC1 ch4/ch5 are safe on this board
     if (!gpio_aux_allowlisted(pin)) return -1;
 #ifndef MOCK_FIRMWARE
     return analogRead(pin);
