@@ -146,7 +146,7 @@ function buildGPIO() {
                 send({ type: 'cmd_gpio', op: 'analog', pin: pin() });
             }),
             btn('Subscribe', function() {
-                send({ type: 'cmd_gpio', op: 'subscribe', pin: pin() });
+                send({ type: 'cmd_gpio', op: 'subscribe', pin: pin(), mode: modeSel.value });
             }),
             btn('Unsubscribe', function() {
                 send({ type: 'cmd_gpio', op: 'unsubscribe', pin: pin() });
