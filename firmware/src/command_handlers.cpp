@@ -11,6 +11,7 @@
 #include "update_led.h"
 #include "buzzer.h"
 #include "gpio_aux.h"
+#include "pin_registry.h"
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <string.h>
@@ -471,9 +472,18 @@ static void handle_cmd_probe_pin(const JsonDocument& doc) {
     uint8_t  pin    = doc["pin"]      | 255;
     uint16_t center = doc["pulse_us"] | 1500;
 
-    // Reject invalid / reserved pins
-    if (pin == 255 || pin == 22 || pin == 23 || pin >= 34) {
+    // Reject sentinel / missing pin
+    if (pin == 255) {
         send_ack(MSG_CMD_PROBE_PIN, false, "invalid_pin");
+        return;
+    }
+    // Reject pins owned by firmware subsystems
+    const char* reserved_reason = nullptr;
+    if (pin_is_reserved(pin, &reserved_reason)) {
+        char err_buf[32];
+        snprintf(err_buf, sizeof(err_buf), "pin_reserved:%s",
+                 reserved_reason ? reserved_reason : "unknown");
+        send_ack(MSG_CMD_PROBE_PIN, false, err_buf);
         return;
     }
     // Reject if this pin is currently driving a live servo
@@ -484,6 +494,14 @@ static void handle_cmd_probe_pin(const JsonDocument& doc) {
                 return;
             }
         }
+#if AUX_SERVOS_ENABLED
+        for (int i = 0; i < AUX_SERVO_COUNT; i++) {
+            if (AUX_SERVO_PINS[i] == pin) {
+                send_ack(MSG_CMD_PROBE_PIN, false, "servo_pin_engaged");
+                return;
+            }
+        }
+#endif
     }
     if (center < 500)  center = 500;
     if (center > 2500) center = 2500;
