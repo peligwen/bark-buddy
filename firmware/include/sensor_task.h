@@ -30,3 +30,8 @@ void sensor_led_set(uint8_t led, uint8_t r, uint8_t g, uint8_t b);
 // Issue a raw I2C register write through the sensor task. Blocks until the
 // task executes it (≤~10ms). Debug / probe only. Returns true if ACKed.
 bool sensor_i2c_write(uint8_t addr, uint8_t reg, uint8_t val);
+
+// Signal that IMU data is ready. Called from mock's 50 Hz IMU thread to drive
+// the same semaphore path used by the hardware INT2 ISR. No-op on real hardware
+// (the GPIO ISR fires instead). Safe to call from any thread context.
+void sensor_imu_signal_ready();

@@ -1,5 +1,7 @@
 // Mock sensor task — replaces firmware/src/sensor_task.cpp at link time.
-// Runs 50 Hz IMU thread and 10 Hz sonar thread reading from the physics model.
+// Runs a 50 Hz IMU thread and 10 Hz sonar thread writing directly to the snapshot
+// under a mutex. sensor_imu_signal_ready() is defined here as a no-op for link
+// compatibility — the mock has no FreeRTOS semaphore to signal.
 #include "../include/sensor_task.h"
 #include "physics.h"
 
@@ -31,6 +33,10 @@ static void imu_thread() {
             s_snapshot.gz      = s.gz;
             s_snapshot.imu_ok  = true;
         }
+        // Signal the sensor task that IMU data is ready. This drives the same
+        // semaphore path used by the hardware INT2 ISR (imu_isr in sensor_task.cpp),
+        // so the mock and real firmware wake up via identical task logic.
+        sensor_imu_signal_ready();
         next += milliseconds(20);  // 50 Hz
         std::this_thread::sleep_until(next);
     }
@@ -67,3 +73,9 @@ void sensor_snapshot_get(SensorSnapshot& out) {
 void sensor_led_set(uint8_t, uint8_t, uint8_t, uint8_t) {}
 
 bool sensor_i2c_write(uint8_t, uint8_t, uint8_t) { return true; }
+
+// No-op in the mock: the mock's sensor loop is driven by std::thread sleep_until,
+// not a FreeRTOS semaphore. The function exists so that the imu_thread() call above
+// compiles, and so that any code path that calls sensor_imu_signal_ready() links
+// correctly in both mock and real-hardware builds.
+void sensor_imu_signal_ready() {}

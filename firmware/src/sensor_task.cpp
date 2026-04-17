@@ -21,6 +21,19 @@ static QueueHandle_t     s_i2c_write_queue  = nullptr;
 static SemaphoreHandle_t s_i2c_write_done   = nullptr;
 static bool              s_i2c_write_result = false;
 
+// Binary semaphore given by the INT2 ISR (hardware) or sensor_imu_signal_ready()
+// (mock). sensor_task_fn blocks on this with a 50ms safety timeout so that
+// polling still works if INT2 is unconfigured or interrupts stall.
+static SemaphoreHandle_t s_imu_rdy = nullptr;
+
+#ifndef MOCK_FIRMWARE
+static void IRAM_ATTR imu_isr() {
+    BaseType_t higher_woken = pdFALSE;
+    xSemaphoreGiveFromISR(s_imu_rdy, &higher_woken);
+    portYIELD_FROM_ISR(higher_woken);
+}
+#endif
+
 static void sensor_task_fn(void*) {
     // Take ownership of the I2C bus. Short timeout prevents sonar read stalls
     // from blocking the task for >1s on the rare occasion the module is busy.
@@ -35,6 +48,14 @@ static void sensor_task_fn(void*) {
 
     bool imu_ok   = imu_init(Wire);
     bool sonar_ok = sonar_init(Wire);
+
+#ifndef MOCK_FIRMWARE
+    // Attach interrupt on INT2 data-ready line (GPIO 35, input-only pin).
+    // Must be done after imu_init() so the QMI8658 is already configured
+    // to assert INT2 on data-ready (CTRL8=0x40 set in imu_init).
+    pinMode(IMU_INT_PIN, INPUT);
+    attachInterrupt(digitalPinToInterrupt(IMU_INT_PIN), imu_isr, RISING);
+#endif
 
     // Set boot LED based on init results
     if (imu_ok && sonar_ok) {
@@ -52,14 +73,19 @@ static void sensor_task_fn(void*) {
     xSemaphoreGive(s_snapshot_mutex);
     xSemaphoreGive(s_ready_sem);
 
-    unsigned long last_imu   = 0;
     unsigned long last_sonar = 0;
 
     for (;;) {
-        unsigned long now = millis();
-
-        // Read IMU at TELEM_IMU_HZ
-        if (now - last_imu >= 1000 / TELEM_IMU_HZ) {
+        // Block until IMU data-ready interrupt fires (or 50ms safety timeout).
+        // On hardware: GPIO 35 INT2 RISING edge gives the semaphore via imu_isr().
+        // On mock:     sensor_imu_signal_ready() gives it from the 50Hz IMU thread.
+        // Safety timeout (TELEM_IMU_HZ period + 30ms slack) ensures polling continues
+        // even if INT2 is not configured or interrupts stall.
+        const TickType_t imu_timeout = pdMS_TO_TICKS(1000 / TELEM_IMU_HZ + IMU_INT_SLACK_MS);  // 20ms IMU period + 30ms ISR wake slack
+        xSemaphoreTake(s_imu_rdy, imu_timeout);
+        // Read IMU regardless of whether the semaphore fired or we timed out;
+        // the safety fallback preserves the original polling behaviour.
+        {
             IMUData d;
             if (imu_read(d)) {
                 xSemaphoreTake(s_snapshot_mutex, portMAX_DELAY);
@@ -70,8 +96,9 @@ static void sensor_task_fn(void*) {
                 s_snapshot.gx = d.gx; s_snapshot.gy = d.gy; s_snapshot.gz = d.gz;
                 xSemaphoreGive(s_snapshot_mutex);
             }
-            last_imu = now;
         }
+
+        unsigned long now = millis();
 
         // Read sonar at 10Hz — module needs ~60ms for a no-object measurement cycle;
         // telemetry still emits at TELEM_SONAR_HZ from the snapshot.
@@ -109,7 +136,7 @@ static void sensor_task_fn(void*) {
             xSemaphoreGive(s_i2c_write_done);
         }
 
-        // Poll button every loop pass (~1ms resolution); function handles debounce timing
+        // Poll button every loop pass; function handles debounce timing
         ButtonEvent btn = button_update((uint32_t)millis());
         if (btn != ButtonEvent::NONE) {
             JsonDocument ev;
@@ -120,14 +147,13 @@ static void sensor_task_fn(void*) {
             ev["held_ms"] = button_held_ms();
             send_json(ev);
         }
-
-        vTaskDelay(pdMS_TO_TICKS(1));
     }
 }
 
 void sensor_task_start() {
     s_snapshot_mutex  = xSemaphoreCreateMutex();
     s_ready_sem       = xSemaphoreCreateBinary();
+    s_imu_rdy         = xSemaphoreCreateBinary();
     s_led_queue       = xQueueCreate(4, sizeof(LedCmd));
     s_i2c_write_queue = xQueueCreate(1, sizeof(I2cWriteCmd));
     s_i2c_write_done  = xSemaphoreCreateBinary();
@@ -154,4 +180,8 @@ bool sensor_i2c_write(uint8_t addr, uint8_t reg, uint8_t val) {
     if (!xQueueSend(s_i2c_write_queue, &cmd, pdMS_TO_TICKS(100))) return false;
     if (!xSemaphoreTake(s_i2c_write_done, pdMS_TO_TICKS(200))) return false;
     return s_i2c_write_result;
+}
+
+void sensor_imu_signal_ready() {
+    if (s_imu_rdy) xSemaphoreGive(s_imu_rdy);
 }

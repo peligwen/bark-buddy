@@ -78,6 +78,15 @@ bool imu_init(TwoWire& wire) {
     // Enable accel + gyro
     writeReg(QMI_CTRL7, QMI_CTRL7_VAL);
 
+    // Enable data-ready on INT2 (active-high push-pull). CTRL8 bit 6 = INT2_DRDY.
+    // QMI8658C datasheet §8.3.5. Value 0x40 routes accel+gyro data-ready to INT2.
+#ifndef MOCK_FIRMWARE
+    _wire->beginTransmission(QMI8658_ADDR);
+    _wire->write(0x0F);   // CTRL8
+    _wire->write(0x40);   // INT2_DRDY enable
+    _wire->endTransmission();
+#endif
+
     delay(30);
 
     _lastTime = millis();
