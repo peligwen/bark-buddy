@@ -18,6 +18,8 @@ constexpr const char* MSG_CMD_BALANCE_CONFIG = "cmd_balance_config";
 constexpr const char* MSG_PING          = "ping";
 constexpr const char* MSG_CMD_OTA_UPDATE    = "cmd_ota_update";
 constexpr const char* MSG_CMD_PROBE_PIN  = "cmd_probe_pin";
+constexpr const char* MSG_CMD_GPIO       = "cmd_gpio";
+constexpr const char* MSG_TELEM_GPIO     = "telem_gpio";
 constexpr const char* MSG_OTA_STATUS     = "ota_status";
 
 // Firmware -> Host telemetry

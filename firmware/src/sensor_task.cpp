@@ -6,12 +6,19 @@
 #include "config.h"
 #include "protocol.h"
 #include "comms.h"
+#include "gpio_aux.h"
 #include <Arduino.h>
 #include <Wire.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <freertos/semphr.h>
 #include <freertos/queue.h>
+
+#ifndef MOCK_FIRMWARE
+#include <freertos/portmacro.h>
+#else
+#include <mutex>
+#endif
 
 static SensorSnapshot    s_snapshot       = {};
 static SemaphoreHandle_t s_snapshot_mutex = nullptr;
@@ -25,6 +32,21 @@ static I2cResult         s_i2c_result     = {};
 // (mock). sensor_task_fn blocks on this with a 50ms safety timeout so that
 // polling still works if INT2 is unconfigured or interrupts stall.
 static SemaphoreHandle_t s_imu_rdy = nullptr;
+
+// GPIO subscription state — protected by s_gpio_mux.
+struct GpioSub { uint8_t pin; GpioMode mode; };
+static GpioSub  s_gpio_subs[4]  = {};
+static uint8_t  s_gpio_sub_count = 0;
+
+#ifndef MOCK_FIRMWARE
+static portMUX_TYPE s_gpio_mux = portMUX_INITIALIZER_UNLOCKED;
+#define GPIO_SUB_ENTER_CRITICAL() portENTER_CRITICAL(&s_gpio_mux)
+#define GPIO_SUB_EXIT_CRITICAL()  portEXIT_CRITICAL(&s_gpio_mux)
+#else
+static std::mutex s_gpio_mutex;
+#define GPIO_SUB_ENTER_CRITICAL() s_gpio_mutex.lock()
+#define GPIO_SUB_EXIT_CRITICAL()  s_gpio_mutex.unlock()
+#endif
 
 #ifndef MOCK_FIRMWARE
 static void IRAM_ATTR imu_isr() {
@@ -178,6 +200,34 @@ static void sensor_task_fn(void*) {
             ev["held_ms"] = button_held_ms();
             send_json(ev);
         }
+
+        // Poll subscribed GPIO aux pins at ~20 Hz (every 50ms)
+        static uint32_t s_gpio_poll_ms = 0;
+        uint32_t now_ms = (uint32_t)millis();
+        if (now_ms - s_gpio_poll_ms >= 50) {
+            s_gpio_poll_ms = now_ms;
+
+            // Snapshot the subscription table under lock, then emit outside lock.
+            GpioSub subs_snap[4];
+            uint8_t sub_count_snap;
+            GPIO_SUB_ENTER_CRITICAL();
+            sub_count_snap = s_gpio_sub_count;
+            for (uint8_t i = 0; i < sub_count_snap; i++) subs_snap[i] = s_gpio_subs[i];
+            GPIO_SUB_EXIT_CRITICAL();
+
+            for (uint8_t i = 0; i < sub_count_snap; i++) {
+                uint8_t pin = subs_snap[i].pin;
+                int digital_val = gpio_aux_read_digital(pin);
+                // ADC is only valid on GPIO 32 and 33
+                int analog_val  = (pin == 32 || pin == 33) ? gpio_aux_read_analog(pin) : -1;
+                JsonDocument telem;
+                telem["type"]    = MSG_TELEM_GPIO;
+                telem["pin"]     = pin;
+                telem["digital"] = digital_val;
+                telem["analog"]  = analog_val;
+                send_json(telem);
+            }
+        }
     }
 }
 
@@ -227,4 +277,41 @@ bool sensor_i2c_write(uint8_t addr, uint8_t reg, uint8_t val) {
 
 void sensor_imu_signal_ready() {
     if (s_imu_rdy) xSemaphoreGive(s_imu_rdy);
+}
+
+bool sensor_gpio_subscribe(uint8_t pin, GpioMode mode) {
+    if (!gpio_aux_allowlisted(pin)) return false;
+    GPIO_SUB_ENTER_CRITICAL();
+    // Check if already subscribed — update mode in place
+    for (uint8_t i = 0; i < s_gpio_sub_count; i++) {
+        if (s_gpio_subs[i].pin == pin) {
+            s_gpio_subs[i].mode = mode;
+            GPIO_SUB_EXIT_CRITICAL();
+            gpio_aux_set_mode(pin, mode);
+            return true;
+        }
+    }
+    if (s_gpio_sub_count >= 4) {
+        GPIO_SUB_EXIT_CRITICAL();
+        return false;
+    }
+    s_gpio_subs[s_gpio_sub_count++] = {pin, mode};
+    GPIO_SUB_EXIT_CRITICAL();
+    gpio_aux_set_mode(pin, mode);
+    return true;
+}
+
+void sensor_gpio_unsubscribe(uint8_t pin) {
+    GPIO_SUB_ENTER_CRITICAL();
+    for (uint8_t i = 0; i < s_gpio_sub_count; i++) {
+        if (s_gpio_subs[i].pin == pin) {
+            // Compact: shift remaining entries down
+            for (uint8_t j = i; j + 1 < s_gpio_sub_count; j++) {
+                s_gpio_subs[j] = s_gpio_subs[j + 1];
+            }
+            s_gpio_sub_count--;
+            break;
+        }
+    }
+    GPIO_SUB_EXIT_CRITICAL();
 }

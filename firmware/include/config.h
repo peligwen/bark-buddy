@@ -178,6 +178,11 @@ static const int8_t SERVO_POLARITY_OVERRIDE[8] = {
 // Scale is 0-255. Stock firmware uses full 0-255 range.
 #define LED_BRIGHTNESS  40  // dim but clearly visible at ~16% max
 
+// --- Auxiliary GPIO ---
+// J5 expansion header (IO32, IO33) and UART0 header (TX=IO1, RX=IO3).
+// All four pins are unused by the base firmware; gpio_aux_* functions gate access.
+#define AUX_GPIO_ENABLED 1
+
 // --- LED Colors (0-255 scale) ---
 // Lavender: R=180, G=110, B=255 at full brightness, scaled to LED_BRIGHTNESS
 #define LED_R_LAVENDER  ((180 * LED_BRIGHTNESS) / 255)  // ~28

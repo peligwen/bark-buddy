@@ -10,6 +10,7 @@
 #include "offsets.h"
 #include "update_led.h"
 #include "buzzer.h"
+#include "gpio_aux.h"
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <string.h>
@@ -522,6 +523,73 @@ static void handle_cmd_balance_config(const JsonDocument& doc) {
     send_json(resp);
 }
 
+static void handle_cmd_gpio(const JsonDocument& doc) {
+    const char* op_str = doc["op"] | "";
+    if (op_str[0] == '\0') {
+        send_ack(MSG_CMD_GPIO, false, "missing op");
+        return;
+    }
+    uint8_t pin = doc["pin"] | 255;
+    if (!gpio_aux_allowlisted(pin)) {
+        send_ack(MSG_CMD_GPIO, false, "pin_not_allowed");
+        return;
+    }
+
+    if (strcmp(op_str, "mode") == 0) {
+        const char* mode_str = doc["mode"] | "input_floating";
+        GpioMode mode = GpioMode::FLOATING;
+        if      (strcmp(mode_str, "input_pullup")   == 0) mode = GpioMode::PULLUP;
+        else if (strcmp(mode_str, "input_pulldown") == 0) mode = GpioMode::PULLDOWN;
+        else if (strcmp(mode_str, "output")         == 0) mode = GpioMode::GPIO_OUTPUT;
+        gpio_aux_set_mode(pin, mode);
+        send_ack(MSG_CMD_GPIO, true);
+
+    } else if (strcmp(op_str, "write") == 0) {
+        uint8_t val = doc["value"] | 0;
+        gpio_aux_write(pin, val);
+        send_ack(MSG_CMD_GPIO, true);
+
+    } else if (strcmp(op_str, "read") == 0) {
+        int digital_val = gpio_aux_read_digital(pin);
+        int analog_val  = -1;
+        JsonDocument resp;
+        resp["type"]    = MSG_TELEM_GPIO;
+        resp["pin"]     = pin;
+        resp["digital"] = digital_val;
+        resp["analog"]  = analog_val;
+        send_json(resp);
+
+    } else if (strcmp(op_str, "analog") == 0) {
+        int analog_val  = (pin == 32 || pin == 33) ? gpio_aux_read_analog(pin) : -1;
+        int digital_val = gpio_aux_read_digital(pin);
+        JsonDocument resp;
+        resp["type"]    = MSG_TELEM_GPIO;
+        resp["pin"]     = pin;
+        resp["digital"] = digital_val;
+        resp["analog"]  = analog_val;
+        send_json(resp);
+
+    } else if (strcmp(op_str, "subscribe") == 0) {
+        const char* mode_str = doc["mode"] | "input_floating";
+        GpioMode mode = GpioMode::FLOATING;
+        if      (strcmp(mode_str, "input_pullup")   == 0) mode = GpioMode::PULLUP;
+        else if (strcmp(mode_str, "input_pulldown") == 0) mode = GpioMode::PULLDOWN;
+        else if (strcmp(mode_str, "output")         == 0) mode = GpioMode::GPIO_OUTPUT;
+        if (!sensor_gpio_subscribe(pin, mode)) {
+            send_ack(MSG_CMD_GPIO, false, "subscribe_failed");
+            return;
+        }
+        send_ack(MSG_CMD_GPIO, true);
+
+    } else if (strcmp(op_str, "unsubscribe") == 0) {
+        sensor_gpio_unsubscribe(pin);
+        send_ack(MSG_CMD_GPIO, true);
+
+    } else {
+        send_ack(MSG_CMD_GPIO, false, "missing op");
+    }
+}
+
 // --- Dispatch table ---
 
 typedef void (*HandlerFn)(const JsonDocument&);
@@ -544,6 +612,7 @@ static const Handler k_handlers[] = {
     { MSG_CMD_PROBE_PIN,      handle_cmd_probe_pin      },
     { MSG_CMD_BALANCE_CONFIG, handle_cmd_balance_config },
     { MSG_CMD_BUZZER,         handle_cmd_buzzer         },
+    { MSG_CMD_GPIO,           handle_cmd_gpio           },
 };
 
 void handlers_init() {

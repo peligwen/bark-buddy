@@ -113,3 +113,12 @@ bool sensor_i2c_write(uint8_t addr, uint8_t reg, uint8_t val) {
 // compiles, and so that any code path that calls sensor_imu_signal_ready() links
 // correctly in both mock and real-hardware builds.
 void sensor_imu_signal_ready() {}
+
+// GPIO subscription stubs — no real GPIO on the host. Subscribe/unsubscribe are
+// no-ops; they return true/false consistent with allowlist checks only.
+#include "../include/gpio_aux.h"
+bool sensor_gpio_subscribe(uint8_t pin, GpioMode mode) {
+    (void)mode;
+    return gpio_aux_allowlisted(pin);
+}
+void sensor_gpio_unsubscribe(uint8_t pin) { (void)pin; }

@@ -1,6 +1,7 @@
 // firmware/include/sensor_task.h
 #pragma once
 #include <stdint.h>
+#include "gpio_aux.h"
 
 // Latest values from IMU and sonar. Written by sensor task, read by main loop.
 struct SensorSnapshot {
@@ -61,3 +62,12 @@ bool sensor_i2c_op(const I2cCmd& cmd, I2cResult& out);
 // the same semaphore path used by the hardware INT2 ISR. No-op on real hardware
 // (the GPIO ISR fires instead). Safe to call from any thread context.
 void sensor_imu_signal_ready();
+
+// Subscribe a GPIO aux pin for 20 Hz polling. At most 4 simultaneous subscriptions.
+// Returns false if the table is full or the pin is not allowlisted.
+// Thread-safe (spinlock-protected on hardware, mutex on mock).
+bool sensor_gpio_subscribe(uint8_t pin, GpioMode mode);
+
+// Unsubscribe a GPIO aux pin. No-op if not currently subscribed.
+// Thread-safe.
+void sensor_gpio_unsubscribe(uint8_t pin);
