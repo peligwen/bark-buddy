@@ -92,7 +92,11 @@ def _do_wifi_flash(args):
     if fw_tcp:
         if ":" in fw_tcp:
             host, port_str = fw_tcp.rsplit(":", 1)
-            tcp_port = int(port_str)
+            try:
+                tcp_port = int(port_str)
+            except ValueError:
+                print(f"[flash] ERROR: invalid port in --fw-tcp '{fw_tcp}'")
+                sys.exit(1)
         else:
             host = fw_tcp
     from ota_flash import flash_wifi
@@ -120,6 +124,7 @@ def cmd_flash(args):
         if find_serial_port():
             _do_usb_flash()
         else:
+            print("[flash] No USB serial port found -- trying WiFi OTA ...")
             _do_wifi_flash(args)
 
 
@@ -214,8 +219,8 @@ def main():
                               help="Force USB upload via PlatformIO")
     _flash_group.add_argument("--wifi", action="store_true",
                               help="Force WiFi OTA flash")
-    p_flash.add_argument("--fw-tcp", default=None, metavar="HOST[:PORT]",
-                         help="Target firmware TCP address (implies --wifi; default port 9000)")
+    _flash_group.add_argument("--fw-tcp", default=None, metavar="HOST[:PORT]",
+                              help="Target firmware TCP address (implies --wifi; default port 9000)")
 
     # bark test
     sub.add_parser("test", help="Build and run firmware native tests")
