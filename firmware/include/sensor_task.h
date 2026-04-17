@@ -13,7 +13,26 @@ struct SensorSnapshot {
 };
 
 struct LedCmd      { uint8_t led, r, g, b; };
-struct I2cWriteCmd { uint8_t addr, reg, val; };
+struct I2cWriteCmd { uint8_t addr, reg, val; };  // kept for internal use
+
+enum class I2cOp : uint8_t { WRITE, READ, SCAN };
+
+struct I2cCmd {
+    I2cOp   op;
+    uint8_t bus;   // 1 or 2
+    uint8_t addr;
+    uint8_t reg;
+    uint8_t val;   // for WRITE
+    uint8_t len;   // for READ (max 32)
+};
+
+struct I2cResult {
+    bool    ok;
+    uint8_t data[32];
+    uint8_t data_len;
+    uint8_t addrs[16]; // for SCAN
+    uint8_t addr_count;
+};
 
 // Start the FreeRTOS sensor task. Initialises I2C, IMU, and sonar inside the
 // task. Blocks until the first init pass completes (≤1s) so that imu_ok and
@@ -29,7 +48,13 @@ void sensor_led_set(uint8_t led, uint8_t r, uint8_t g, uint8_t b);
 
 // Issue a raw I2C register write through the sensor task. Blocks until the
 // task executes it (≤~10ms). Debug / probe only. Returns true if ACKed.
+// Convenience wrapper around sensor_i2c_op() for bus 1 WRITE operations.
 bool sensor_i2c_write(uint8_t addr, uint8_t reg, uint8_t val);
+
+// Submit an I2C operation (scan/read/write, bus 1 or 2) and wait for result.
+// Blocks until the sensor task executes it (max ~200ms). Thread-safe.
+// Returns false on timeout or queue error.
+bool sensor_i2c_op(const I2cCmd& cmd, I2cResult& out);
 
 // Signal that IMU data is ready. Called from mock's 50 Hz IMU thread to drive
 // the same semaphore path used by the hardware INT2 ISR. No-op on real hardware

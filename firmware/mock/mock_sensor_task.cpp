@@ -3,7 +3,9 @@
 // under a mutex. sensor_imu_signal_ready() is defined here as a no-op for link
 // compatibility — the mock has no FreeRTOS semaphore to signal.
 #include "../include/sensor_task.h"
+#include "../include/config.h"
 #include "physics.h"
+#include "Wire.h"
 
 #include <mutex>
 #include <thread>
@@ -72,7 +74,39 @@ void sensor_snapshot_get(SensorSnapshot& out) {
 
 void sensor_led_set(uint8_t, uint8_t, uint8_t, uint8_t) {}
 
-bool sensor_i2c_write(uint8_t, uint8_t, uint8_t) { return true; }
+bool sensor_i2c_op(const I2cCmd& cmd, I2cResult& out) {
+    // Mock: Wire/Wire1 are no-op stubs. Scan always returns empty (no real devices on dev
+    // machine). Write returns ok=true (silent no-op). Read returns 0 bytes.
+    out = I2cResult{};
+    TwoWire& wire = (cmd.bus == 2) ? Wire1 : Wire;
+    switch (cmd.op) {
+        case I2cOp::SCAN:
+            for (uint8_t a = 1; a < 127 && out.addr_count < 16; a++) {
+                wire.beginTransmission(a);
+                if (wire.endTransmission() == 0) out.addrs[out.addr_count++] = a;
+            }
+            out.ok = true;
+            break;
+        case I2cOp::READ:
+            out.ok = false; // no real device
+            break;
+        case I2cOp::WRITE:
+            out.ok = true;  // silent no-op
+            break;
+    }
+    return true;
+}
+
+bool sensor_i2c_write(uint8_t addr, uint8_t reg, uint8_t val) {
+    I2cCmd cmd = {};
+    cmd.op   = I2cOp::WRITE;
+    cmd.bus  = 1;
+    cmd.addr = addr;
+    cmd.reg  = reg;
+    cmd.val  = val;
+    I2cResult res;
+    return sensor_i2c_op(cmd, res) && res.ok;
+}
 
 // No-op in the mock: the mock's sensor loop is driven by std::thread sleep_until,
 // not a FreeRTOS semaphore. The function exists so that the imu_thread() call above

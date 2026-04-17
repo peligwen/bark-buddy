@@ -13,13 +13,13 @@
 #include <freertos/semphr.h>
 #include <freertos/queue.h>
 
-static SensorSnapshot    s_snapshot         = {};
-static SemaphoreHandle_t s_snapshot_mutex   = nullptr;
-static SemaphoreHandle_t s_ready_sem        = nullptr;
-static QueueHandle_t     s_led_queue        = nullptr;
-static QueueHandle_t     s_i2c_write_queue  = nullptr;
-static SemaphoreHandle_t s_i2c_write_done   = nullptr;
-static bool              s_i2c_write_result = false;
+static SensorSnapshot    s_snapshot       = {};
+static SemaphoreHandle_t s_snapshot_mutex = nullptr;
+static SemaphoreHandle_t s_ready_sem      = nullptr;
+static QueueHandle_t     s_led_queue      = nullptr;
+static QueueHandle_t     s_i2c_cmd_queue  = nullptr;
+static SemaphoreHandle_t s_i2c_done       = nullptr;
+static I2cResult         s_i2c_result     = {};
 
 // Binary semaphore given by the INT2 ISR (hardware) or sensor_imu_signal_ready()
 // (mock). sensor_task_fn blocks on this with a 50ms safety timeout so that
@@ -38,6 +38,9 @@ static void sensor_task_fn(void*) {
     // Take ownership of the I2C bus. Short timeout prevents sonar read stalls
     // from blocking the task for >1s on the rare occasion the module is busy.
     Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN, I2C_FREQ);
+#if I2C2_ENABLED
+    Wire1.begin(I2C2_SDA_PIN, I2C2_SCL_PIN, I2C2_FREQ);
+#endif
 
     button_init();
 
@@ -126,14 +129,42 @@ static void sensor_task_fn(void*) {
             }
         }
 
-        // Service a pending raw I2C write (debug only)
-        I2cWriteCmd i2c;
-        if (xQueueReceive(s_i2c_write_queue, &i2c, 0)) {
-            Wire.beginTransmission(i2c.addr);
-            Wire.write(i2c.reg);
-            Wire.write(i2c.val);
-            s_i2c_write_result = (Wire.endTransmission() == 0);
-            xSemaphoreGive(s_i2c_write_done);
+        // Service a pending I2C operation (scan/read/write, bus 1 or 2)
+        I2cCmd i2ccmd;
+        if (xQueueReceive(s_i2c_cmd_queue, &i2ccmd, 0)) {
+            I2cResult res = {};
+#if I2C2_ENABLED
+            TwoWire& wire = (i2ccmd.bus == 2) ? Wire1 : Wire;
+#else
+            TwoWire& wire = Wire;
+#endif
+            switch (i2ccmd.op) {
+                case I2cOp::SCAN:
+                    for (uint8_t a = 1; a < 127 && res.addr_count < 16; a++) {
+                        wire.beginTransmission(a);
+                        if (wire.endTransmission() == 0) res.addrs[res.addr_count++] = a;
+                    }
+                    res.ok = true;
+                    break;
+                case I2cOp::READ:
+                    wire.beginTransmission(i2ccmd.addr);
+                    wire.write(i2ccmd.reg);
+                    if (wire.endTransmission(false) == 0) {
+                        uint8_t got = wire.requestFrom((int)i2ccmd.addr, (int)i2ccmd.len);
+                        for (uint8_t i = 0; i < got; i++) res.data[i] = wire.read();
+                        res.data_len = got;
+                        res.ok = (got == i2ccmd.len);
+                    }
+                    break;
+                case I2cOp::WRITE:
+                    wire.beginTransmission(i2ccmd.addr);
+                    wire.write(i2ccmd.reg);
+                    wire.write(i2ccmd.val);
+                    res.ok = (wire.endTransmission() == 0);
+                    break;
+            }
+            s_i2c_result = res;
+            xSemaphoreGive(s_i2c_done);
         }
 
         // Poll button every loop pass; function handles debounce timing
@@ -151,12 +182,12 @@ static void sensor_task_fn(void*) {
 }
 
 void sensor_task_start() {
-    s_snapshot_mutex  = xSemaphoreCreateMutex();
-    s_ready_sem       = xSemaphoreCreateBinary();
-    s_imu_rdy         = xSemaphoreCreateBinary();
-    s_led_queue       = xQueueCreate(4, sizeof(LedCmd));
-    s_i2c_write_queue = xQueueCreate(1, sizeof(I2cWriteCmd));
-    s_i2c_write_done  = xSemaphoreCreateBinary();
+    s_snapshot_mutex = xSemaphoreCreateMutex();
+    s_ready_sem      = xSemaphoreCreateBinary();
+    s_imu_rdy        = xSemaphoreCreateBinary();
+    s_led_queue      = xQueueCreate(4, sizeof(LedCmd));
+    s_i2c_cmd_queue  = xQueueCreate(1, sizeof(I2cCmd));
+    s_i2c_done       = xSemaphoreCreateBinary();
 
     xTaskCreate(sensor_task_fn, "sensor", 4096, nullptr, 2, nullptr);
 
@@ -175,11 +206,23 @@ void sensor_led_set(uint8_t led, uint8_t r, uint8_t g, uint8_t b) {
     xQueueSend(s_led_queue, &cmd, 0);  // non-blocking; drops if queue full
 }
 
+bool sensor_i2c_op(const I2cCmd& cmd, I2cResult& out) {
+    if (!xQueueSend(s_i2c_cmd_queue, &cmd, pdMS_TO_TICKS(100))) return false;
+    if (!xSemaphoreTake(s_i2c_done, pdMS_TO_TICKS(200))) return false;
+    out = s_i2c_result;
+    return true;
+}
+
 bool sensor_i2c_write(uint8_t addr, uint8_t reg, uint8_t val) {
-    I2cWriteCmd cmd = {addr, reg, val};
-    if (!xQueueSend(s_i2c_write_queue, &cmd, pdMS_TO_TICKS(100))) return false;
-    if (!xSemaphoreTake(s_i2c_write_done, pdMS_TO_TICKS(200))) return false;
-    return s_i2c_write_result;
+    I2cCmd cmd = {};
+    cmd.op   = I2cOp::WRITE;
+    cmd.bus  = 1;
+    cmd.addr = addr;
+    cmd.reg  = reg;
+    cmd.val  = val;
+    I2cResult res;
+    if (!sensor_i2c_op(cmd, res)) return false;
+    return res.ok;
 }
 
 void sensor_imu_signal_ready() {

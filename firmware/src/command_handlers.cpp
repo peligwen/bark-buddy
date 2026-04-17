@@ -174,20 +174,50 @@ static void handle_cmd_servo(const JsonDocument& doc) {
     send_json(resp);
 }
 
-static void handle_cmd_i2c_write(const JsonDocument& doc) {
-    uint8_t addr = doc["addr"] | 0x77;
-    uint8_t reg  = doc["reg"]  | 0;
-    uint8_t val  = doc["val"]  | 0;
-    bool ok = sensor_i2c_write(addr, reg, val);
+static void handle_cmd_i2c(const JsonDocument& doc) {
+    const char* op_str = doc["op"] | "write";
+    uint8_t bus = doc["bus"] | 1;
+
+    I2cOp op = I2cOp::WRITE;
+    if      (strcmp(op_str, "scan") == 0) op = I2cOp::SCAN;
+    else if (strcmp(op_str, "read") == 0) op = I2cOp::READ;
+
+    I2cCmd cmd = {};
+    cmd.op   = op;
+    cmd.bus  = bus;
+    cmd.addr = doc["addr"] | 0;
+    cmd.reg  = doc["reg"]  | 0;
+    cmd.val  = doc["val"]  | 0;
+    cmd.len  = doc["len"]  | 1;
+    if (cmd.len == 0 || cmd.len > 32) cmd.len = 1;
+
+    I2cResult res;
+    if (!sensor_i2c_op(cmd, res)) {
+        send_ack(MSG_CMD_I2C, false, "timeout");
+        return;
+    }
 
     JsonDocument resp;
-    resp["type"]     = MSG_ACK;
-    resp["ref_type"] = MSG_CMD_I2C_WRITE;
-    resp["ok"]       = ok;
-    resp["addr"]     = addr;
-    resp["reg"]      = reg;
-    resp["val"]      = val;
+    resp["type"] = MSG_TELEM_I2C;
+    resp["bus"]  = bus;
+    resp["op"]   = op_str;
+    if (op == I2cOp::SCAN) {
+        JsonArray arr = resp["addrs"].to<JsonArray>();
+        for (uint8_t i = 0; i < res.addr_count; i++) arr.add(res.addrs[i]);
+    } else if (op == I2cOp::READ) {
+        resp["addr"] = cmd.addr;
+        resp["reg"]  = cmd.reg;
+        JsonArray arr = resp["data"].to<JsonArray>();
+        for (uint8_t i = 0; i < res.data_len; i++) arr.add(res.data[i]);
+    } else {
+        resp["ok"] = res.ok;
+    }
     send_json(resp);
+}
+
+static void handle_cmd_i2c_write(const JsonDocument& doc) {
+    // Deprecated: use cmd_i2c with op="write". Kept for one release cycle.
+    handle_cmd_i2c(doc);
 }
 
 static void handle_cmd_offset(const JsonDocument& doc) {
@@ -503,6 +533,7 @@ static const Handler k_handlers[] = {
     { MSG_CMD_TRANSFORM,    handle_cmd_transform    },
     { MSG_CMD_GAIT_PARAMS,  handle_cmd_gait_params  },
     { MSG_CMD_OFFSET,       handle_cmd_offset       },
+    { MSG_CMD_I2C,          handle_cmd_i2c          },
     { MSG_CMD_I2C_WRITE,    handle_cmd_i2c_write    },
     { MSG_CMD_OTA_UPDATE,     handle_cmd_ota_update     },
     { MSG_CMD_PROBE_PIN,      handle_cmd_probe_pin      },

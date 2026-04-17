@@ -8,7 +8,9 @@ constexpr const char* MSG_CMD_LED       = "cmd_led";
 constexpr const char* MSG_CMD_BUZZER    = "cmd_buzzer";
 constexpr const char* MSG_CMD_SERVO     = "cmd_servo";
 constexpr const char* MSG_CMD_ENGAGE    = "cmd_engage";
-constexpr const char* MSG_CMD_I2C_WRITE = "cmd_i2c_write";   // raw I2C probe — debug only
+constexpr const char* MSG_CMD_I2C_WRITE = "cmd_i2c_write";   // deprecated: use cmd_i2c with op="write"
+constexpr const char* MSG_CMD_I2C       = "cmd_i2c";          // unified I2C scan/read/write
+constexpr const char* MSG_TELEM_I2C     = "telem_i2c";
 constexpr const char* MSG_CMD_OFFSET    = "cmd_offset";
 constexpr const char* MSG_CMD_TRANSFORM   = "cmd_transform";
 constexpr const char* MSG_CMD_GAIT_PARAMS    = "cmd_gait_params";

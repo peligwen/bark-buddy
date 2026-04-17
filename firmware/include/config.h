@@ -23,12 +23,19 @@
 #define PINS_VERIFIED 1
 #endif
 
-// --- I2C Bus ---
+// --- I2C Bus 1 ---
 // VERIFIED from stock MicroPython: Hiwonder_IIC.IIC(1) → I2C(0, scl=23, sda=22)
 // I2C scan confirmed devices at 0x6A (QMI8658) and 0x77 (sonar)
 #define I2C_SDA_PIN     22
 #define I2C_SCL_PIN     23
 #define I2C_FREQ        400000  // 400kHz fast mode
+
+// --- I2C Bus 2 ---
+// SDA=19, SCL=13, J4 connector. Confirmed V1.2 schematic. Wire1 instance.
+#define I2C2_SDA_PIN    19
+#define I2C2_SCL_PIN    13
+#define I2C2_FREQ       400000
+#define I2C2_ENABLED    1
 
 // --- I2C Device Addresses (VERIFIED via I2C scan) ---
 #define QMI8658_ADDR    0x6A    // QMI8658 IMU (confirmed, not 0x6B)
