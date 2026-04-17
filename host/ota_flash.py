@@ -10,6 +10,7 @@ Usage (via bark_cli.py):
 """
 
 import asyncio
+import hashlib
 import logging
 import os
 import sys
@@ -24,6 +25,21 @@ logger = logging.getLogger(__name__)
 
 # Hard timeout (seconds) waiting for OTA status after sending the command
 _OTA_WATCH_TIMEOUT = 120
+
+
+def _firmware_binary_path() -> str:
+    return os.path.abspath(os.path.join(
+        os.path.dirname(__file__), "..", "firmware",
+        ".pio", "build", "mechdog", "firmware.bin"
+    ))
+
+
+def _compute_sha256(path: str) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()
 
 
 async def flash_wifi(host: str | None, tcp_port: int = 9000) -> int:
@@ -96,7 +112,6 @@ async def flash_wifi(host: str | None, tcp_port: int = 9000) -> int:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
         )
-        build_output_chunks: list[str] = []
         # Stream output line-by-line
         assert proc.stdout is not None
         try:
@@ -104,7 +119,6 @@ async def flash_wifi(host: str | None, tcp_port: int = 9000) -> int:
                 async for raw_line in proc.stdout:
                     line = raw_line.decode(errors="replace").rstrip()
                     print(line)
-                    build_output_chunks.append(line)
                 await proc.wait()
         except asyncio.TimeoutError:
             proc.kill()
@@ -114,17 +128,13 @@ async def flash_wifi(host: str | None, tcp_port: int = 9000) -> int:
         print("[ota] ERROR: 'pio' not found in PATH. Install PlatformIO first.")
         return 1
 
-    if proc.returncode != 0:
+    if proc.returncode is None or proc.returncode != 0:
         print("[ota] ERROR: Build failed (pio run returned non-zero).")
-        full_output = "\n".join(build_output_chunks)
-        print(full_output[-3000:])
         return 1
 
     # ------------------------------------------------------------------
     # 3. Compute SHA-256
     # ------------------------------------------------------------------
-    from server import _compute_sha256, _firmware_binary_path
-
     binary_path = _firmware_binary_path()
     if not os.path.exists(binary_path):
         print(f"[ota] ERROR: Expected firmware binary not found: {binary_path}")
