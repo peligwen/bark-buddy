@@ -1,6 +1,6 @@
 CXX = clang++
 CXXFLAGS = -std=c++17 -O2 -Wall -Wno-absolute-value -I. -I../include
-TARGETS = test_ik test_transform test_balance test_offsets test_gait_ik test_servos test_engage test_buzzer test_button test_gpio_aux test_aux_servo test_comms_out test_pin_registry test_pin_registry_aux
+TARGETS = test_ik test_transform test_balance test_offsets test_gait_ik test_servos test_engage test_buzzer test_button test_gpio_aux test_aux_servo test_comms_out test_pin_registry test_pin_registry_aux test_command_handlers test_command_handlers_aux
 
 # Mock firmware build
 MOCK_FLAGS = -std=c++17 -O2 -Wall \
@@ -81,4 +81,15 @@ test_pin_registry: test_pin_registry.cpp mock_arduino.h ../include/pin_registry.
 test_pin_registry_aux: test_pin_registry.cpp mock_arduino.h ../include/pin_registry.h ../src/pin_registry.cpp
 	$(CXX) $(CXXFLAGS) -DMOCK_FIRMWARE=1 -DAUX_SERVOS_ENABLED=1 -DTEST_AUX_ENABLED -o $@ test_pin_registry.cpp
 
-.PHONY: all clean
+test_command_handlers: test_command_handlers.cpp mock_arduino.h ../include/config.h ../src/command_handlers.cpp
+	$(CXX) $(CXXFLAGS) -DMOCK_FIRMWARE=1 -I../mock -I../.pio/libdeps/mechdog/ArduinoJson/src \
+		-o $@ test_command_handlers.cpp
+
+test_command_handlers_aux: test_command_handlers.cpp mock_arduino.h ../include/config.h ../src/command_handlers.cpp
+	$(CXX) $(CXXFLAGS) -DMOCK_FIRMWARE=1 -DAUX_SERVOS_ENABLED=1 -I../mock -I../.pio/libdeps/mechdog/ArduinoJson/src \
+		-o $@ test_command_handlers.cpp
+
+test: all
+	@for t in test_*; do [ -x "$$t" ] || continue; echo "=== $$t ===" && ./$$t; done
+
+.PHONY: all clean test

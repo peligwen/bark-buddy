@@ -41,7 +41,7 @@ All commands receive an `{"type":"ack","ref_type":"<cmd_type>","ok":true}` (or
 
 | Type | Required fields | Optional fields | Notes |
 |------|----------------|-----------------|-------|
-| `cmd_servo` | `index` (0–7), `pulse_us` (int) | — | Direct servo control; requires `PINS_VERIFIED=1`. Indices 8–10 require `AUX_SERVOS_ENABLED=1` |
+| `cmd_servo` | `index` (0–7), `pulse_us` (int) | — | Direct servo control; requires `PINS_VERIFIED=1`. Indices 8–10 require `AUX_SERVOS_ENABLED=1`. Error codes: "bad_index" (idx ≥ 11), "aux_disabled" (idx 8–10 when `AUX_SERVOS_ENABLED=0`) |
 | `cmd_offset` | `index` (0–7), `offset_us` (int) | — | Persistent servo trim; stored in NVS via Preferences |
 
 ### Engage / LED
@@ -85,6 +85,8 @@ See `docs/hardware-schematic.md` for bus topology.
 | `cmd_i2c` | `read` | `bus`, `addr`, `reg` (optional), `len` | Returns `telem_i2c` with `data` (byte array) |
 | `cmd_i2c` | `write` | `bus`, `addr`, `reg` (optional), `data` (byte array) | Writes bytes; returns ack |
 
+> **Note:** Unknown `op` values return `ack {ok: false, error: "unknown_op"}` rather than silently defaulting to write.
+
 ### Connection
 
 | Type | Fields | Firmware behavior |
@@ -113,7 +115,7 @@ Firmware streams telemetry continuously. Rates are configured in `firmware/inclu
 | `ack` | `ref_type`, `ok` (bool), `error` (string, on failure) | After each command |
 | `pong` | — | After each `ping` |
 | `boot` | `fw_version`, `imu` (bool), `sonar` (bool), `servos` (bool), `pins_verified` (bool) | Once on startup; re-sent to each new TCP client |
-| `telem_button` | `event` ("press"/"release"/"long_press") | Physical button K1 (GPIO 5, active-LOW, 10K pullup, 20ms debounce, 1000ms long-press threshold) |
+| `telem_button` | `event` ("press"/"release"/"long_press"), `held_ms` (uint32, ms; 0 for "press") | Physical button K1 (GPIO 5, active-LOW, 10K pullup, 20ms debounce, 1000ms long-press threshold) |
 | `telem_gpio` | `pin` (int), `digital` (0/1), `analog` (int or -1) | After `cmd_gpio op=read/analog`; continuously on subscription |
 | `telem_i2c` | `bus` (int), `op` ("scan"/"read"/"write"), `addrs` (scan), `data` (read), `ok` (bool) | After `cmd_i2c` |
 

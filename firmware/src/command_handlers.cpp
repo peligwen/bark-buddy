@@ -164,9 +164,19 @@ static void handle_cmd_servo(const JsonDocument& doc) {
     uint8_t  idx = doc["index"]    | 0;
     uint16_t us  = doc["pulse_us"] | 1500;
 
+    if (idx >= 11) {
+        send_ack(MSG_CMD_SERVO, false, "bad_index");
+        return;
+    }
+#if !AUX_SERVOS_ENABLED
+    if (idx >= 8) {
+        send_ack(MSG_CMD_SERVO, false, "aux_disabled");
+        return;
+    }
+#endif
+
 #if AUX_SERVOS_ENABLED
     if (idx >= 8 && idx <= 10) {
-        gait_pause();
         aux_servo_write_us(idx - 8, us);
         JsonDocument resp;
         resp["type"]      = MSG_ACK;
@@ -200,9 +210,14 @@ static void handle_cmd_i2c(const JsonDocument& doc) {
     uint8_t bus = doc["bus"] | 1;
 
     // SCAN stalls the sensor task ~130ms — avoid during active balance/gait.
-    I2cOp op = I2cOp::WRITE;
-    if      (strcmp(op_str, "scan") == 0) op = I2cOp::SCAN;
-    else if (strcmp(op_str, "read") == 0) op = I2cOp::READ;
+    I2cOp op;
+    if      (strcmp(op_str, "scan")  == 0) op = I2cOp::SCAN;
+    else if (strcmp(op_str, "read")  == 0) op = I2cOp::READ;
+    else if (strcmp(op_str, "write") == 0) op = I2cOp::WRITE;
+    else {
+        send_ack(MSG_CMD_I2C, false, "unknown_op");
+        return;
+    }
 
     if (op == I2cOp::SCAN && (balance_is_enabled() || gait_current_state() != GaitState::STOP)) {
         send_ack(MSG_CMD_I2C, false, "scan_blocked_during_motion");
