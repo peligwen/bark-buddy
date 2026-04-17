@@ -147,18 +147,20 @@ void gait_update(unsigned long now_ms) {
     if (s_state == GaitState::STAND || s_state == GaitState::STOP) {
         uint16_t target[8];
         if (body_pose_to_pulses(combined, target)) {
-            // Taper from last gait position to standing pose over STAND_RETURN_MS
+            // Taper from last gait position to standing pose over STAND_RETURN_MS.
+            // combined (balance-adjusted) keeps updating while s_stand_ramp_from[] is
+            // frozen — intentional so balance keeps tracking during the blend.
             bool ramping = s_stand_ramp_start > 0
                            && (now_ms - s_stand_ramp_start) < STAND_RETURN_MS;
-            float t = ramping
-                      ? fminf((float)(now_ms - s_stand_ramp_start) / STAND_RETURN_MS, 1.0f)
+            float s = ramping
+                      ? smoothstep(fminf((float)(now_ms - s_stand_ramp_start) / STAND_RETURN_MS, 1.0f))
                       : 1.0f;
             for (int i = 0; i < 8; i++) {
                 uint16_t tgt = apply_offset(i, target[i]);
-                if (ramping && s_stand_ramp_from[i] > 0) {
+                if (ramping) {
                     int16_t blended = (int16_t)s_stand_ramp_from[i]
                                     + (int16_t)((float)((int16_t)tgt
-                                                       - (int16_t)s_stand_ramp_from[i]) * t);
+                                                       - (int16_t)s_stand_ramp_from[i]) * s);
                     servo_write_us(i, (uint16_t)blended);
                 } else {
                     servo_write_us(i, tgt);

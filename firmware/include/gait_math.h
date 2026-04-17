@@ -39,6 +39,13 @@ struct GaitFootOffsets {
     FootPos feet[4];  // FL, FR, RL, RR — offsets from standing_foot_pos()
 };
 
+// C¹-smooth ease-in-out: zero velocity at both endpoints (derivative = 6t(1-t)).
+inline float smoothstep(float t) {
+    if (t <= 0.0f) return 0.0f;
+    if (t >= 1.0f) return 1.0f;
+    return t * t * (3.0f - 2.0f * t);
+}
+
 // Foot-position gait tick: returns foot position OFFSETS from standing positions.
 // Caller adds these to standing_foot_pos(leg) before IK solve.
 //

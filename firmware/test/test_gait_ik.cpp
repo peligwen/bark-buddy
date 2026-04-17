@@ -224,6 +224,30 @@ static void test_zero_speed() {
 }
 
 // ============================================================
+// Test 7: smoothstep — clamped, midpoint, monotonic, zero-velocity endpoints
+// ============================================================
+static void test_smoothstep() {
+    check(smoothstep(0.0f) == 0.0f,  "smoothstep_zero");
+    check(smoothstep(1.0f) == 1.0f,  "smoothstep_one");
+    check(fabsf(smoothstep(0.5f) - 0.5f) < 1e-6f, "smoothstep_midpoint");
+    check(smoothstep(-0.5f) == 0.0f, "smoothstep_clamp_below");
+    check(smoothstep(1.5f)  == 1.0f, "smoothstep_clamp_above");
+
+    bool monotonic = true;
+    float prev = 0.0f;
+    for (int i = 0; i <= 100; i++) {
+        float v = smoothstep((float)i / 100.0f);
+        if (v < prev - 1e-7f) { monotonic = false; break; }
+        prev = v;
+    }
+    check(monotonic, "smoothstep_monotonic");
+
+    // Derivative = 6t(1-t) → zero at t=0 and t=1; values near endpoints should be tiny
+    check(smoothstep(0.01f) < 0.001f,        "smoothstep_zero_velocity_start");
+    check(1.0f - smoothstep(0.99f) < 0.001f, "smoothstep_zero_velocity_end");
+}
+
+// ============================================================
 // Main
 // ============================================================
 int main() {
@@ -233,6 +257,7 @@ int main() {
     test_speed_scaling();
     test_turning_differential();
     test_zero_speed();
+    test_smoothstep();
 
     printf("{\"summary\":\"gait_ik_tests\",\"pass\":%d,\"fail\":%d}\n", pass, fail);
     return fail > 0 ? 1 : 0;

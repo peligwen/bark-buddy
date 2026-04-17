@@ -1,6 +1,6 @@
 CXX = clang++
 CXXFLAGS = -std=c++17 -O2 -Wall -Wno-absolute-value -I. -I../include
-TARGETS = test_ik test_transform test_balance test_offsets test_gait_ik test_servos test_engage test_buzzer test_button test_gpio_aux test_aux_servo test_comms_out test_pin_registry test_pin_registry_aux test_command_handlers test_command_handlers_aux
+TARGETS = test_ik test_transform test_balance test_offsets test_gait_ik test_gait_taper test_servos test_engage test_buzzer test_button test_gpio_aux test_aux_servo test_comms_out test_pin_registry test_pin_registry_aux test_command_handlers test_command_handlers_aux
 
 # Mock firmware build
 MOCK_FLAGS = -std=c++17 -O2 -Wall \
@@ -53,6 +53,11 @@ test_offsets: test_offsets.cpp mock_arduino.h mock_preferences.h ../include/offs
 
 test_gait_ik: test_gait_ik.cpp mock_arduino.h ../include/ik.h ../include/body_transform.h ../include/gait_math.h
 	$(CXX) $(CXXFLAGS) -o $@ test_gait_ik.cpp
+
+test_gait_taper: test_gait_taper.cpp Arduino.h mock_arduino.h ../src/gait.cpp \
+	../include/gait.h ../include/gait_math.h ../include/ik.h ../include/body_transform.h \
+	../include/balance.h ../include/offsets.h ../include/servos.h ../include/config.h
+	$(CXX) $(CXXFLAGS) -o $@ test_gait_taper.cpp
 
 test_servos: test_servos.cpp mock_arduino.h mock_preferences.h ../include/servos.h ../include/config.h
 	$(CXX) $(CXXFLAGS) -o $@ test_servos.cpp

@@ -161,7 +161,7 @@ Replacing the direct-angle parametric gait with an inverse kinematics foot-posit
 ### Gait Integration (In Progress)
 
 1. ~~Stride parameters~~ → `cmd_gait_params` — configurable stride length/height/speed
-2. Stand-return taper — smooth blend from current positions to stand pose on stop
+2. ~~Stand-return taper~~ — smoothstep blend from last gait position to standing pose; unit tests in `test_gait_taper`
 3. End-to-end hardware test — IK gait walks reliably on all 4 legs
 
 ## Future (Planned)
