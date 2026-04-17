@@ -175,9 +175,14 @@ static void handle_cmd_servo(const JsonDocument& doc) {
 }
 
 static void handle_cmd_i2c(const JsonDocument& doc) {
-    const char* op_str = doc["op"] | "write";
+    const char* op_str = doc["op"] | "";
+    if (op_str[0] == '\0') {
+        send_ack(MSG_CMD_I2C, false, "missing op");
+        return;
+    }
     uint8_t bus = doc["bus"] | 1;
 
+    // SCAN stalls the sensor task ~130ms — avoid during active balance/gait.
     I2cOp op = I2cOp::WRITE;
     if      (strcmp(op_str, "scan") == 0) op = I2cOp::SCAN;
     else if (strcmp(op_str, "read") == 0) op = I2cOp::READ;

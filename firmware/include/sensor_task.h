@@ -52,8 +52,9 @@ void sensor_led_set(uint8_t led, uint8_t r, uint8_t g, uint8_t b);
 bool sensor_i2c_write(uint8_t addr, uint8_t reg, uint8_t val);
 
 // Submit an I2C operation (scan/read/write, bus 1 or 2) and wait for result.
-// Blocks until the sensor task executes it (max ~200ms). Thread-safe.
-// Returns false on timeout or queue error.
+// Blocks until the sensor task executes it (max ~300ms: 100ms queue + 200ms
+// execute). Thread-safe. Returns false on timeout or queue error.
+// CAUTION: SCAN stalls the sensor task ~130ms — avoid during active balance/gait.
 bool sensor_i2c_op(const I2cCmd& cmd, I2cResult& out);
 
 // Signal that IMU data is ready. Called from mock's 50 Hz IMU thread to drive
