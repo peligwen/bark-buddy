@@ -6,6 +6,7 @@
 #include "config.h"
 #include "protocol.h"
 #include "comms.h"
+#include "comms_out.h"
 #include "gpio_aux.h"
 #include <Arduino.h>
 #include <Wire.h>
@@ -198,7 +199,7 @@ static void sensor_task_fn(void*) {
                           : (btn == ButtonEvent::RELEASE)    ? "release"
                           :                                    "long_press";
             ev["held_ms"] = button_held_ms();
-            send_json(ev);
+            comms_emit_json_from_task(ev);
         }
 
         // Poll subscribed GPIO aux pins at ~20 Hz (every 50ms)
@@ -224,7 +225,7 @@ static void sensor_task_fn(void*) {
                 telem["pin"]     = pin;
                 telem["digital"] = digital_val;
                 telem["analog"]  = analog_val;
-                send_json(telem);
+                comms_emit_json_from_task(telem);
             }
         }
 

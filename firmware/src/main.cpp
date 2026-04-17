@@ -13,6 +13,7 @@
 #include "offsets.h"
 #include "update_led.h"
 #include "buzzer.h"
+#include "comms_out.h"
 #ifndef WIFI_ENABLED
 #define WIFI_ENABLED 0
 #endif
@@ -111,6 +112,15 @@ void process_rx(char* buf, size_t& pos, char c, unsigned long now) {
 }
 
 // --- Send helpers (declared in comms.h) ---
+void comms_write_line(const char* line) {
+    Serial.println(line);
+#if WIFI_ENABLED
+    if (tcp_client && tcp_client.connected()) {
+        tcp_client.println(line);
+    }
+#endif
+}
+
 void send_json(const JsonDocument& doc) {
     serializeJson(doc, Serial);
     Serial.println();
@@ -149,6 +159,10 @@ void setup() {
     // configures pins. Shared with GPIO usage elsewhere; informational only.
     pinMode(2, INPUT);
     gpio2_at_boot = digitalRead(2);
+
+    // Outbound JSON queue must be ready before the sensor task starts, since
+    // the sensor task may call comms_emit_json_from_task() immediately.
+    comms_out_init();
 
     // Sensor task starts I2C, probes IMU + sonar, sets boot LED.
     // Blocks until first init pass completes (<=1s).
@@ -340,6 +354,9 @@ void loop() {
         send_json(doc);
         last_status = now;
     }
+
+    // Drain sensor-task outbound JSON queue (serialized to buf by sender, written here).
+    comms_out_drain();
 
     // Update rainbow LED tick
     update_rainbow_led_tick(now);

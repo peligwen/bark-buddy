@@ -1,6 +1,6 @@
 CXX = clang++
 CXXFLAGS = -std=c++17 -O2 -Wall -Wno-absolute-value -I. -I../include
-TARGETS = test_ik test_transform test_balance test_offsets test_gait_ik test_servos test_engage test_buzzer test_button test_gpio_aux test_aux_servo
+TARGETS = test_ik test_transform test_balance test_offsets test_gait_ik test_servos test_engage test_buzzer test_button test_gpio_aux test_aux_servo test_comms_out
 
 # Mock firmware build
 MOCK_FLAGS = -std=c++17 -O2 -Wall \
@@ -25,6 +25,7 @@ MOCK_SRC = \
 	../src/main.cpp \
 	../src/balance.cpp \
 	../src/command_handlers.cpp \
+	../src/comms_out.cpp \
 	../src/gait.cpp \
 	../src/offsets.cpp \
 	../src/servos.cpp
@@ -69,5 +70,8 @@ test_gpio_aux: test_gpio_aux.cpp mock_arduino.h ../include/gpio_aux.h ../src/gpi
 
 test_aux_servo: test_aux_servo.cpp mock_arduino.h mock_preferences.h ../include/servos.h ../include/config.h ../src/servos.cpp
 	$(CXX) $(CXXFLAGS) -DAUX_SERVOS_ENABLED=1 -o $@ test_aux_servo.cpp
+
+test_comms_out: test_comms_out.cpp mock_arduino.h ../include/comms_out.h ../src/comms_out.cpp
+	$(CXX) $(CXXFLAGS) -DMOCK_FIRMWARE=1 -I../mock -I../.pio/libdeps/mechdog/ArduinoJson/src -o $@ test_comms_out.cpp
 
 .PHONY: all clean

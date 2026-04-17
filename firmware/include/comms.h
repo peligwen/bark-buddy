@@ -10,3 +10,7 @@ void send_ack(const char* ref_type, bool ok, const char* error = nullptr);
 
 // Returns the remote IP of the currently connected TCP client (empty string if not connected).
 String get_tcp_client_ip();
+
+// Write a pre-serialized NDJSON line to serial and (if connected) TCP client.
+// Used by comms_out_drain() to emit queued outbound messages.
+void comms_write_line(const char* line);
