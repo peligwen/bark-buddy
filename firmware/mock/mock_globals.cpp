@@ -6,6 +6,7 @@
 #include "ESPmDNS.h"
 
 TwoWire Wire;
+TwoWire Wire1;
 ESPClass ESP;
 UpdateClass Update;
 WiFiClass WiFi;

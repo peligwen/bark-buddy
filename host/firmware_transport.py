@@ -270,6 +270,43 @@ class FirmwareTransport(DeadReckoningMixin, Transport):
             except Exception:
                 pass
 
+    # --- Helper methods for new firmware commands ---
+
+    async def cmd_buzzer(self, freq_hz: int, duration_ms: int) -> None:
+        await self.send_json({"type": "cmd_buzzer", "freq_hz": freq_hz, "duration_ms": duration_ms})
+
+    async def cmd_gpio_mode(self, pin: int, mode: str) -> None:
+        """mode: 'input_floating' | 'input_pullup' | 'input_pulldown' | 'output'"""
+        await self.send_json({"type": "cmd_gpio", "op": "mode", "pin": pin, "mode": mode})
+
+    async def cmd_gpio_write(self, pin: int, value: int) -> None:
+        await self.send_json({"type": "cmd_gpio", "op": "write", "pin": pin, "value": value})
+
+    async def cmd_gpio_read(self, pin: int) -> None:
+        await self.send_json({"type": "cmd_gpio", "op": "read", "pin": pin})
+
+    async def cmd_gpio_analog(self, pin: int) -> None:
+        await self.send_json({"type": "cmd_gpio", "op": "analog", "pin": pin})
+
+    async def cmd_gpio_subscribe(self, pin: int, mode: str = "input_floating") -> None:
+        await self.send_json({"type": "cmd_gpio", "op": "subscribe", "pin": pin, "mode": mode})
+
+    async def cmd_gpio_unsubscribe(self, pin: int) -> None:
+        await self.send_json({"type": "cmd_gpio", "op": "unsubscribe", "pin": pin})
+
+    async def cmd_i2c_scan(self, bus: int = 1) -> None:
+        await self.send_json({"type": "cmd_i2c", "op": "scan", "bus": bus})
+
+    async def cmd_i2c_read(self, addr: int, reg: int, length: int = 1, bus: int = 1) -> None:
+        await self.send_json({"type": "cmd_i2c", "op": "read", "addr": addr, "reg": reg, "len": length, "bus": bus})
+
+    async def cmd_i2c_write(self, addr: int, reg: int, val: int, bus: int = 1) -> None:
+        await self.send_json({"type": "cmd_i2c", "op": "write", "addr": addr, "reg": reg, "val": val, "bus": bus})
+
+    async def cmd_aux_servo(self, index: int, pulse_us: int) -> None:
+        """index: 8-10 for aux servo ports"""
+        await self.send_json({"type": "cmd_servo", "index": index, "pulse_us": pulse_us})
+
     async def _send_json(self, msg: dict) -> None:
         if not self._writer:
             return

@@ -6,6 +6,7 @@ import { setupDpad, setupKeyboard, setupActions, setCanControl, setEngaged } fro
 import { dogMapState, addScanPoint, renderFullMap, drawMap, setupScan } from './modules/map.js';
 import { setupBatteryGraph, recordBattery,
          setupOtaPanel, updateOtaStatus } from './modules/panels.js';
+import { diagInit, diagHandleTelem } from './modules/diag.js';
 
 // --- State ---
 var hasLock = false;
@@ -215,6 +216,7 @@ function handleMessage(msg) {
         if (window._appVersion && msg.hash !== window._appVersion) location.reload();
         window._appVersion = msg.hash;
     }
+    diagHandleTelem(msg);
 }
 
 function setupLock() {
@@ -242,6 +244,7 @@ function setupEngage() {
 
 // --- Init ---
 Dog3D.init("dog-3d-container");
+diagInit();
 setMessageHandler(handleMessage);
 
 actionsCtrl = setupActions(Dog3D);

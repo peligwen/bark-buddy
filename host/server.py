@@ -18,6 +18,7 @@ from config_util import read_config_local_value as _read_config_local_value
 from aiohttp import web
 
 from behaviors.balance import BalanceLayer
+from behaviors.button_engage import ButtonEngageBehavior
 from behaviors.map_store import MapStore
 from behaviors.scan import ScanBehavior
 from comms import Transport, DIRECTIONS
@@ -93,6 +94,13 @@ class Server:
         self._balance = BalanceLayer(transport)
         self._scan = ScanBehavior(transport)
         self._map = MapStore()
+        self._engaged: bool = False
+        self._button_engage = ButtonEngageBehavior(
+            transport,
+            lambda: self._engaged,
+            lambda v: setattr(self, '_engaged', v),
+            self._is_locked,
+        )
         self._mode = "remote"  # remote | scan
         self._motion = "stop"  # last motion direction
         self._web_hash = self._compute_web_hash(web_dir)
@@ -126,9 +134,16 @@ class Server:
     def _on_firmware_telem(self, msg: dict):
         """Forward telemetry push messages directly to all WebSocket clients."""
         msg_type = msg.get("type", "")
+        if msg_type == "telem_status":
+            self._engaged = msg.get("engaged", self._engaged)
         if msg_type in ("telem_sonar", "telem_battery", "telem_imu", "telem_status",
-                        "telem_event", "ota_status", "boot"):
+                        "telem_event", "ota_status", "boot",
+                        "telem_button", "telem_gpio", "telem_i2c"):
             asyncio.ensure_future(self._broadcast(msg))
+        if msg_type == "telem_button":
+            event = msg.get("event", "")
+            if event:
+                asyncio.ensure_future(self._button_engage.on_button_event(event))
 
     @web.middleware
     async def _no_cache_middleware(self, request, handler):
@@ -240,13 +255,20 @@ class Server:
             except Exception:
                 pass
 
-            # Swap in new transport, balance, scan
+            # Swap in new transport, balance, scan, button_engage
             from behaviors.balance import BalanceLayer
+            from behaviors.button_engage import ButtonEngageBehavior
             from behaviors.scan import ScanBehavior
             self._transport = new_transport
             self._register_transport_callbacks()
             self._balance = BalanceLayer(new_transport)
             self._scan = ScanBehavior(new_transport)
+            self._button_engage = ButtonEngageBehavior(
+                new_transport,
+                lambda: self._engaged,
+                lambda v: setattr(self, '_engaged', v),
+                self._is_locked,
+            )
             self._scan.on_point(self._on_scan_point)
             self._scan.on_complete(self._on_scan_complete)
             self._transport_label = new_label

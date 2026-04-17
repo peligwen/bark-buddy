@@ -361,6 +361,24 @@ only the human-readable board labels were mislabeled in our notes.
 
 ## Open Questions and Follow-Ups
 
+### Implementation Status (post-merge)
+
+The following items from the original follow-up list have been implemented in
+firmware as part of the v12 hardware peripheral support work:
+
+- **Buzzer (GPIO 21)** — `cmd_buzzer` command; LEDC ch 9; `config.h` `BUZZER_PIN`/`BUZZER_LEDC_CH`.
+- **Button K1 (GPIO 5)** — 20ms debounce, 1000ms long-press threshold; emits `telem_button`.
+- **Onboard blue LED (GPIO 18, active-LOW)** — `cmd_led` with `led=0`; `config.h` `ONBOARD_LED_PIN`.
+- **IMU interrupt (GPIO 35, INT2)** — binary semaphore; 50ms fallback polling in sensor task; `config.h` `IMU_INT_PIN`/`IMU_INT_SLACK_MS`.
+- **I2C bus 2 (SDA=19, SCL=13, J4)** — Wire1 instance; `cmd_i2c` with `bus=2`; `config.h` `I2C2_*`.
+- **GPIO expansion (pins 32, 33, 1, 3)** — `cmd_gpio`; pins 1 and 3 return `analog: -1` (not ADC-capable).
+- **Aux servo ports (GPIO 15, 0, 12)** — firmware indices 8–10, LEDC ch 10–12, `AUX_SERVOS_ENABLED=1`.
+
+Items 4, 5, 6 from the original list are resolved. Items 1–3 remain open (hardware verification tasks).
+
+**Still unresolved — hardware verification required:**
+- **QMI8658 I2C address discrepancy (0x6A vs 0x6B)** — see item 1 below. Firmware uses 0x6A (empirically correct); do not change without logic analyzer verification.
+
 1. **QMI8658 I2C address strap (priority: low)** — Schematic shows R28 (0Ω)
    tying SDO/SA0 to 3V3, which should set address 0x6B. Hardware sees 0x6A.
    Verify with logic analyzer or by probing the SA0 pad at boot. Our firmware
@@ -376,9 +394,7 @@ only the human-readable board labels were mislabeled in our notes.
    voltage drop than a VIN servo. If RR_hip ever shows torque asymmetry vs
    the other hip servos during gait tuning, check this supply rail first.
 
-4. **GPIO 18 (onboard blue LED) — future use** — Currently unused by firmware.
-   Available for simple boolean status output (engaged, error, etc.) without
-   any I2C dependency. Active-LOW drive.
+4. **GPIO 18 (onboard blue LED) — resolved** — Now implemented via `cmd_led led=0`; active-LOW. See Implementation Status above.
 
 5. **Config.h cleanup (separate patch)** — Add inline comments to `SERVO_PINS`
    annotating each entry with its board silkscreen label (SERVO1, SERVO2, …).
@@ -386,6 +402,7 @@ only the human-readable board labels were mislabeled in our notes.
 
 6. **Memory update (separate patch)** — Correct `project_hardware_findings.md`
    servo port label table and add SCL2=GPIO13.
+
 
 ---
 

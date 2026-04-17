@@ -9,6 +9,9 @@
 #include "balance.h"
 #include "offsets.h"
 #include "update_led.h"
+#include "buzzer.h"
+#include "gpio_aux.h"
+#include "pin_registry.h"
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <string.h>
@@ -161,6 +164,31 @@ static void handle_cmd_servo(const JsonDocument& doc) {
     uint8_t  idx = doc["index"]    | 0;
     uint16_t us  = doc["pulse_us"] | 1500;
 
+    if (idx >= 11) {
+        send_ack(MSG_CMD_SERVO, false, "bad_index");
+        return;
+    }
+#if !AUX_SERVOS_ENABLED
+    if (idx >= 8) {
+        send_ack(MSG_CMD_SERVO, false, "aux_disabled");
+        return;
+    }
+#endif
+
+#if AUX_SERVOS_ENABLED
+    if (idx >= 8 && idx <= 10) {
+        aux_servo_write_us(idx - 8, us);
+        JsonDocument resp;
+        resp["type"]      = MSG_ACK;
+        resp["ref_type"]  = MSG_CMD_SERVO;
+        resp["ok"]        = true;
+        resp["index"]     = idx;
+        resp["actual_us"] = aux_servo_read_us(idx - 8);
+        send_json(resp);
+        return;
+    }
+#endif
+
     gait_pause();  // prevent gait from fighting manual writes
     servo_write_us(idx, us);
 
@@ -173,20 +201,68 @@ static void handle_cmd_servo(const JsonDocument& doc) {
     send_json(resp);
 }
 
-static void handle_cmd_i2c_write(const JsonDocument& doc) {
-    uint8_t addr = doc["addr"] | 0x77;
-    uint8_t reg  = doc["reg"]  | 0;
-    uint8_t val  = doc["val"]  | 0;
-    bool ok = sensor_i2c_write(addr, reg, val);
+static void handle_cmd_i2c(const JsonDocument& doc) {
+    const char* op_str = doc["op"] | "";
+    if (op_str[0] == '\0') {
+        send_ack(MSG_CMD_I2C, false, "missing op");
+        return;
+    }
+    uint8_t bus = doc["bus"] | 1;
+
+    // SCAN stalls the sensor task ~130ms — avoid during active balance/gait.
+    I2cOp op;
+    if      (strcmp(op_str, "scan")  == 0) op = I2cOp::SCAN;
+    else if (strcmp(op_str, "read")  == 0) op = I2cOp::READ;
+    else if (strcmp(op_str, "write") == 0) op = I2cOp::WRITE;
+    else {
+        send_ack(MSG_CMD_I2C, false, "unknown_op");
+        return;
+    }
+
+    if (op == I2cOp::SCAN && (balance_is_enabled() || gait_current_state() != GaitState::STOP)) {
+        send_ack(MSG_CMD_I2C, false, "scan_blocked_during_motion");
+        return;
+    }
+
+    I2cCmd cmd = {};
+    cmd.op   = op;
+    cmd.bus  = bus;
+    cmd.addr = doc["addr"] | 0;
+    cmd.reg  = doc["reg"]  | 0;
+    cmd.val  = doc["val"]  | 0;
+    cmd.len  = doc["len"]  | 1;
+    if (cmd.len == 0 || cmd.len > 32) cmd.len = 1;
+
+    I2cResult res;
+    if (!sensor_i2c_op(cmd, res)) {
+        send_ack(MSG_CMD_I2C, false, "timeout");
+        return;
+    }
 
     JsonDocument resp;
-    resp["type"]     = MSG_ACK;
-    resp["ref_type"] = MSG_CMD_I2C_WRITE;
-    resp["ok"]       = ok;
-    resp["addr"]     = addr;
-    resp["reg"]      = reg;
-    resp["val"]      = val;
+    resp["type"] = MSG_TELEM_I2C;
+    resp["bus"]  = bus;
+    resp["op"]   = op_str;
+    if (op == I2cOp::SCAN) {
+        JsonArray arr = resp["addrs"].to<JsonArray>();
+        for (uint8_t i = 0; i < res.addr_count; i++) arr.add(res.addrs[i]);
+    } else if (op == I2cOp::READ) {
+        resp["addr"] = cmd.addr;
+        resp["reg"]  = cmd.reg;
+        JsonArray arr = resp["data"].to<JsonArray>();
+        for (uint8_t i = 0; i < res.data_len; i++) arr.add(res.data[i]);
+    } else {
+        resp["ok"] = res.ok;
+    }
     send_json(resp);
+}
+
+static void handle_cmd_i2c_write(const JsonDocument& doc) {
+    // Deprecated: use cmd_i2c with op="write". Kept for one release cycle.
+    JsonDocument d2;
+    d2.set(doc);
+    d2["op"] = "write";
+    handle_cmd_i2c(d2);
 }
 
 static void handle_cmd_offset(const JsonDocument& doc) {
@@ -411,9 +487,18 @@ static void handle_cmd_probe_pin(const JsonDocument& doc) {
     uint8_t  pin    = doc["pin"]      | 255;
     uint16_t center = doc["pulse_us"] | 1500;
 
-    // Reject invalid / reserved pins
-    if (pin == 255 || pin == 22 || pin == 23 || pin >= 34) {
+    // Reject sentinel / missing pin
+    if (pin == 255) {
         send_ack(MSG_CMD_PROBE_PIN, false, "invalid_pin");
+        return;
+    }
+    // Reject pins owned by firmware subsystems
+    const char* reserved_reason = nullptr;
+    if (pin_is_reserved(pin, &reserved_reason)) {
+        char err_buf[32];
+        snprintf(err_buf, sizeof(err_buf), "pin_reserved:%s",
+                 reserved_reason ? reserved_reason : "unknown");
+        send_ack(MSG_CMD_PROBE_PIN, false, err_buf);
         return;
     }
     // Reject if this pin is currently driving a live servo
@@ -424,6 +509,14 @@ static void handle_cmd_probe_pin(const JsonDocument& doc) {
                 return;
             }
         }
+#if AUX_SERVOS_ENABLED
+        for (int i = 0; i < AUX_SERVO_COUNT; i++) {
+            if (AUX_SERVO_PINS[i] == pin) {
+                send_ack(MSG_CMD_PROBE_PIN, false, "servo_pin_engaged");
+                return;
+            }
+        }
+#endif
     }
     if (center < 500)  center = 500;
     if (center > 2500) center = 2500;
@@ -453,6 +546,13 @@ static void handle_cmd_probe_pin(const JsonDocument& doc) {
     send_json(resp);
 }
 
+static void handle_cmd_buzzer(const JsonDocument& doc) {
+    uint16_t freq = doc["freq_hz"]     | 2400;
+    uint32_t dur  = doc["duration_ms"] | 200;
+    buzzer_tone(freq, dur);
+    send_ack(MSG_CMD_BUZZER, true);
+}
+
 static void handle_cmd_balance_config(const JsonDocument& doc) {
     float pitch_kp, pitch_ki, pitch_kd, roll_kp, roll_ki, roll_kd;
     balance_get_gains(&pitch_kp, &pitch_ki, &pitch_kd, &roll_kp, &roll_ki, &roll_kd);
@@ -479,6 +579,73 @@ static void handle_cmd_balance_config(const JsonDocument& doc) {
     send_json(resp);
 }
 
+static void handle_cmd_gpio(const JsonDocument& doc) {
+    const char* op_str = doc["op"] | "";
+    if (op_str[0] == '\0') {
+        send_ack(MSG_CMD_GPIO, false, "missing op");
+        return;
+    }
+    uint8_t pin = doc["pin"] | 255;
+    if (!gpio_aux_allowlisted(pin)) {
+        send_ack(MSG_CMD_GPIO, false, "pin_not_allowed");
+        return;
+    }
+
+    if (strcmp(op_str, "mode") == 0) {
+        const char* mode_str = doc["mode"] | "input_floating";
+        GpioMode mode = GpioMode::FLOATING;
+        if      (strcmp(mode_str, "input_pullup")   == 0) mode = GpioMode::PULLUP;
+        else if (strcmp(mode_str, "input_pulldown") == 0) mode = GpioMode::PULLDOWN;
+        else if (strcmp(mode_str, "output")         == 0) mode = GpioMode::GPIO_OUTPUT;
+        gpio_aux_set_mode(pin, mode);
+        send_ack(MSG_CMD_GPIO, true);
+
+    } else if (strcmp(op_str, "write") == 0) {
+        uint8_t val = doc["value"] | 0;
+        gpio_aux_write(pin, val);
+        send_ack(MSG_CMD_GPIO, true);
+
+    } else if (strcmp(op_str, "read") == 0) {
+        int digital_val = gpio_aux_read_digital(pin);
+        int analog_val  = gpio_aux_read_analog(pin);
+        JsonDocument resp;
+        resp["type"]    = MSG_TELEM_GPIO;
+        resp["pin"]     = pin;
+        resp["digital"] = digital_val;
+        resp["analog"]  = analog_val;
+        send_json(resp);
+
+    } else if (strcmp(op_str, "analog") == 0) {
+        int analog_val  = gpio_aux_read_analog(pin);
+        int digital_val = gpio_aux_read_digital(pin);
+        JsonDocument resp;
+        resp["type"]    = MSG_TELEM_GPIO;
+        resp["pin"]     = pin;
+        resp["digital"] = digital_val;
+        resp["analog"]  = analog_val;
+        send_json(resp);
+
+    } else if (strcmp(op_str, "subscribe") == 0) {
+        const char* mode_str = doc["mode"] | "input_floating";
+        GpioMode mode = GpioMode::FLOATING;
+        if      (strcmp(mode_str, "input_pullup")   == 0) mode = GpioMode::PULLUP;
+        else if (strcmp(mode_str, "input_pulldown") == 0) mode = GpioMode::PULLDOWN;
+        else if (strcmp(mode_str, "output")         == 0) mode = GpioMode::GPIO_OUTPUT;
+        if (!sensor_gpio_subscribe(pin, mode)) {
+            send_ack(MSG_CMD_GPIO, false, "subscribe_failed");
+            return;
+        }
+        send_ack(MSG_CMD_GPIO, true);
+
+    } else if (strcmp(op_str, "unsubscribe") == 0) {
+        sensor_gpio_unsubscribe(pin);
+        send_ack(MSG_CMD_GPIO, true);
+
+    } else {
+        send_ack(MSG_CMD_GPIO, false, "unknown_op");
+    }
+}
+
 // --- Dispatch table ---
 
 typedef void (*HandlerFn)(const JsonDocument&);
@@ -495,10 +662,13 @@ static const Handler k_handlers[] = {
     { MSG_CMD_TRANSFORM,    handle_cmd_transform    },
     { MSG_CMD_GAIT_PARAMS,  handle_cmd_gait_params  },
     { MSG_CMD_OFFSET,       handle_cmd_offset       },
+    { MSG_CMD_I2C,          handle_cmd_i2c          },
     { MSG_CMD_I2C_WRITE,    handle_cmd_i2c_write    },
     { MSG_CMD_OTA_UPDATE,     handle_cmd_ota_update     },
     { MSG_CMD_PROBE_PIN,      handle_cmd_probe_pin      },
     { MSG_CMD_BALANCE_CONFIG, handle_cmd_balance_config },
+    { MSG_CMD_BUZZER,         handle_cmd_buzzer         },
+    { MSG_CMD_GPIO,           handle_cmd_gpio           },
 };
 
 void handlers_init() {

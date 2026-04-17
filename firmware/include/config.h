@@ -23,12 +23,19 @@
 #define PINS_VERIFIED 1
 #endif
 
-// --- I2C Bus ---
+// --- I2C Bus 1 ---
 // VERIFIED from stock MicroPython: Hiwonder_IIC.IIC(1) → I2C(0, scl=23, sda=22)
 // I2C scan confirmed devices at 0x6A (QMI8658) and 0x77 (sonar)
 #define I2C_SDA_PIN     22
 #define I2C_SCL_PIN     23
 #define I2C_FREQ        400000  // 400kHz fast mode
+
+// --- I2C Bus 2 ---
+// SDA=19, SCL=13, J4 connector. Confirmed V1.2 schematic. Wire1 instance.
+#define I2C2_SDA_PIN    19
+#define I2C2_SCL_PIN    13
+#define I2C2_FREQ       400000
+#define I2C2_ENABLED    1
 
 // --- I2C Device Addresses (VERIFIED via I2C scan) ---
 #define QMI8658_ADDR    0x6A    // QMI8658 IMU (confirmed, not 0x6B)
@@ -145,9 +152,48 @@ static const int8_t SERVO_POLARITY_OVERRIDE[8] = {
 #endif
 // clang-format on
 
+// --- User Button ---
+// K1 SW-PB_3x6x4.3, GPIO 5, active-LOW, 10K pullup to 3V3. Confirmed V1.2 schematic.
+#define BUTTON_PIN                  5
+#define BUTTON_DEBOUNCE_MS          20
+#define BUTTON_LONG_PRESS_MS        1000
+// --- IMU Interrupt ---
+// QMI8658 INT2 (data-ready) wired to GPIO 35 (input-only). Confirmed V1.2 schematic.
+#define IMU_INT_PIN              35
+#define IMU_INT_SLACK_MS         30   // ISR wake slack for safety timeout
+
+// --- Onboard Blue LED ---
+// GPIO 18, active-LOW. max(r,g,b)>0 = on via cmd_led {led:0,...}. Confirmed V1.2 schematic.
+#define ONBOARD_LED_PIN     18
+
+// --- Buzzer ---
+// GPIO 21, driven via S8050 NPN transistor. HIGH = buzzer on. Confirmed V1.2 schematic.
+#define BUZZER_PIN          21
+#define BUZZER_LEDC_CH      9   // LEDC channel — 0-7 leg servos, 8 probe, 9 buzzer
+
 // --- LED Brightness ---
 // Scale is 0-255. Stock firmware uses full 0-255 range.
 #define LED_BRIGHTNESS  40  // dim but clearly visible at ~16% max
+
+// --- Auxiliary Servo Ports (expansion connectors SERVO7, SERVO9, SERVO11) ---
+// Schematic ports on VIN rail: SERVO7=GPIO15(R37), SERVO9=GPIO0(R38), SERVO11=GPIO12(R39).
+// GPIO 0 is a boot-mode strapping pin (LOW=download); safe after boot, must be HIGH at power-on.
+// GPIO 12 is a flash-voltage strapping pin (HIGH=1.8V); treat carefully — series R39 (5.1K) is present.
+// LEDC channels 0-7: main servos; 8: pin probe; 9: buzzer. Aux uses the next free channels (10-12).
+// Disabled by default. Set AUX_SERVOS_ENABLED=1 to activate.
+#ifndef AUX_SERVOS_ENABLED
+#define AUX_SERVOS_ENABLED    0   // opt-in: set to 1 to enable expansion servo ports
+#endif
+#define AUX_SERVO_COUNT       3
+// GPIO pins for aux servo firmware indices 8, 9, 10
+static constexpr uint8_t AUX_SERVO_PINS[AUX_SERVO_COUNT]    = {15, 0, 12};
+// LEDC channels for aux servos (10, 11, 12 — first free after main+probe+buzzer)
+static constexpr uint8_t AUX_SERVO_LEDC_CH[AUX_SERVO_COUNT] = {10, 11, 12};
+
+// --- Auxiliary GPIO ---
+// J5 expansion header (IO32, IO33) and UART0 header (TX=IO1, RX=IO3).
+// All four pins are unused by the base firmware; gpio_aux_* functions gate access.
+#define AUX_GPIO_ENABLED 1
 
 // --- LED Colors (0-255 scale) ---
 // Lavender: R=180, G=110, B=255 at full brightness, scaled to LED_BRIGHTNESS

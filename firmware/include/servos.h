@@ -34,3 +34,11 @@ void servos_detach_all();
 // Mark that battery cutoff has been latched (prevents future engage).
 void servos_set_battery_cutoff();
 bool servos_battery_cutoff();
+
+// --- Auxiliary servo ports (indices 8-10, GPIOs 15/0/12) ---
+// Guarded by AUX_SERVOS_ENABLED. Respects engage state — no-op when disengaged.
+#if AUX_SERVOS_ENABLED
+void     aux_servo_init();
+void     aux_servo_write_us(uint8_t idx, uint16_t us);  // idx: 0-2 (firmware indices 8-10)
+uint16_t aux_servo_read_us(uint8_t idx);
+#endif

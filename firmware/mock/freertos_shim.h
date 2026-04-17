@@ -31,8 +31,12 @@ inline void vTaskDelay(TickType_t ms) {
     std::this_thread::sleep_for(std::chrono::milliseconds(ms));
 }
 
-// Queue stubs (mock doesn't use LED/I2C queue)
+// Queue stubs (mock doesn't use LED/I2C queue).
+// Define TEST_COMMS_OUT_QUEUE_STUBS before including this header to suppress
+// these stubs and provide your own (e.g. in test_comms_out.cpp).
 using QueueHandle_t = void*;
+#ifndef TEST_COMMS_OUT_QUEUE_STUBS
 inline QueueHandle_t xQueueCreate(int, int) { return nullptr; }
 inline BaseType_t xQueueSend(QueueHandle_t, const void*, TickType_t) { return pdFALSE; }
 inline BaseType_t xQueueReceive(QueueHandle_t, void*, TickType_t) { return pdFALSE; }
+#endif

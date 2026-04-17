@@ -31,3 +31,4 @@ firmware/test/bark-mock
 firmware/test/bark-mock-dbg
 firmware/test/bark-mock-dbg.dSYM/
 bark_buddy.egg-info/
+firmware/.pio
