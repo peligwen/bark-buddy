@@ -13,6 +13,10 @@ static bool s_engaged = false;
 static bool s_ramping = false;
 static bool s_battery_cutoff = false;
 
+#if AUX_SERVOS_ENABLED
+static uint16_t aux_current_us[AUX_SERVO_COUNT] = {0};
+#endif
+
 // Ramp state
 static uint32_t s_ramp_start_ms = 0;
 static uint32_t s_ramp_duration_ms = 0;
@@ -46,6 +50,9 @@ bool servos_engage_start() {
         ledcWrite(SERVO_PINS[i], us_to_duty(pos));
     }
     s_engaged = true;
+#if AUX_SERVOS_ENABLED
+    aux_servo_init();
+#endif
     for (int i = 0; i < 8; i++) {
         s_ramp_from[i] = REST_POSE[i];
         s_ramp_to_pose[i] = STANDING_POSE[i];
@@ -126,6 +133,12 @@ void servos_detach_all() {
         ledcDetachPin(SERVO_PINS[i]);
         current_us[i] = 0;
     }
+#if AUX_SERVOS_ENABLED
+    for (int i = 0; i < AUX_SERVO_COUNT; i++) {
+        ledcDetachPin(AUX_SERVO_PINS[i]);
+        aux_current_us[i] = 0;
+    }
+#endif
 }
 
 void servos_set_battery_cutoff() {
@@ -136,3 +149,32 @@ void servos_set_battery_cutoff() {
 bool servos_battery_cutoff() {
     return s_battery_cutoff;
 }
+
+// ============================================================
+// Auxiliary servo ports (firmware indices 8-10)
+// ============================================================
+#if AUX_SERVOS_ENABLED
+
+void aux_servo_init() {
+    for (int i = 0; i < AUX_SERVO_COUNT; i++) {
+        ledcSetup(AUX_SERVO_LEDC_CH[i], SERVO_FREQ_HZ, LEDC_RESOLUTION);
+        ledcAttachPin(AUX_SERVO_PINS[i], AUX_SERVO_LEDC_CH[i]);
+        uint16_t pos = clamp_us(1500);
+        aux_current_us[i] = pos;
+        ledcWrite(AUX_SERVO_PINS[i], us_to_duty(pos));
+    }
+}
+
+void aux_servo_write_us(uint8_t idx, uint16_t us) {
+    if (!s_engaged || idx >= AUX_SERVO_COUNT) return;
+    us = clamp_us(us);
+    aux_current_us[idx] = us;
+    ledcWrite(AUX_SERVO_PINS[idx], us_to_duty(us));
+}
+
+uint16_t aux_servo_read_us(uint8_t idx) {
+    if (idx >= AUX_SERVO_COUNT) return 0;
+    return aux_current_us[idx];
+}
+
+#endif  // AUX_SERVOS_ENABLED

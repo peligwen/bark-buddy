@@ -178,6 +178,21 @@ static const int8_t SERVO_POLARITY_OVERRIDE[8] = {
 // Scale is 0-255. Stock firmware uses full 0-255 range.
 #define LED_BRIGHTNESS  40  // dim but clearly visible at ~16% max
 
+// --- Auxiliary Servo Ports (expansion connectors SERVO7, SERVO9, SERVO11) ---
+// Schematic ports on VIN rail: SERVO7=GPIO15(R37), SERVO9=GPIO0(R38), SERVO11=GPIO12(R39).
+// GPIO 0 is a boot-mode strapping pin (LOW=download); safe after boot, must be HIGH at power-on.
+// GPIO 12 is a flash-voltage strapping pin (HIGH=1.8V); treat carefully — series R39 (5.1K) is present.
+// LEDC channels 0-7: main servos; 8: pin probe; 9: buzzer. Aux uses the next free channels (10-12).
+// Disabled by default. Set AUX_SERVOS_ENABLED=1 to activate.
+#ifndef AUX_SERVOS_ENABLED
+#define AUX_SERVOS_ENABLED    0   // opt-in: set to 1 to enable expansion servo ports
+#endif
+#define AUX_SERVO_COUNT       3
+// GPIO pins for aux servo firmware indices 8, 9, 10
+static constexpr uint8_t AUX_SERVO_PINS[AUX_SERVO_COUNT]    = {15, 0, 12};
+// LEDC channels for aux servos (10, 11, 12 — first free after main+probe+buzzer)
+static constexpr uint8_t AUX_SERVO_LEDC_CH[AUX_SERVO_COUNT] = {10, 11, 12};
+
 // --- Auxiliary GPIO ---
 // J5 expansion header (IO32, IO33) and UART0 header (TX=IO1, RX=IO3).
 // All four pins are unused by the base firmware; gpio_aux_* functions gate access.

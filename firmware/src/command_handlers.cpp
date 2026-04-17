@@ -163,6 +163,21 @@ static void handle_cmd_servo(const JsonDocument& doc) {
     uint8_t  idx = doc["index"]    | 0;
     uint16_t us  = doc["pulse_us"] | 1500;
 
+#if AUX_SERVOS_ENABLED
+    if (idx >= 8 && idx <= 10) {
+        gait_pause();
+        aux_servo_write_us(idx - 8, us);
+        JsonDocument resp;
+        resp["type"]      = MSG_ACK;
+        resp["ref_type"]  = MSG_CMD_SERVO;
+        resp["ok"]        = true;
+        resp["index"]     = idx;
+        resp["actual_us"] = aux_servo_read_us(idx - 8);
+        send_json(resp);
+        return;
+    }
+#endif
+
     gait_pause();  // prevent gait from fighting manual writes
     servo_write_us(idx, us);
 
