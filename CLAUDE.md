@@ -11,6 +11,7 @@ Semi-autonomous control system for Hiwonder MechDog robot dog. Stock hardware (n
 - **Firmware Foundation Refactor** (FreeRTOS sensor task, command handler dispatch, WiFi reconnect) — complete
 - **Custom-Firmware-Only Refactor** (deleted stock/hybrid paths, collapsed CMD protocol, replaced Python sim with Mock Firmware) — complete
 - **Engage Switch Refactor** (master engage/disengage, deleted lifecycle FSM, cmd_engage) — complete
+- **Hardware Peripheral Support** (buzzer, button, onboard LED, IMU interrupt, I2C bus 2, GPIO expansion, aux servo ports) — complete
 - **Current work** — IK-based gait pipeline (foot-position IK, body transforms, active balance, stride config)
 - **Next milestone** — SLAM-based localization, composite multi-scan mapping, waypoint navigation UI
 
@@ -34,7 +35,7 @@ Flow: Browser → WebSocket (JSON) → Python host → JSON/NDJSON (USB serial o
 - **Single transport:** `FirmwareTransport` is the only transport class. `send_json(msg: dict)` is the sole command path — no CMD text protocol.
 - **Auto-detect hardware:** USB serial JSON ping → mDNS `_mechdog._tcp` → exit with guidance. No silent fallback.
 - **`bark mock`:** spawns `firmware/test/bark-mock --tcp-port 9001`, waits for port, starts server with `--fw-tcp 127.0.0.1:9001`.
-- **Firmware API:** JSON messages — `cmd_move`, `cmd_stand`, `cmd_balance`, `cmd_servo`, `cmd_led`, `cmd_transform`, `cmd_gait_params`, `cmd_engage`, `cmd_offset`. Firmware streams telemetry (`telem_imu`, `telem_sonar`, `telem_battery`, `telem_status`).
+- **Firmware API:** JSON messages — `cmd_move`, `cmd_stand`, `cmd_balance`, `cmd_servo`, `cmd_led`, `cmd_transform`, `cmd_gait_params`, `cmd_engage`, `cmd_offset`, `cmd_buzzer`, `cmd_gpio`, `cmd_i2c`. Firmware streams telemetry (`telem_imu`, `telem_sonar`, `telem_battery`, `telem_status`, `telem_button`, `telem_gpio`, `telem_i2c`).
 - **Browser protocol:** WebSocket + JSON
 - **Behaviors:** Composable layers — `BalanceLayer` and `ScanBehavior` take `Transport` directly.
 - **Web UI:** Dark theme, D-pad controls, 3D dog view + scan map, vanilla JS (ES modules)
@@ -99,6 +100,9 @@ Commands (host → firmware):
 - `{"type": "cmd_gait_params", "stride_length": 20, "stride_height": 10, "speed": 1.0}`
 - `{"type": "cmd_engage", "enabled": true}`
 - `{"type": "cmd_offset", "index": 0, "offset_us": 0}`
+- `{"type": "cmd_buzzer", "freq_hz": 2400, "duration_ms": 200}` — play tone; freq_hz=0 to stop
+- `{"type": "cmd_gpio", "op": "mode|write|read|analog|subscribe|unsubscribe", "pin": 32, ...}` — GPIO expansion (pins 32, 33, 1, 3)
+- `{"type": "cmd_i2c", "op": "scan|read|write", "bus": 1, "addr": 0x77, ...}` — I2C bus 1 or 2
 - `{"type": "ping"}`
 
 Telemetry (firmware → host):
@@ -106,6 +110,9 @@ Telemetry (firmware → host):
 - `{"type": "telem_sonar", "distance_mm": 250}`
 - `{"type": "telem_battery", "voltage_mv": 7400, "pct": 80, "low": false}`
 - `{"type": "telem_status", "engaged": true, "ramping": false, "balance": true, "battery_cutoff": false}`
+- `{"type": "telem_button", "event": "press|release|long_press"}` — physical button K1
+- `{"type": "telem_gpio", "pin": 32, "digital": 1, "analog": -1}` — GPIO subscription/read result
+- `{"type": "telem_i2c", "bus": 1, "op": "scan", "addrs": [...]}` — I2C op result
 - `{"type": "ack", "ref_type": "cmd_move", "ok": true}`
 
 ## Workflow Guidelines
