@@ -332,36 +332,63 @@ static void test_servos_set_pin() {
     check(!ok, "set_pin reserved pin (GPIO 5) rejected");
     check(!err.empty(), "set_pin reserved pin sets error message");
 
-    // 3. Duplicate pin (give servo 0 the same pin as servo 1)
+    // 3. No-op: assigning the pin a servo already holds → ok, no change
+    uint8_t pin0 = SERVO_PINS[0];
     err = "";
-    ok = servos_set_pin(0, SERVO_PINS[1], err);
-    check(!ok, "set_pin duplicate pin rejected");
-    check(!err.empty(), "set_pin duplicate pin sets error message");
+    ok = servos_set_pin(0, pin0, err);
+    check(ok, "set_pin no-op (same pin) returns true");
+    check(SERVO_PINS[0] == pin0, "SERVO_PINS[0] unchanged on no-op");
 
-    // 4. Valid assignment while disengaged
+    // 4. Swap while disengaged: give servo 0 the pin of servo 1 → servo 1 gets servo 0's old pin
+    servos_detach_all();
+    SERVO_PINS[0] = 25; SERVO_PINS[1] = 26;
+    err = "";
+    ok = servos_set_pin(0, 26, err);
+    check(ok, "set_pin swap while disengaged returns true");
+    check(SERVO_PINS[0] == 26, "SERVO_PINS[0] == 26 after swap");
+    check(SERVO_PINS[1] == 25, "SERVO_PINS[1] == 25 (received servo 0's old pin) after swap");
+    // Reset for isolation
+    SERVO_PINS[0] = 25; SERVO_PINS[1] = 26;
+
+    // 5. Valid assignment to a free pin while disengaged
     servos_detach_all();
     err = "";
     ok = servos_set_pin(0, 33, err);
-    check(ok, "set_pin valid pin while disengaged returns true");
+    check(ok, "set_pin valid free pin while disengaged returns true");
     check(SERVO_PINS[0] == 33, "SERVO_PINS[0] updated to 33 after set_pin");
-    // Reset for isolation
     SERVO_PINS[0] = 25;
 
-    // 5. Valid assignment while engaged — live migration
+    // 6. Valid assignment while engaged — live migration to free pin
     servos_detach_all();
+    SERVO_PINS[0] = 25;
     servos_engage_start();
     run_ramp_to_completion();
 
     err = "";
     ok = servos_set_pin(0, 33, err);
-    check(ok, "set_pin valid pin while engaged returns true");
+    check(ok, "set_pin valid free pin while engaged returns true");
     check(SERVO_PINS[0] == 33, "SERVO_PINS[0] updated to 33 while engaged");
     check(_servo_duty[33] == expected_duty(STANDING_POSE[0]), "new pin (33) driven at STANDING_POSE[0] duty after live reassign");
     check(_servo_duty[25] == 0, "old pin (25) duty zeroed after live reassign");
 
-    // Disengage and reset for isolation
     servos_detach_all();
     SERVO_PINS[0] = 25;
+
+    // 7. Swap while engaged: servo 0 (pin 25) swaps with servo 1 (pin 26)
+    SERVO_PINS[0] = 25; SERVO_PINS[1] = 26;
+    servos_engage_start();
+    run_ramp_to_completion();
+
+    err = "";
+    ok = servos_set_pin(0, 26, err);
+    check(ok, "set_pin swap while engaged returns true");
+    check(SERVO_PINS[0] == 26, "SERVO_PINS[0] == 26 after live swap");
+    check(SERVO_PINS[1] == 25, "SERVO_PINS[1] == 25 after live swap");
+    check(_servo_duty[26] != 0, "new pin (26) driven after live swap");
+    check(_servo_duty[25] != 0, "swapped pin (25) driven after live swap");
+
+    servos_detach_all();
+    SERVO_PINS[0] = 25; SERVO_PINS[1] = 26;
 }
 
 // ------------------------------------------------------------------ //

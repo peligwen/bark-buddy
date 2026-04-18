@@ -161,21 +161,28 @@ bool servos_set_pin(uint8_t idx, uint8_t new_pin, String& err) {
         err = String("pin reserved: ") + reason;
         return false;
     }
+    int8_t swap_j = -1;
     for (uint8_t j = 0; j < 8; j++) {
-        if (j != idx && SERVO_PINS[j] == new_pin) {
-            err = "pin already assigned to another servo";
-            return false;
-        }
+        if (j != idx && SERVO_PINS[j] == new_pin) { swap_j = (int8_t)j; break; }
     }
+    uint8_t old_pin = SERVO_PINS[idx];
+    if (old_pin == new_pin) return true;
     if (s_engaged) {
-        ledcDetachPin(SERVO_PINS[idx]);
+        ledcDetachPin(old_pin);
+        if (swap_j >= 0) ledcDetachPin(new_pin);
         SERVO_PINS[idx] = new_pin;
         ledcSetup(idx, SERVO_FREQ_HZ, LEDC_RESOLUTION);
         ledcAttachPin(new_pin, idx);
-        uint16_t hold = current_us[idx] > 0 ? current_us[idx] : 1500;
-        servo_write_us(idx, hold);
+        servo_write_us(idx, current_us[idx] > 0 ? current_us[idx] : 1500);
+        if (swap_j >= 0) {
+            SERVO_PINS[swap_j] = old_pin;
+            ledcSetup(swap_j, SERVO_FREQ_HZ, LEDC_RESOLUTION);
+            ledcAttachPin(old_pin, swap_j);
+            servo_write_us(swap_j, current_us[swap_j] > 0 ? current_us[swap_j] : 1500);
+        }
     } else {
         SERVO_PINS[idx] = new_pin;
+        if (swap_j >= 0) SERVO_PINS[swap_j] = old_pin;
     }
     return true;
 }
