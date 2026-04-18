@@ -35,6 +35,25 @@
   .subtitle { font-size: 0.75rem; color: var(--text-muted); margin-bottom: 20px; }
   code { font-family: "SF Mono", "Fira Code", monospace; }
 
+  /* Nav */
+  .page-nav {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 20px;
+  }
+  .nav-link {
+    font-size: 0.75rem;
+    padding: 5px 12px;
+    border-radius: 5px;
+    border: 1px solid var(--border);
+    background: var(--bg-card);
+    color: var(--text-muted);
+    text-decoration: none;
+    transition: background 0.15s;
+  }
+  .nav-link:hover { background: var(--border); color: var(--text); }
+  .nav-link.active { background: var(--accent); color: #fff; border-color: var(--accent-dark); }
+
   /* Status bar */
   .status-bar {
     display: flex;
@@ -131,16 +150,6 @@
     animation: lc-pulse 1.2s ease-in-out infinite;
   }
 
-  /* Test-mode indicator */
-  .test-mode-dot {
-    width: 8px; height: 8px;
-    border-radius: 50%;
-    background: var(--text-dim);
-    flex-shrink: 0;
-    transition: background 0.3s;
-  }
-  .test-mode-dot.active { background: var(--accent); animation: lc-pulse 1.4s ease-in-out infinite; }
-
   /* Event log */
   .event-log-section { margin-top: 28px; }
   .event-log-wrap {
@@ -224,7 +233,7 @@
   }
   #copy-feedback.show { opacity: 1; }
 
-  /* Servo grid */
+  /* New servo grid -- slim layout */
   .servo-grid {
     display: flex;
     flex-direction: column;
@@ -232,14 +241,19 @@
   }
   .servo-row {
     display: grid;
-    grid-template-columns: 100px 1fr 70px 60px 80px 36px;
+    grid-template-columns: 120px 1fr 80px 36px;
     align-items: center;
     gap: 12px;
     background: var(--bg-panel);
     border: 1px solid var(--border);
     border-radius: 8px;
     padding: 10px 14px;
+    transition: background 0.15s;
   }
+  .servo-row.flash-ok      { background: rgba(74, 222, 128, 0.12); }
+  .servo-row.flash-clamped { background: rgba(251, 191, 36, 0.15); }
+  .servo-row.flash-error   { background: rgba(248, 113, 113, 0.18); }
+
   .offset-cell {
     display: flex;
     flex-direction: column;
@@ -267,6 +281,7 @@
   .offset-input::-webkit-inner-spin-button,
   .offset-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
   .offset-input { -moz-appearance: textfield; }
+
   .servo-label { display: flex; flex-direction: column; gap: 2px; }
   .servo-name {
     font-size: 0.8rem;
@@ -279,6 +294,7 @@
     color: var(--text-dim);
     font-family: "SF Mono", "Fira Code", monospace;
   }
+
   input[type=range] {
     width: 100%;
     accent-color: var(--accent);
@@ -303,14 +319,6 @@
   input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
   input[type=number] { -moz-appearance: textfield; }
 
-  /* Ack feedback */
-  .actual-us {
-    font-size: 0.65rem;
-    color: var(--text-dim);
-    font-family: "SF Mono", "Fira Code", monospace;
-    text-align: right;
-    white-space: nowrap;
-  }
   .wiggle-btn {
     width: 32px;
     font-size: 0.9rem;
@@ -324,267 +332,63 @@
     border-color: var(--accent-dark);
     pointer-events: none;
   }
-  .servo-row { transition: background 0.15s; }
-  .servo-row.flash-ok      { background: rgba(74, 222, 128, 0.12); }
-  .servo-row.flash-clamped { background: rgba(251, 191, 36, 0.15); }
-  .servo-row.flash-error   { background: rgba(248, 113, 113, 0.18); }
 
-  /* Pin probe section */
-  .section-heading {
-    font-size: 0.75rem;
-    font-weight: 600;
-    color: var(--text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    margin-bottom: 10px;
-  }
-  .probe-panel {
-    background: var(--bg-panel);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 14px;
-    margin-bottom: 20px;
-  }
-  .probe-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-bottom: 10px;
-    flex-wrap: wrap;
-  }
-  .probe-row label {
-    font-size: 0.75rem;
-    color: var(--text-muted);
-    white-space: nowrap;
-  }
-  .probe-pin-input {
-    width: 72px;
+  /* Pin select dropdown */
+  .pin-select {
     background: var(--bg-card);
     border: 1px solid var(--border);
     border-radius: 5px;
     color: var(--text);
     font-family: "SF Mono", "Fira Code", monospace;
-    font-size: 0.85rem;
-    padding: 5px 8px;
-    text-align: right;
-  }
-  .probe-pin-input:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
-  .probe-pin-input::-webkit-inner-spin-button,
-  .probe-pin-input::-webkit-outer-spin-button { -webkit-appearance: none; }
-  .probe-pin-input { -moz-appearance: textfield; }
-  .probe-select {
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: 5px;
-    color: var(--text);
-    font-family: "SF Mono", "Fira Code", monospace;
-    font-size: 0.8rem;
+    font-size: 0.75rem;
     padding: 5px 8px;
     cursor: pointer;
-  }
-  .probe-select:focus { outline: 1px solid var(--accent); }
-  #probe-result {
-    font-size: 0.75rem;
-    font-family: "SF Mono", "Fira Code", monospace;
-    color: var(--text-dim);
-    min-width: 140px;
-  }
-  #probe-result.ok    { color: #4ade80; }
-  #probe-result.error { color: #f87171; }
-
-  /* Mapping table */
-  .map-table {
     width: 100%;
-    border-collapse: collapse;
-    font-size: 0.75rem;
-    font-family: "SF Mono", "Fira Code", monospace;
-    margin-top: 10px;
   }
-  .map-table th {
-    text-align: left;
-    color: var(--text-dim);
-    font-weight: 500;
-    padding: 4px 8px;
-    border-bottom: 1px solid var(--border);
-  }
-  .map-table td {
-    padding: 5px 8px;
-    border-bottom: 1px solid rgba(42,47,58,0.5);
-    color: var(--text);
-  }
-  .map-table tr:last-child td { border-bottom: none; }
-  .map-table .remove-btn {
-    background: none;
-    border: none;
-    color: var(--text-dim);
-    cursor: pointer;
-    font-size: 0.75rem;
-    padding: 0 4px;
-  }
-  .map-table .remove-btn:hover { color: #f87171; }
-  .probe-hint {
-    font-size: 0.7rem;
-    color: var(--text-dim);
-    margin-top: 6px;
-    line-height: 1.5;
-  }
-  .probe-hint code { color: var(--text-muted); }
-  .copy-pins-btn {
-    font-size: 0.75rem;
-    padding: 5px 12px;
-    border-radius: 5px;
-    border: 1px solid var(--accent-dark);
-    background: var(--bg-panel);
-    color: var(--accent);
-    cursor: pointer;
-    transition: background 0.15s;
-    margin-top: 10px;
-  }
-  .copy-pins-btn:hover { background: var(--accent); color: #fff; }
-  #copy-pins-feedback {
-    font-size: 0.7rem;
-    color: #4ade80;
-    opacity: 0;
-    transition: opacity 0.3s;
-    margin-left: 8px;
-  }
-  #copy-pins-feedback.show { opacity: 1; }
+  .pin-select:focus { outline: 1px solid var(--accent); }
+  .pin-select.strapping { border-color: rgba(245,158,11,0.5); }
+  .pin-select.updating  { opacity: 0.5; pointer-events: none; }
 
-  /* Auto-probe workflow */
-  .auto-probe-controls {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-wrap: wrap;
-    margin-bottom: 12px;
-  }
-  .auto-probe-status {
-    font-size: 0.75rem;
-    font-family: "SF Mono", "Fira Code", monospace;
-    color: var(--text-muted);
-    flex: 1;
-    min-width: 180px;
-  }
-  .auto-probe-status.probing { color: var(--accent); }
-  .auto-probe-status.done    { color: #4ade80; }
-
-  .probe-identify {
-    background: rgba(212,136,14,0.08);
-    border: 1px solid rgba(212,136,14,0.3);
-    border-radius: 7px;
-    padding: 10px 12px;
-    margin-bottom: 12px;
-    display: none;
-  }
-  .probe-identify.show { display: block; }
-  .probe-identify-label {
-    font-size: 0.75rem;
-    color: var(--accent);
-    margin-bottom: 8px;
-    font-weight: 600;
-  }
-  .probe-identify-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-wrap: wrap;
-  }
-  .probe-select-wide {
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: 5px;
-    color: var(--text);
-    font-family: "SF Mono", "Fira Code", monospace;
-    font-size: 0.8rem;
-    padding: 5px 8px;
-    cursor: pointer;
-    flex: 1;
-    min-width: 160px;
-  }
-  .probe-select-wide:focus { outline: 1px solid var(--accent); }
-
-  .probe-warning {
-    font-size: 0.7rem;
-    color: #f59e0b;
-    background: rgba(245,158,11,0.08);
-    border: 1px solid rgba(245,158,11,0.25);
-    border-radius: 5px;
-    padding: 5px 9px;
-    margin-bottom: 8px;
-    display: none;
-  }
-  .probe-warning.show { display: block; }
-
-  .section-divider {
-    border: none;
-    border-top: 1px solid var(--border);
-    margin: 14px 0 12px;
-  }
-
-  .map-table .col-port  { color: var(--text-muted); }
-  .map-table .col-gpio  { color: var(--text); }
-  .map-table .col-role  { color: #4ade80; }
-  .map-table .col-role.unset { color: var(--text-dim); font-style: italic; }
-  .map-table tr.probing-row > td { background: rgba(212,136,14,0.1); }
-
-  /* Gait / Balance PID panels */
-  .param-panel {
-    background: var(--bg-panel);
-    border: 1px solid var(--border);
+  /* Toast */
+  .toast {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #1e222b;
+    border: 1px solid #f87171;
+    color: #f87171;
     border-radius: 8px;
-    padding: 14px;
-    margin-bottom: 20px;
-  }
-  .param-row {
-    display: grid;
-    grid-template-columns: 130px 1fr 60px;
-    align-items: center;
-    gap: 10px;
-    margin-bottom: 10px;
-  }
-  .param-row:last-child { margin-bottom: 0; }
-  .param-row label {
-    font-size: 0.75rem;
-    color: var(--text-muted);
-    white-space: nowrap;
-  }
-  .param-val {
-    font-size: 0.75rem;
+    padding: 8px 18px;
+    font-size: 0.8rem;
     font-family: "SF Mono", "Fira Code", monospace;
-    color: var(--text);
-    text-align: right;
-    min-width: 50px;
+    opacity: 0;
+    transition: opacity 0.2s;
+    pointer-events: none;
+    z-index: 1000;
   }
-  /* Balance PID two-column layout */
-  .pid-cols {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 0 24px;
-  }
-  .pid-col-heading {
-    font-size: 0.7rem;
-    font-weight: 600;
-    color: var(--text-dim);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    margin-bottom: 8px;
-    margin-top: 4px;
-  }
+  .toast.show { opacity: 1; }
 </style>
 </head>
 <body>
 
+<nav class="page-nav">
+  <a href="/tuning" class="nav-link active">Tuning</a>
+  <a href="/gait"   class="nav-link">Gait</a>
+  <a href="/"       class="nav-link">Main</a>
+</nav>
+
 <h1>Servo Tuning</h1>
-<p class="subtitle">Send <code>cmd_servo</code> to individual servos. Engage servos first.</p>
+<p class="subtitle">Assign GPIO pins, trim offsets, and wiggle servos for identification. Engage first.</p>
 
 <div class="status-bar">
   <div class="dot" id="ws-dot"></div>
-  <span id="status-text">Connecting…</span>
-  <div class="lifecycle-badge" id="lifecycle-badge" data-state="unknown"><span class="lc-dot"></span><span id="lifecycle-text">–</span></div>
+  <span id="status-text">Connecting...</span>
+  <div class="lifecycle-badge" id="lifecycle-badge" data-state="unknown"><span class="lc-dot"></span><span id="lifecycle-text">-</span></div>
   <button class="test-btn" id="engage-btn" onclick="toggleEngage()" disabled>Engage Servos</button>
 </div>
 
-<div id="waking-banner"><span class="lc-dot"></span><span>Waking up — resend your command once active</span></div>
+<div id="waking-banner"><span class="lc-dot"></span><span>Waking up - resend your command once active</span></div>
 
 <div class="presets">
   <button class="preset-btn" onclick="loadPreset(STANDING_POSE)">Standing</button>
@@ -596,6 +400,8 @@
 
 <div id="diag-bar" style="font-size:0.65rem;color:var(--text-dim);font-family:'SF Mono','Fira Code',monospace;margin-bottom:20px;">TX: 0 | ACK: 0</div>
 
+<div class="servo-grid" id="servo-grid"></div>
+
 <div class="event-log-section">
   <div class="event-log-wrap">
     <div class="event-log-header">
@@ -606,152 +412,8 @@
   </div>
 </div>
 
-<!-- Pin Probe Section -->
-<div class="probe-panel">
-  <div class="section-heading">Pin Probe</div>
-
-  <!-- Auto-probe workflow -->
-  <div class="auto-probe-controls">
-    <button class="test-btn" id="auto-probe-btn" onclick="startAutoProbe()">Auto-probe all</button>
-    <button class="test-btn" id="auto-probe-next-btn" onclick="autoProbeNext()" style="display:none">Next</button>
-    <button class="test-btn" id="auto-probe-stop-btn" onclick="stopAutoProbe()" style="display:none">Stop</button>
-    <span class="auto-probe-status" id="auto-probe-status">10 board GPIOs ready to probe</span>
-  </div>
-
-  <!-- Identify box: shown during auto-probe after each wiggle -->
-  <div class="probe-identify" id="probe-identify">
-    <div class="probe-identify-label" id="probe-identify-label">Which servo moved?</div>
-    <div class="probe-warning" id="probe-bootstrap-warn">Bootstrap pin — GPIO may affect boot behaviour. Probe anyway.</div>
-    <div class="probe-identify-row">
-      <select class="probe-select-wide" id="auto-probe-role-select">
-        <option value="">— pick role —</option>
-        <option value="0">FL_hip</option>
-        <option value="1">FL_knee</option>
-        <option value="2">FR_hip</option>
-        <option value="3">FR_knee</option>
-        <option value="4">RL_hip</option>
-        <option value="5">RL_knee</option>
-        <option value="6">RR_hip</option>
-        <option value="7">RR_knee</option>
-        <option value="none">none (nothing moved)</option>
-        <option value="skip">skip</option>
-      </select>
-      <button class="test-btn" id="auto-probe-record-btn" onclick="autoProbeRecord()">Record</button>
-    </div>
-  </div>
-
-  <!-- Board GPIO mapping table — always shown once any entry exists -->
-  <div id="probe-map-container" style="display:none">
-    <table class="map-table" id="auto-probe-table">
-      <thead><tr><th>Board Port</th><th>GPIO</th><th>Identified Role</th><th></th></tr></thead>
-      <tbody id="probe-map-body"></tbody>
-    </table>
-    <div style="display:flex;align-items:center;margin-top:10px;">
-      <button class="copy-pins-btn" onclick="copyServoPins()">Copy SERVO_PINS</button>
-      <span id="copy-pins-feedback">Copied!</span>
-    </div>
-  </div>
-
-  <hr class="section-divider">
-
-  <!-- Manual probe (kept) -->
-  <div style="font-size:0.7rem;color:var(--text-dim);margin-bottom:8px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;">Manual Probe</div>
-  <div class="probe-row">
-    <label for="probe-pin-input">GPIO pin</label>
-    <input type="number" id="probe-pin-input" class="probe-pin-input" min="0" max="39" placeholder="e.g. 4"
-           onkeydown="if(event.key==='Enter') probePin()">
-    <button class="test-btn" onclick="probePin()">Probe (wiggle)</button>
-    <span id="probe-result">—</span>
-  </div>
-  <div class="probe-row">
-    <label for="probe-assign-select">Assign last probed pin to</label>
-    <select id="probe-assign-select" class="probe-select">
-      <option value="">— pick role —</option>
-    </select>
-    <button class="test-btn" id="probe-assign-btn" onclick="assignPin()" disabled>Assign</button>
-  </div>
-  <p class="probe-hint">
-    Enter a GPIO, click <strong>Probe</strong> — watch which joint wiggles, then assign it to the correct role.
-  </p>
-</div>
-
-<div class="section-heading">Servo Sliders</div>
-<div class="servo-grid" id="servo-grid"></div>
-
-<!-- Gait Parameters Section -->
-<div class="section-heading" style="margin-top:24px;">Gait Parameters</div>
-<div class="param-panel">
-  <div class="param-row">
-    <label for="gait-stride-height">Stride Height</label>
-    <input type="range" id="gait-stride-height" class="gait-slider" min="5" max="30" step="1" value="15" disabled
-           oninput="onGaitSliderInput('gait-stride-height','gait-stride-height-val','mm')">
-    <span class="param-val" id="gait-stride-height-val">15 mm</span>
-  </div>
-  <div class="param-row">
-    <label for="gait-stride-length">Stride Length</label>
-    <input type="range" id="gait-stride-length" class="gait-slider" min="10" max="50" step="1" value="25" disabled
-           oninput="onGaitSliderInput('gait-stride-length','gait-stride-length-val','mm')">
-    <span class="param-val" id="gait-stride-length-val">25 mm</span>
-  </div>
-  <div class="param-row">
-    <label for="gait-frequency">Frequency</label>
-    <input type="range" id="gait-frequency" class="gait-slider" min="0.5" max="3.0" step="0.1" value="1.0" disabled
-           oninput="onGaitSliderInput('gait-frequency','gait-frequency-val','Hz')">
-    <span class="param-val" id="gait-frequency-val">1.0 Hz</span>
-  </div>
-</div>
-
-<!-- Balance PID Section -->
-<div class="section-heading">Balance PID</div>
-<div class="param-panel">
-  <div class="pid-cols">
-    <div>
-      <div class="pid-col-heading">Pitch</div>
-      <div class="param-row">
-        <label for="pid-pitch-kp">Kp</label>
-        <input type="range" id="pid-pitch-kp" class="pid-slider" min="0.0" max="5.0" step="0.05" value="0.8" disabled
-               oninput="onPidSliderInput('pid-pitch-kp','pid-pitch-kp-val')">
-        <span class="param-val" id="pid-pitch-kp-val">0.800</span>
-      </div>
-      <div class="param-row">
-        <label for="pid-pitch-ki">Ki</label>
-        <input type="range" id="pid-pitch-ki" class="pid-slider" min="0.0" max="0.5" step="0.005" value="0.01" disabled
-               oninput="onPidSliderInput('pid-pitch-ki','pid-pitch-ki-val')">
-        <span class="param-val" id="pid-pitch-ki-val">0.010</span>
-      </div>
-      <div class="param-row">
-        <label for="pid-pitch-kd">Kd</label>
-        <input type="range" id="pid-pitch-kd" class="pid-slider" min="0.0" max="1.0" step="0.01" value="0.05" disabled
-               oninput="onPidSliderInput('pid-pitch-kd','pid-pitch-kd-val')">
-        <span class="param-val" id="pid-pitch-kd-val">0.050</span>
-      </div>
-    </div>
-    <div>
-      <div class="pid-col-heading">Roll</div>
-      <div class="param-row">
-        <label for="pid-roll-kp">Kp</label>
-        <input type="range" id="pid-roll-kp" class="pid-slider" min="0.0" max="5.0" step="0.05" value="0.8" disabled
-               oninput="onPidSliderInput('pid-roll-kp','pid-roll-kp-val')">
-        <span class="param-val" id="pid-roll-kp-val">0.800</span>
-      </div>
-      <div class="param-row">
-        <label for="pid-roll-ki">Ki</label>
-        <input type="range" id="pid-roll-ki" class="pid-slider" min="0.0" max="0.5" step="0.005" value="0.01" disabled
-               oninput="onPidSliderInput('pid-roll-ki','pid-roll-ki-val')">
-        <span class="param-val" id="pid-roll-ki-val">0.010</span>
-      </div>
-      <div class="param-row">
-        <label for="pid-roll-kd">Kd</label>
-        <input type="range" id="pid-roll-kd" class="pid-slider" min="0.0" max="1.0" step="0.01" value="0.05" disabled
-               oninput="onPidSliderInput('pid-roll-kd','pid-roll-kd-val')">
-        <span class="param-val" id="pid-roll-kd-val">0.050</span>
-      </div>
-    </div>
-  </div>
-</div>
-
 <script>
-  // ── Servo config (mirrors config.h) ──────────────────────────
+  // -- Servo config (mirrors config.h) --------------------------
   const SERVO_NAMES   = ['FL_hip','FL_knee','FR_hip','FR_knee','RL_hip','RL_knee','RR_hip','RR_knee'];
   const STANDING_POSE = [2096, 1621, 2170, 1611,  904, 1379,  830, 1389];
   const REST_POSE     = [1800, 1500, 1870, 1500, 1202, 1500, 1165, 1500];
@@ -759,11 +421,49 @@
   const SERVO_MIN = 500;
   const SERVO_MAX = 2500;
 
-  // ── State ─────────────────────────────────────────────────────
+  // -- Pin catalog -----------------------------------------------
+  const PIN_CATALOG = [
+    // Main servo headers
+    { gpio: 25, label: 'GPIO 25 - SERVO1',  note: 'VIN rail servo port',                                        reserved: false, strapping: false },
+    { gpio: 26, label: 'GPIO 26 - SERVO2',  note: 'VIN rail servo port',                                        reserved: false, strapping: false },
+    { gpio: 27, label: 'GPIO 27 - SERVO3',  note: 'VIN rail servo port',                                        reserved: false, strapping: false },
+    { gpio: 14, label: 'GPIO 14 - SERVO4',  note: 'VIN rail servo port',                                        reserved: false, strapping: false },
+    { gpio: 16, label: 'GPIO 16 - SERVO5',  note: 'VIN rail servo port',                                        reserved: false, strapping: false },
+    { gpio: 17, label: 'GPIO 17 - SERVO6',  note: 'VIN rail servo port',                                        reserved: false, strapping: false },
+    { gpio: 4,  label: 'GPIO 4  - SERVO10', note: '5V regulated rail servo port',                               reserved: false, strapping: false },
+    { gpio: 2,  label: 'GPIO 2  - SERVO8',  note: 'strapping: boot mode latch if LOW',                          reserved: false, strapping: true  },
+    { gpio: 15, label: 'GPIO 15 - SERVO7',  note: 'strapping: silences boot log if LOW',                        reserved: false, strapping: true  },
+    { gpio: 0,  label: 'GPIO 0  - SERVO9',  note: 'strapping: download mode if LOW at boot',                    reserved: false, strapping: true  },
+    { gpio: 12, label: 'GPIO 12 - SERVO11', note: 'strapping: flash voltage select - series 5.1K; keep LOW',    reserved: false, strapping: true  },
+    // Free output GPIOs (not on servo headers)
+    { gpio: 32, label: 'GPIO 32 - J5 expander', note: 'free output (AUX_GPIO)',                                  reserved: false, strapping: false },
+    { gpio: 33, label: 'GPIO 33 - J5 expander', note: 'free output (AUX_GPIO)',                                  reserved: false, strapping: false },
+    // Reserved -- shown disabled so user understands the full pin map
+    { gpio: 5,  label: 'GPIO 5  - Button K1',   note: 'reserved: button input',                                  reserved: true  },
+    { gpio: 18, label: 'GPIO 18 - Onboard LED',  note: 'reserved: LED driver',                                   reserved: true  },
+    { gpio: 21, label: 'GPIO 21 - Buzzer',        note: 'reserved: buzzer NPN',                                  reserved: true  },
+    { gpio: 22, label: 'GPIO 22 - I2C1 SCL',      note: 'reserved: IMU + sonar',                                 reserved: true  },
+    { gpio: 23, label: 'GPIO 23 - I2C1 SDA',      note: 'reserved: IMU + sonar',                                 reserved: true  },
+    { gpio: 19, label: 'GPIO 19 - I2C2 SDA',      note: 'reserved: J4 expansion',                                reserved: true  },
+    { gpio: 13, label: 'GPIO 13 - I2C2 SCL',      note: 'reserved: J4 expansion',                                reserved: true  },
+    { gpio: 34, label: 'GPIO 34 - Battery ADC',   note: 'reserved: battery monitor (input-only)',                reserved: true  },
+    { gpio: 35, label: 'GPIO 35 - IMU INT2',       note: 'reserved: IMU interrupt (input-only)',                 reserved: true  },
+    { gpio: 1,  label: 'GPIO 1  - UART0 TX',      note: 'breaks serial if driven as output',                     reserved: true  },
+    { gpio: 3,  label: 'GPIO 3  - UART0 RX',      note: 'breaks serial boot if driven',                          reserved: true  },
+    { gpio: 36, label: 'GPIO 36 - input-only',    note: 'ADC only - cannot drive as output',                     reserved: true  },
+    { gpio: 39, label: 'GPIO 39 - input-only',    note: 'ADC only - cannot drive as output',                     reserved: true  },
+  ];
+
+  // -- State -----------------------------------------------------
   let ws = null;
   let _tuningEngaged = false;
-  let lifecycleState = null;   // synthetic lifecycle state for badge display
-  const values = [...STANDING_POSE];
+  let lifecycleState = null;
+
+  // Authoritative pin->servo mapping, updated from telem_servo_pins
+  let currentPins = [25, 26, 27, 14, 16, 17, 4, 2];  // mirrors default SERVO_PINS
+
+  // Per-servo offset state
+  const offsets = new Array(8).fill(0);
 
   // Diagnostics
   let _msgSent = 0;
@@ -773,56 +473,32 @@
     if (el) el.textContent = 'TX: ' + _msgSent + ' | ACK: ' + _ackRecv;
   }
 
-  // Slider throttle: leading+trailing, 50ms window per servo
-  const THROTTLE_MS = 50;
-  const _lastSend    = new Array(8).fill(0);
-  const _pendingVal  = new Array(8).fill(null);
-  const _pendingTmr  = new Array(8).fill(null);
-  let _dragging = false;  // suppress ack-driven slider updates during drag
-
-  // Per-servo offset state
-  const offsets = new Array(8).fill(0);
-
-  // Generic throttle state for gait/pid (keyed by string id)
-  // Generic param throttle — stores a builder *function* (not a value) so the
-  // trailing send always reads the latest slider state from the DOM.
-  const _throttleLastSend = {};
-  const _throttlePendingVal = {};
-  const _throttlePendingTmr = {};
-
-  function throttledSendParam(key, buildMsg) {
-    const now = Date.now();
-    const last = _throttleLastSend[key] || 0;
-    if (now - last >= THROTTLE_MS) {
-      _throttleLastSend[key] = now;
-      _throttlePendingVal[key] = null;
-      send(buildMsg());
-    } else {
-      _throttlePendingVal[key] = buildMsg;
-      if (!_throttlePendingTmr[key]) {
-        const remaining = THROTTLE_MS - (now - last);
-        _throttlePendingTmr[key] = setTimeout(() => {
-          _throttlePendingTmr[key] = null;
-          if (_throttlePendingVal[key] !== null) {
-            _throttleLastSend[key] = Date.now();
-            send(_throttlePendingVal[key]());
-            _throttlePendingVal[key] = null;
-          }
-        }, remaining);
-      }
+  // -- Toast -----------------------------------------------------
+  let _toastTimer = null;
+  function showToast(msg) {
+    let el = document.getElementById('toast');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'toast';
+      el.className = 'toast';
+      document.body.appendChild(el);
     }
+    el.textContent = msg;
+    el.classList.add('show');
+    if (_toastTimer) clearTimeout(_toastTimer);
+    _toastTimer = setTimeout(() => el.classList.remove('show'), 3000);
   }
 
-  // ── WebSocket ─────────────────────────────────────────────────
+  // -- WebSocket -------------------------------------------------
   function toggleEngage() {
     ws.send(JSON.stringify({ type: 'cmd_engage', enabled: !_tuningEngaged }));
   }
 
   function connect() {
     ws = new WebSocket('ws://' + location.host + '/ws');
-    ws.onopen  = () => { setStatus('connected', 'Connected'); queryAllOffsets(); }; // queryAllOffsets() safe: send() guards against non-OPEN states
+    ws.onopen  = () => { setStatus('connected', 'Connected'); queryAllOffsets(); };
     ws.onclose = () => {
-      setStatus('off', 'Disconnected — retrying…');
+      setStatus('off', 'Disconnected - retrying...');
       setLifecycle(null);
       setTimeout(connect, 2000);
     };
@@ -831,20 +507,18 @@
       try {
         const msg = JSON.parse(event.data);
         if (msg.type === 'telem_status') {
-          // Update engage button from status
           if (msg.engaged != null) {
             _tuningEngaged = msg.engaged;
             const btn = document.getElementById('engage-btn');
             if (btn) {
-              btn.textContent = msg.ramping ? 'Ramping\u2026' : (msg.engaged ? 'Disengage' : 'Engage Servos');
+              btn.textContent = msg.ramping ? 'Ramping...' : (msg.engaged ? 'Disengage' : 'Engage Servos');
               btn.disabled = !!msg.ramping || !!msg.battery_cutoff;
               btn.classList.toggle('active', !!msg.engaged && !msg.ramping);
             }
-            document.querySelectorAll('input[type=range], .wiggle-btn').forEach(function(el) {
+            document.querySelectorAll('.wiggle-btn').forEach(function(el) {
               el.disabled = !msg.engaged || !!msg.ramping;
             });
           }
-          // Map new engage states to lifecycle badge
           if (msg.engaged != null) {
             if (msg.ramping) setLifecycle('waking');
             else if (msg.engaged) setLifecycle('active');
@@ -853,20 +527,23 @@
         }
         if (msg.type === 'telem_event') {
           handleFwEvent(msg);
-          if (msg.event === 'engage_complete')    { _tuningEngaged = true;  setLifecycle('active'); }
-          if (msg.event === 'disengage_complete') { _tuningEngaged = false; setLifecycle('resting'); }
+          if (msg.event === 'engage_complete')       { _tuningEngaged = true;  setLifecycle('active');  }
+          if (msg.event === 'disengage_complete')    { _tuningEngaged = false; setLifecycle('resting'); }
           if (msg.event === 'battery_cutoff_detach') { _tuningEngaged = false; setLifecycle('resting'); }
           if (msg.event === 'heartbeat_detach')      { _tuningEngaged = false; setLifecycle('resting'); }
         }
+        if (msg.type === 'telem_servo_pins') handleServoPins(msg);
         if (msg.type === 'ack') {
-          // Show waking banner when a command is rejected because firmware isn't engaged yet
           if (!msg.ok && (msg.error === 'not_active' || msg.error === 'not_engaged')) {
             const banner = document.getElementById('waking-banner');
             if (banner) banner.classList.add('show');
           }
-          if (msg.ref_type === 'cmd_servo')     handleServoAck(msg);
-          if (msg.ref_type === 'cmd_probe_pin') handleProbeAck(msg);
+          if (msg.ref_type === 'cmd_servo_pin') handleServoPinAck(msg);
           if (msg.ref_type === 'cmd_offset')    handleOffsetAck(msg);
+          if (msg.ref_type === 'cmd_servo') {
+            _ackRecv++;
+            updateDiagCounter();
+          }
         }
       } catch (_) {}
     };
@@ -893,7 +570,6 @@
   }
 
   function setLifecycle(state) {
-    // state: "active", "waking", "resting", "booting", or null for disconnected
     const valid = ['active', 'waking', 'idle', 'sleeping', 'resting', 'booting'];
     if (state !== null && !valid.includes(state)) state = null;
 
@@ -904,7 +580,7 @@
 
     if (!state) {
       badge.setAttribute('data-state', 'unknown');
-      label.textContent = '–';
+      label.textContent = '-';
       banner.classList.remove('show');
       return;
     }
@@ -912,518 +588,120 @@
     badge.setAttribute('data-state', state);
     label.textContent = state.toUpperCase();
 
-    // Waking banner: show when waking (ramping), dismiss otherwise
     if (state === 'waking') {
       banner.classList.add('show');
     } else {
       banner.classList.remove('show');
     }
+  }
 
-    // Enable/disable gait and PID sliders based on lifecycle
-    const isActive = (state === 'active');
-    document.querySelectorAll('.gait-slider, .pid-slider').forEach(el => {
-      el.disabled = !isActive;
+  // -- Pin select helpers ----------------------------------------
+  function buildPinSelectOptions(sel, selectedGpio, thisIdx) {
+    while (sel.firstChild) sel.removeChild(sel.firstChild);
+    PIN_CATALOG.forEach(function(entry) {
+      const gpio = entry.gpio;
+      const label = entry.label;
+      const note = entry.note;
+      const reserved = entry.reserved;
+      const strapping = entry.strapping;
+      const opt = document.createElement('option');
+      opt.value = gpio;
+      let optText = label + ' - ' + note;
+      if (reserved) {
+        opt.disabled = true;
+        optText += ' [reserved]';
+      } else {
+        const usedBy = currentPins.findIndex(function(p, j) { return j !== thisIdx && p === gpio; });
+        if (usedBy >= 0) {
+          opt.disabled = true;
+          optText += ' [-> servo ' + usedBy + ']';
+        }
+      }
+      opt.textContent = optText;
+      if (gpio === selectedGpio) opt.selected = true;
+      if (strapping && !reserved) opt.style.color = '#f59e0b';
+      sel.appendChild(opt);
+    });
+    const entry = PIN_CATALOG.find(function(e) { return e.gpio === selectedGpio; });
+    sel.classList.toggle('strapping', !!(entry && entry.strapping));
+  }
+
+  // -- Servo pin ack handlers ------------------------------------
+  function handleServoPinAck(msg) {
+    if (!msg.ok) {
+      for (let i = 0; i < 8; i++) {
+        const sel = document.getElementById('pin-sel-' + i);
+        if (sel) {
+          sel.classList.remove('updating');
+          buildPinSelectOptions(sel, currentPins[i], i);
+        }
+      }
+      showToast('Pin rejected: ' + (msg.error || 'unknown error'));
+    }
+    // If ok=true, telem_servo_pins will update everything
+  }
+
+  function handleServoPins(msg) {
+    if (!Array.isArray(msg.pins) || msg.pins.length < 8) return;
+    currentPins = msg.pins.slice(0, 8);
+    for (let i = 0; i < 8; i++) {
+      const sel = document.getElementById('pin-sel-' + i);
+      if (!sel) continue;
+      sel.classList.remove('updating');
+      buildPinSelectOptions(sel, currentPins[i], i);
+    }
+  }
+
+  // -- Per-servo offsets -----------------------------------------
+  function queryAllOffsets() {
+    send({ type: 'cmd_offset' });  // no index -> read all
+  }
+
+  function handleOffsetAck(msg) {
+    if (!Array.isArray(msg.offsets)) return;
+    msg.offsets.forEach(function(val, i) {
+      if (i >= 8) return;
+      offsets[i] = val;
+      const el = document.getElementById('offset-' + i);
+      if (el) el.value = val;
     });
   }
 
-  // ── Send single servo ─────────────────────────────────────────
-  function sendServo(index, value) {
-    values[index] = value;
-    send({ type: 'cmd_servo', index, pulse_us: value });
-  }
-
-  // Throttled variant for oninput: leading send + guaranteed trailing send
-  function throttledSendServo(index, value) {
-    values[index] = value;
-    const now = Date.now();
-    if (now - _lastSend[index] >= THROTTLE_MS) {
-      _lastSend[index] = now;
-      _pendingVal[index] = null;
-      send({ type: 'cmd_servo', index, pulse_us: value });
-    } else {
-      _pendingVal[index] = value;
-      if (!_pendingTmr[index]) {
-        const remaining = THROTTLE_MS - (now - _lastSend[index]);
-        _pendingTmr[index] = setTimeout(() => {
-          _pendingTmr[index] = null;
-          if (_pendingVal[index] !== null) {
-            _lastSend[index] = Date.now();
-            send({ type: 'cmd_servo', index, pulse_us: _pendingVal[index] });
-            _pendingVal[index] = null;
-          }
-        }, remaining);
-      }
-    }
-  }
-
-  // ── Firmware ack processing ───────────────────────────────────
-  function handleServoAck(msg) {
-    _ackRecv++;
-    console.log('[RX ack #' + _ackRecv + '] idx=' + msg.index + ' ok=' + msg.ok + ' actual=' + msg.actual_us);
-    updateDiagCounter();
-    const i = msg.index;
-    if (i === undefined || i < 0 || i >= 8) return;
-    const rows = document.querySelectorAll('.servo-row');
-    const row = rows[i];
-    if (!row) return;
-    const actualSpan = row.querySelector('.actual-us');
-
-    if (!msg.ok) {
-      if (actualSpan) actualSpan.textContent = msg.error || 'err';
-      flashRow(row, 'error');
+  // -- Wiggle servo for identification ---------------------------
+  function wiggleServo(index, btn) {
+    if (!_tuningEngaged) {
+      showToast('Engage servos first to wiggle');
       return;
     }
-
-    const actual = msg.actual_us;
-    if (actualSpan) actualSpan.textContent = actual + ' μs';
-
-    if (actual !== values[i]) {
-      // Clamped by firmware: update UI to reflect actual position
-      flashRow(row, 'clamped');
-      if (!_dragging) {
-        values[i] = actual;
-        const s = document.getElementById('slider-' + i);
-        const n = document.getElementById('num-' + i);
-        if (s) s.value = actual;
-        if (n) n.value = actual;
-      }
-    } else {
-      flashRow(row, 'ok');
-    }
-  }
-
-  function flashRow(row, type) {
-    row.classList.remove('flash-ok', 'flash-clamped', 'flash-error');
-    row.classList.add('flash-' + type);
-    setTimeout(() => row.classList.remove('flash-' + type), 500);
-  }
-
-  // ── Wiggle servo for identification ───────────────────────────
-  function wiggleServo(index, btn) {
-    const center = STANDING_POSE[index];
+    const center = 1500;
     const amplitude = 20;
     const halfPeriod = 250;
-    const totalSteps = 8;  // 4 full cycles
+    const totalSteps = 8;
     let step = 0;
-
     btn.classList.add('active');
-    const interval = setInterval(() => {
+    btn.disabled = true;
+    const interval = setInterval(function() {
       const target = (step % 2 === 0) ? center + amplitude : center - amplitude;
-      sendServo(index, target);
-      const s = document.getElementById('slider-' + index);
-      const n = document.getElementById('num-' + index);
-      if (s) s.value = target;
-      if (n) n.value = target;
+      send({ type: 'cmd_servo', index: index, pulse_us: target });
       step++;
       if (step >= totalSteps) {
         clearInterval(interval);
-        sendServo(index, center);
-        if (s) s.value = center;
-        if (n) n.value = center;
+        send({ type: 'cmd_servo', index: index, pulse_us: center });
         btn.classList.remove('active');
+        btn.disabled = false;
       }
     }, halfPeriod);
   }
 
-  // ── Per-servo offsets ─────────────────────────────────────────
-  function queryAllOffsets() {
-    for (let i = 0; i < 8; i++) {
-      send({ type: 'cmd_offset', index: i });
-    }
-  }
-
-  function sendOffset(index, value) {
-    offsets[index] = value;
-    send({ type: 'cmd_offset', index, offset_us: value });
-  }
-
-  function handleOffsetAck(msg) {
-    const i = msg.index;
-    if (i === undefined || i < 0 || i >= 8) return;
-    if (msg.offset_us !== undefined) {
-      const val = parseInt(msg.offset_us, 10);
-      if (isNaN(val)) return;
-      offsets[i] = val;
-      const el = document.getElementById('offset-' + i);
-      if (el) el.value = val;
-    }
-  }
-
-  // ── Gait parameters ───────────────────────────────────────────
-  function buildGaitMsg() {
-    return {
-      type: 'cmd_gait_params',
-      stride_height: parseFloat(document.getElementById('gait-stride-height').value),
-      stride_length: parseFloat(document.getElementById('gait-stride-length').value),
-      frequency:     parseFloat(document.getElementById('gait-frequency').value)
-    };
-  }
-
-  function onGaitSliderInput(id, valId, suffix) {
-    const el = document.getElementById(id);
-    const val = parseFloat(el.value);
-    document.getElementById(valId).textContent = val.toFixed(id === 'gait-frequency' ? 1 : 0) + ' ' + suffix;
-    throttledSendParam('gait', buildGaitMsg);
-  }
-
-  // ── Balance PID ───────────────────────────────────────────────
-  function buildPidMsg() {
-    return {
-      type: 'cmd_balance_config',
-      pitch_kp: parseFloat(document.getElementById('pid-pitch-kp').value),
-      pitch_ki: parseFloat(document.getElementById('pid-pitch-ki').value),
-      pitch_kd: parseFloat(document.getElementById('pid-pitch-kd').value),
-      roll_kp:  parseFloat(document.getElementById('pid-roll-kp').value),
-      roll_ki:  parseFloat(document.getElementById('pid-roll-ki').value),
-      roll_kd:  parseFloat(document.getElementById('pid-roll-kd').value)
-    };
-  }
-
-  function onPidSliderInput(id, valId) {
-    const el = document.getElementById(id);
-    const val = parseFloat(el.value);
-    document.getElementById(valId).textContent = val.toFixed(3);
-    throttledSendParam('pid', buildPidMsg);
-  }
-
-  // ── Pin probe ─────────────────────────────────────────────────
-
-  // Board GPIO list (schematic order): { port, gpio, bootstrap }
-  const BOARD_GPIOS = [
-    { port: 'SERVO1',  gpio: 25, bootstrap: false },
-    { port: 'SERVO2',  gpio: 26, bootstrap: false },
-    { port: 'SERVO3',  gpio: 27, bootstrap: false },
-    { port: 'SERVO4',  gpio: 14, bootstrap: false },
-    { port: 'SERVO5',  gpio: 17, bootstrap: false },
-    { port: 'SERVO6',  gpio: 15, bootstrap: true  },
-    { port: 'SERVO7',  gpio: 2,  bootstrap: false },
-    { port: 'SERVO8',  gpio: 0,  bootstrap: true  },
-    { port: 'SERVO9',  gpio: 4,  bootstrap: false },
-    { port: 'SERVO10', gpio: 16, bootstrap: false },
-  ];
-
-  // servoMap: port string → { gpio, role (SERVO_NAMES index or 'none' or null) }
-  // Persisted under bark_buddy_servo_map
-  let servoMap = JSON.parse(localStorage.getItem('bark_buddy_servo_map') || 'null') || {};
-
-  function saveServoMap() {
-    localStorage.setItem('bark_buddy_servo_map', JSON.stringify(servoMap));
-  }
-
-  // Migrate old bb_pin_map entries into servoMap on first load
-  (function migrateOldMap() {
-    const old = JSON.parse(localStorage.getItem('bb_pin_map') || '[]');
-    if (!old.length) return;
-    old.forEach(({ gpio, index }) => {
-      const entry = BOARD_GPIOS.find(e => e.gpio === gpio);
-      if (entry) servoMap[entry.port] = { gpio, role: index };
-    });
-    saveServoMap();
-  })();
-
-  // ── Auto-probe state machine ──────────────────────────────────
-  let _autoProbeActive = false;
-  let _autoProbeIdx = 0;       // index into BOARD_GPIOS
-  let _autoProbingIdx = -1;    // index captured at send time — guards stale acks
-  let _autoProbePending = false;
-  let _autoProbeTimeout = null;
-
-  function startAutoProbe() {
-    _autoProbeActive = true;
-    _autoProbeIdx = 0;
-    document.getElementById('auto-probe-btn').style.display = 'none';
-    document.getElementById('auto-probe-stop-btn').style.display = '';
-    _autoProbeRunStep();
-  }
-
-  function stopAutoProbe() {
-    _autoProbeActive = false;
-    if (_autoProbeTimeout) { clearTimeout(_autoProbeTimeout); _autoProbeTimeout = null; }
-    _autoProbePending = false;
-    document.getElementById('auto-probe-btn').style.display = '';
-    document.getElementById('auto-probe-stop-btn').style.display = 'none';
-    document.getElementById('auto-probe-next-btn').style.display = 'none';
-    document.getElementById('probe-identify').classList.remove('show');
-    document.getElementById('auto-probe-status').textContent = 'Stopped.';
-    document.getElementById('auto-probe-status').className = 'auto-probe-status';
-    renderPinMap();
-  }
-
-  function _autoProbeRunStep() {
-    if (!_autoProbeActive || _autoProbeIdx >= BOARD_GPIOS.length) {
-      // Done
-      _autoProbeActive = false;
-      document.getElementById('auto-probe-btn').style.display = '';
-      document.getElementById('auto-probe-stop-btn').style.display = 'none';
-      document.getElementById('auto-probe-next-btn').style.display = 'none';
-      document.getElementById('probe-identify').classList.remove('show');
-      const statusEl = document.getElementById('auto-probe-status');
-      statusEl.textContent = 'All 10 GPIOs probed ✓';
-      statusEl.className = 'auto-probe-status done';
-      renderPinMap();
-      return;
-    }
-
-    const entry = BOARD_GPIOS[_autoProbeIdx];
-    const statusEl = document.getElementById('auto-probe-status');
-    statusEl.textContent = 'Probing GPIO ' + entry.gpio + ' (' + entry.port + ')…';
-    statusEl.className = 'auto-probe-status probing';
-
-    // Bootstrap pin warning
-    const warnEl = document.getElementById('probe-bootstrap-warn');
-    warnEl.classList.toggle('show', entry.bootstrap);
-
-    // Show identify box (disabled until ack)
-    document.getElementById('probe-identify-label').textContent =
-      'GPIO ' + entry.gpio + ' (' + entry.port + ') — which servo moved?';
-    document.getElementById('auto-probe-role-select').value = '';
-    document.getElementById('auto-probe-record-btn').disabled = true;
-    document.getElementById('probe-identify').classList.add('show');
-    document.getElementById('auto-probe-next-btn').style.display = 'none';
-
-    // Highlight this row in the table
-    renderPinMap();
-
-    _autoProbingIdx = _autoProbeIdx;
-    _autoProbePending = true;
-    send({ type: 'cmd_probe_pin', pin: entry.gpio });
-
-    // 3s timeout
-    _autoProbeTimeout = setTimeout(() => {
-      if (_autoProbePending && _autoProbeIdx === _autoProbingIdx) {
-        _autoProbePending = false;
-        const timedOutEntry = BOARD_GPIOS[_autoProbingIdx];
-        statusEl.textContent = 'Timeout on GPIO ' + timedOutEntry.gpio + ' — select role or skip';
-        document.getElementById('auto-probe-record-btn').disabled = false;
-      }
-    }, 3000);
-  }
-
-  function autoProbeNext() {
-    _autoProbeIdx++;
-    document.getElementById('auto-probe-next-btn').style.display = 'none';
-    _autoProbeRunStep();
-  }
-
-  function autoProbeRecord() {
-    if (!_autoProbeActive) return;
-    if (_autoProbeTimeout) { clearTimeout(_autoProbeTimeout); _autoProbeTimeout = null; }
-    const entry = BOARD_GPIOS[_autoProbeIdx];
-    const val = document.getElementById('auto-probe-role-select').value;
-    if (!val) return;  // nothing selected
-
-    if (val === 'skip') {
-      // Don't write anything, just advance
-    } else if (val === 'none') {
-      servoMap[entry.port] = { gpio: entry.gpio, role: null };
-    } else {
-      const roleIdx = parseInt(val, 10);
-      // Clear any other port that had this role
-      Object.keys(servoMap).forEach(p => {
-        if (servoMap[p] && servoMap[p].role === roleIdx) delete servoMap[p];
-      });
-      servoMap[entry.port] = { gpio: entry.gpio, role: roleIdx };
-    }
-    saveServoMap();
-
-    document.getElementById('auto-probe-record-btn').disabled = true;
-    document.getElementById('auto-probe-next-btn').style.display =
-      (_autoProbeIdx + 1 < BOARD_GPIOS.length) ? '' : 'none';
-
-    if (_autoProbeIdx + 1 >= BOARD_GPIOS.length) {
-      // Last step — finalize
-      autoProbeNext();
-    } else {
-      document.getElementById('auto-probe-status').textContent =
-        'Recorded. Click Next for GPIO ' + BOARD_GPIOS[_autoProbeIdx + 1].gpio +
-        ' (' + BOARD_GPIOS[_autoProbeIdx + 1].port + ')';
-      document.getElementById('auto-probe-status').className = 'auto-probe-status';
-      renderPinMap();
-    }
-  }
-
-  // Called by ws.onmessage handler for cmd_probe_pin acks
-  function handleAutoProbeAck(msg) {
-    if (!_autoProbeActive) return;
-    if (_autoProbeTimeout) { clearTimeout(_autoProbeTimeout); _autoProbeTimeout = null; }
-    // Ignore acks that arrived after the user advanced to a different step
-    if (_autoProbeIdx !== _autoProbingIdx) return;
-    _autoProbePending = false;
-    const entry = BOARD_GPIOS[_autoProbeIdx];
-    const statusEl = document.getElementById('auto-probe-status');
-    if (msg.ok) {
-      statusEl.textContent = 'GPIO ' + entry.gpio + ' (' + entry.port + ') wiggled — select which servo moved';
-      statusEl.className = 'auto-probe-status probing';
-      document.getElementById('auto-probe-record-btn').disabled = false;
-    } else {
-      statusEl.textContent = 'GPIO ' + entry.gpio + ' error: ' + (msg.error || '?') + ' — select role or skip';
-      document.getElementById('auto-probe-record-btn').disabled = false;
-    }
-  }
-
-  // ── Manual pin probe ──────────────────────────────────────────
-  let _lastProbedPin = null;
-
-  // servoMap also stores manual-probe results; pinMap is a view over it for backwards compat
-  // pinMap (legacy): { gpio, name, index }[] used by renderPinMap / assignPin
-  function getPinMapFromServoMap() {
-    return BOARD_GPIOS
-      .filter(e => servoMap[e.port] && servoMap[e.port].role !== null && servoMap[e.port].role !== undefined)
-      .map(e => ({ gpio: e.gpio, port: e.port, index: servoMap[e.port].role, name: SERVO_NAMES[servoMap[e.port].role] }));
-  }
-
-  function probePin() {
-    const input = document.getElementById('probe-pin-input');
-    const pin = parseInt(input.value, 10);
-    if (isNaN(pin) || pin < 0 || pin > 39) {
-      setProbeResult('error', 'invalid pin');
-      return;
-    }
-    _lastProbedPin = pin;
-    setProbeResult('', 'probing GPIO ' + pin + '…');
-    document.getElementById('probe-assign-btn').disabled = true;
-    send({ type: 'cmd_probe_pin', pin });
-  }
-
-  function handleProbeAck(msg) {
-    if (_autoProbeActive) {
-      handleAutoProbeAck(msg);
-      return;
-    }
-    if (msg.ok) {
-      setProbeResult('ok', 'GPIO ' + msg.pin + ' wiggled ✓');
-      document.getElementById('probe-assign-btn').disabled = false;
-    } else {
-      setProbeResult('error', 'error: ' + (msg.error || '?'));
-      _lastProbedPin = null;
-    }
-  }
-
-  function setProbeResult(cls, text) {
-    const el = document.getElementById('probe-result');
-    el.className = cls;
-    el.textContent = text;
-  }
-
-  function assignPin() {
-    const select = document.getElementById('probe-assign-select');
-    const roleIdx = parseInt(select.value, 10);
-    if (isNaN(roleIdx) || _lastProbedPin === null) return;
-    const name = SERVO_NAMES[roleIdx];
-    const entry = BOARD_GPIOS.find(e => e.gpio === _lastProbedPin);
-    if (entry) {
-      // Clear any other port with this role
-      Object.keys(servoMap).forEach(p => {
-        if (servoMap[p] && servoMap[p].role === roleIdx) delete servoMap[p];
-      });
-      servoMap[entry.port] = { gpio: _lastProbedPin, role: roleIdx };
-      saveServoMap();
-    }
-    renderPinMap();
-    setProbeResult('ok', 'Assigned GPIO ' + _lastProbedPin + ' → ' + name);
-    select.value = '';
-    document.getElementById('probe-assign-btn').disabled = true;
-  }
-
-  function removePinMapping(port) {
-    delete servoMap[port];
-    saveServoMap();
-    renderPinMap();
-  }
-
-  function renderPinMap() {
-    const tbody = document.getElementById('probe-map-body');
-    const container = document.getElementById('probe-map-container');
-    while (tbody.firstChild) tbody.removeChild(tbody.firstChild);
-
-    // Always show all 10 board GPIOs once any mapping exists
-    const anyMapped = BOARD_GPIOS.some(e => servoMap[e.port] !== undefined);
-    if (!anyMapped && !_autoProbeActive) { container.style.display = 'none'; return; }
-    container.style.display = '';
-
-    BOARD_GPIOS.forEach((entry, idx) => {
-      const mapped = servoMap[entry.port];
-      const isCurrentProbing = _autoProbeActive && idx === _autoProbeIdx;
-      const tr = document.createElement('tr');
-      if (isCurrentProbing) tr.className = 'probing-row';
-
-      const tdPort = document.createElement('td');
-      tdPort.className = 'col-port';
-      tdPort.textContent = entry.port;
-
-      const tdGpio = document.createElement('td');
-      tdGpio.className = 'col-gpio';
-      tdGpio.textContent = entry.gpio + (entry.bootstrap ? ' ⚠' : '');
-
-      const tdRole = document.createElement('td');
-      if (!mapped) {
-        tdRole.className = 'col-role unset';
-        tdRole.textContent = isCurrentProbing ? 'probing…' : '—';
-      } else if (mapped.role === null) {
-        tdRole.className = 'col-role unset';
-        tdRole.textContent = 'none';
-      } else {
-        tdRole.className = 'col-role';
-        tdRole.textContent = SERVO_NAMES[mapped.role] + ' (idx ' + mapped.role + ')';
-      }
-
-      const tdRm = document.createElement('td');
-      if (mapped !== undefined) {
-        const rmBtn = document.createElement('button');
-        rmBtn.className = 'remove-btn';
-        rmBtn.title = 'Clear mapping';
-        rmBtn.textContent = '×';
-        rmBtn.onclick = () => removePinMapping(entry.port);
-        tdRm.appendChild(rmBtn);
-      }
-
-      tr.appendChild(tdPort);
-      tr.appendChild(tdGpio);
-      tr.appendChild(tdRole);
-      tr.appendChild(tdRm);
-      tbody.appendChild(tr);
-    });
-  }
-
-  function copyServoPins() {
-    // Build SERVO_PINS[8] in firmware index order (FL_hip=0 … RR_knee=7)
-    // Unmapped roles get 0 with a comment
-    const pins = new Array(8).fill(0);
-    BOARD_GPIOS.forEach(entry => {
-      const m = servoMap[entry.port];
-      if (m && m.role !== null && m.role !== undefined && m.role >= 0 && m.role < 8) {
-        pins[m.role] = m.gpio;
-      }
-    });
-    const line1 = '    ' + pins.slice(0, 4).map(p => String(p).padStart(2)).join(', ') +
-                  ',  // ' + SERVO_NAMES.slice(0, 4).join(', ');
-    const line2 = '    ' + pins.slice(4, 8).map(p => String(p).padStart(2)).join(', ') +
-                  '   // ' + SERVO_NAMES.slice(4, 8).join(', ');
-    const text = '// 0 = unmapped slot — assign via probe tool before flashing\nstatic const uint8_t SERVO_PINS[8] = {\n' + line1 + '\n' + line2 + '\n};';
-    navigator.clipboard.writeText(text).then(() => {
-      const fb = document.getElementById('copy-pins-feedback');
-      fb.classList.add('show');
-      setTimeout(() => fb.classList.remove('show'), 1500);
-    });
-  }
-
-  function buildProbeAssignSelect() {
-    const select = document.getElementById('probe-assign-select');
-    SERVO_NAMES.forEach((name, i) => {
-      const opt = document.createElement('option');
-      opt.value = i;
-      opt.textContent = name + ' (idx ' + i + ')';
-      select.appendChild(opt);
-    });
-  }
-
-  // ── Build slider grid ─────────────────────────────────────────
+  // -- Build servo grid ------------------------------------------
   function buildGrid() {
     const grid = document.getElementById('servo-grid');
-    SERVO_NAMES.forEach((name, i) => {
+    SERVO_NAMES.forEach(function(name, i) {
       const row = document.createElement('div');
       row.className = 'servo-row';
+      row.id = 'servo-row-' + i;
 
+      // Label
       const label = document.createElement('div');
       label.className = 'servo-label';
       const nameEl = document.createElement('span');
@@ -1435,114 +713,87 @@
       label.appendChild(nameEl);
       label.appendChild(idxEl);
 
-      const slider = document.createElement('input');
-      slider.type = 'range';
-      slider.min = SERVO_MIN;
-      slider.max = SERVO_MAX;
-      slider.step = 1;
-      slider.value = values[i];
-      slider.id = 'slider-' + i;
+      // Pin select
+      const sel = document.createElement('select');
+      sel.className = 'pin-select';
+      sel.id = 'pin-sel-' + i;
+      buildPinSelectOptions(sel, currentPins[i], i);
+      (function(idx) {
+        sel.onchange = function() {
+          const newPin = parseInt(sel.value, 10);
+          sel.classList.add('updating');
+          send({ type: 'cmd_servo_pin', index: idx, pin: newPin });
+        };
+      })(i);
 
-      const numInput = document.createElement('input');
-      numInput.type = 'number';
-      numInput.min = SERVO_MIN;
-      numInput.max = SERVO_MAX;
-      numInput.value = values[i];
-      numInput.id = 'num-' + i;
-
-      slider.oninput = () => {
-        const v = parseInt(slider.value, 10);
-        numInput.value = v;
-        throttledSendServo(i, v);
-      };
-      slider.onchange = () => {
-        // Guarantee final position is sent on mouse-up
-        const v = parseInt(slider.value, 10);
-        sendServo(i, v);
-      };
-      slider.addEventListener('pointerdown', () => { _dragging = true; });
-      slider.addEventListener('pointerup',   () => { _dragging = false; });
-
-      numInput.onchange = () => {
-        let v = parseInt(numInput.value, 10);
-        if (isNaN(v)) v = values[i];
-        v = Math.max(SERVO_MIN, Math.min(SERVO_MAX, v));
-        numInput.value = v;
-        slider.value = v;
-        sendServo(i, v);
-      };
-
-      const actualSpan = document.createElement('span');
-      actualSpan.className = 'actual-us';
-      actualSpan.textContent = '—';
-
+      // Offset input
       const offsetCell = document.createElement('div');
       offsetCell.className = 'offset-cell';
       const offsetLbl = document.createElement('span');
       offsetLbl.className = 'offset-label';
-      offsetLbl.textContent = '± offset';
+      offsetLbl.textContent = '+-offset';
       const offsetInput = document.createElement('input');
       offsetInput.type = 'number';
       offsetInput.className = 'offset-input';
       offsetInput.id = 'offset-' + i;
-      offsetInput.min = -200;
-      offsetInput.max = 200;
+      offsetInput.min = -500;
+      offsetInput.max = 500;
       offsetInput.step = 5;
       offsetInput.value = offsets[i];
-      offsetInput.title = 'Offset µs (±200, step 5)';
-      offsetInput.onchange = () => {
-        let v = parseInt(offsetInput.value, 10);
-        if (isNaN(v)) v = 0;
-        v = Math.max(-200, Math.min(200, v));
-        // Snap to step of 5
-        v = Math.round(v / 5) * 5;
-        offsetInput.value = v;
-        sendOffset(i, v);
-      };
+      offsetInput.title = 'Trim offset us (+-500, step 5)';
+      (function(idx) {
+        offsetInput.onchange = function() {
+          let v = parseInt(offsetInput.value, 10);
+          if (isNaN(v)) v = 0;
+          v = Math.max(-500, Math.min(500, v));
+          v = Math.round(v / 5) * 5;
+          offsetInput.value = v;
+          offsets[idx] = v;
+          send({ type: 'cmd_offset', index: idx, offset_us: v });
+        };
+      })(i);
       offsetCell.appendChild(offsetLbl);
       offsetCell.appendChild(offsetInput);
 
+      // Wiggle button
       const wiggleBtn = document.createElement('button');
       wiggleBtn.className = 'test-btn wiggle-btn';
       wiggleBtn.textContent = '~';
-      wiggleBtn.title = 'Wiggle ±20 μs for 2s — identifies this servo';
-      wiggleBtn.onclick = () => wiggleServo(i, wiggleBtn);
+      wiggleBtn.title = 'Wiggle +-20 us for 2 s - identifies this servo';
+      (function(idx) {
+        wiggleBtn.onclick = function() { wiggleServo(idx, wiggleBtn); };
+      })(i);
 
       row.appendChild(label);
-      row.appendChild(slider);
-      row.appendChild(numInput);
-      row.appendChild(actualSpan);
+      row.appendChild(sel);
       row.appendChild(offsetCell);
       row.appendChild(wiggleBtn);
       grid.appendChild(row);
     });
   }
 
-  // ── Presets ───────────────────────────────────────────────────
+  // -- Presets ---------------------------------------------------
   function loadPreset(pose) {
-    pose.forEach((v, i) => {
-      values[i] = v;
-      const s = document.getElementById('slider-' + i);
-      const n = document.getElementById('num-' + i);
-      if (s) s.value = v;
-      if (n) n.value = v;
+    pose.forEach(function(v, i) {
       send({ type: 'cmd_servo', index: i, pulse_us: v });
     });
   }
 
-  // ── Copy C array ──────────────────────────────────────────────
+  // -- Copy C array (SERVO_PINS from currentPins) ----------------
   function copyValues() {
-    const arr = values.map(v => String(v).padStart(4)).join(', ');
-    const comment = '// Order: ' + SERVO_NAMES.join(', ');
-    const text = 'static const uint16_t MY_POSE[8] = {\n    ' + arr + '\n};\n' + comment;
-    navigator.clipboard.writeText(text).then(() => {
+    const line1 = '    ' + currentPins.slice(0, 4).map(function(p) { return String(p).padStart(2); }).join(', ') +
+                  '   // ' + SERVO_NAMES.slice(0, 4).join(', ');
+    const line2 = '    ' + currentPins.slice(4, 8).map(function(p) { return String(p).padStart(2); }).join(', ') +
+                  '   // ' + SERVO_NAMES.slice(4, 8).join(', ');
+    const text = 'uint8_t SERVO_PINS[8] = {\n' + line1 + ',\n' + line2 + '\n};';
+    navigator.clipboard.writeText(text).then(function() {
       const fb = document.getElementById('copy-feedback');
       fb.classList.add('show');
-      setTimeout(() => fb.classList.remove('show'), 1500);
+      setTimeout(function() { fb.classList.remove('show'); }, 1500);
     });
   }
 
-  // ── Firmware event log ────────────────────────────────────────
+  // -- Firmware event log ----------------------------------------
   const MAX_LOG_ROWS = 200;
 
   function handleFwEvent(msg) {
@@ -1558,8 +809,8 @@
 
     const evName = msg.event || '?';
     const extra  = Object.entries(msg)
-      .filter(([k]) => !['type','event','t'].includes(k))
-      .map(([k,v]) => k+'='+v)
+      .filter(function(pair) { return !['type','event','t'].includes(pair[0]); })
+      .map(function(pair) { return pair[0]+'='+pair[1]; })
       .join('  ');
 
     const row = document.createElement('div');
@@ -1593,9 +844,7 @@
     if (log) log.textContent = '';
   }
 
-  // ── Init ──────────────────────────────────────────────────────
-  buildProbeAssignSelect();
-  renderPinMap();
+  // -- Init ------------------------------------------------------
   buildGrid();
   connect();
 </script>
