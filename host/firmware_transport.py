@@ -50,7 +50,7 @@ class FirmwareTransport(DeadReckoningMixin, Transport):
         self._battery_cutoff = False
 
         # Ack queue for tools that need to wait on specific ack messages
-        self._ack_queue: asyncio.Queue = asyncio.Queue()
+        self._ack_queue: asyncio.Queue = asyncio.Queue(maxsize=64)
 
         # Optional callbacks invoked on ack or any telemetry message
         self._ack_callback = None
@@ -215,16 +215,21 @@ class FirmwareTransport(DeadReckoningMixin, Transport):
             while self._open and self._reader:
                 line = await self._reader.readline()
                 if not line:
+                    logger.warning("FirmwareTransport EOF — TCP connection closed")
+                    self._open = False
                     break
                 try:
                     msg = json.loads(line.decode(errors="replace").strip())
                     self._handle_telem(msg)
-                except (json.JSONDecodeError, UnicodeDecodeError):
+                except json.JSONDecodeError as e:
+                    logger.warning("FirmwareTransport bad JSON (ignored): %s", e)
+                except UnicodeDecodeError:
                     pass
         except asyncio.CancelledError:
             pass
         except Exception as e:
             logger.warning("FirmwareTransport reader error: %s", e)
+            self._open = False
 
     def _handle_telem(self, msg: dict) -> None:
         msg_type = msg.get("type", "")
@@ -247,7 +252,12 @@ class FirmwareTransport(DeadReckoningMixin, Transport):
             self._firmware_info = msg
             logger.info("FirmwareTransport boot: %s", msg)
         elif msg_type == "ack":
-            self._ack_queue.put_nowait(msg)
+            try:
+                self._ack_queue.put_nowait(msg)
+            except asyncio.QueueFull:
+                logger.debug("FirmwareTransport ack queue full — dropping oldest entry")
+                self._ack_queue.get_nowait()
+                self._ack_queue.put_nowait(msg)
             if self._ack_callback:
                 try:
                     self._ack_callback(msg)
