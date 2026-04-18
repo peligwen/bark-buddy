@@ -59,10 +59,10 @@ test_gait_taper: test_gait_taper.cpp Arduino.h mock_arduino.h ../src/gait.cpp \
 	../include/balance.h ../include/offsets.h ../include/servos.h ../include/config.h
 	$(CXX) $(CXXFLAGS) -o $@ test_gait_taper.cpp
 
-test_servos: test_servos.cpp mock_arduino.h mock_preferences.h ../include/servos.h ../include/config.h
+test_servos: test_servos.cpp mock_arduino.h mock_preferences.h ../include/servos.h ../include/config.h ../src/servos.cpp ../src/offsets.cpp ../src/pin_registry.cpp
 	$(CXX) $(CXXFLAGS) -o $@ test_servos.cpp
 
-test_engage: test_engage.cpp mock_arduino.h mock_preferences.h ../include/servos.h ../include/config.h ../src/servos.cpp
+test_engage: test_engage.cpp mock_arduino.h mock_preferences.h ../include/servos.h ../include/config.h ../src/servos.cpp ../src/offsets.cpp ../src/pin_registry.cpp
 	$(CXX) $(CXXFLAGS) -o $@ test_engage.cpp
 
 test_buzzer: test_buzzer.cpp ../mock/buzzer_mock.cpp mock_arduino.h ../include/buzzer.h ../include/config.h
@@ -74,7 +74,7 @@ test_button: test_button.cpp mock_arduino.h ../include/button.h ../include/confi
 test_gpio_aux: test_gpio_aux.cpp mock_arduino.h ../include/gpio_aux.h ../src/gpio_aux.cpp
 	$(CXX) $(CXXFLAGS) -DMOCK_FIRMWARE=1 -o $@ test_gpio_aux.cpp
 
-test_aux_servo: test_aux_servo.cpp mock_arduino.h mock_preferences.h ../include/servos.h ../include/config.h ../src/servos.cpp
+test_aux_servo: test_aux_servo.cpp mock_arduino.h mock_preferences.h ../include/servos.h ../include/config.h ../src/servos.cpp ../src/offsets.cpp ../src/pin_registry.cpp
 	$(CXX) $(CXXFLAGS) -DAUX_SERVOS_ENABLED=1 -o $@ test_aux_servo.cpp
 
 test_comms_out: test_comms_out.cpp mock_arduino.h ../include/comms_out.h ../src/comms_out.cpp

@@ -6,6 +6,8 @@
 #include "mock_preferences.h"
 #include "../include/config.h"
 #include "../include/servos.h"
+#include "../src/offsets.cpp"
+#include "../src/pin_registry.cpp"
 #include "../src/servos.cpp"
 
 #include <cstdio>

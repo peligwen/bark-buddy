@@ -46,9 +46,8 @@
 // MCPWM1: GPIOs 4,2 (confirmed via MCPWM1 register diff + IMU)
 // Hardware LEDC peripheral: servo index i → LEDC channel i, 50Hz, 14-bit.
 // Order: FL_hip, FL_knee, FR_hip, FR_knee, RL_hip, RL_knee, RR_hip, RR_knee
-static const uint8_t SERVO_PINS[8] = {
-    25, 26, 27, 14, 16, 17, 4, 2
-};
+// Mutable: servos_set_pin() can hot-swap a GPIO at runtime (tuning UI).
+extern uint8_t SERVO_PINS[8];
 
 // --- Servo Parameters ---
 #define SERVO_FREQ_HZ       50

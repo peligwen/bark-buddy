@@ -1,5 +1,7 @@
 #include "servos.h"
 #include "config.h"
+#include "offsets.h"
+#include "pin_registry.h"
 #include <Arduino.h>
 
 // Hardware PWM via ESP32 LEDC peripheral (old-style ledcSetup/ledcAttachPin API).
@@ -8,6 +10,8 @@
 // Engage: attach at REST_POSE -> ramp to STANDING_POSE (non-blocking, millis-based).
 // Disengage: ramp to REST_POSE -> detach.
 
+uint8_t SERVO_PINS[8] = {25, 26, 27, 14, 16, 17, 4, 2};
+static uint16_t last_pulse_us[8] = {};
 static uint16_t current_us[8] = {0};
 static bool s_engaged = false;
 static bool s_ramping = false;
@@ -116,8 +120,9 @@ bool servos_engaged() {
 void servo_write_us(uint8_t index, uint16_t pulse_us) {
     if (!s_engaged || index >= 8) return;
     pulse_us = clamp_us(pulse_us);
+    last_pulse_us[index] = pulse_us;
     current_us[index] = pulse_us;
-    ledcWrite(SERVO_PINS[index], us_to_duty(pulse_us));
+    ledcWrite(SERVO_PINS[index], us_to_duty(apply_offset(index, pulse_us)));
 }
 
 uint16_t servo_read_us(uint8_t index) {
@@ -148,6 +153,35 @@ void servos_set_battery_cutoff() {
 
 bool servos_battery_cutoff() {
     return s_battery_cutoff;
+}
+
+bool servos_set_pin(uint8_t idx, uint8_t new_pin, String& err) {
+    if (idx >= 8) { err = "index out of range"; return false; }
+    if (new_pin > 39) { err = "pin out of range"; return false; }
+    const char* reason = nullptr;
+    if (pin_is_reserved(new_pin, &reason)) {
+        err = String("pin reserved: ") + reason;
+        return false;
+    }
+    for (uint8_t j = 0; j < 8; j++) {
+        if (j != idx && SERVO_PINS[j] == new_pin) {
+            err = "pin already assigned to another servo";
+            return false;
+        }
+    }
+    if (s_engaged) {
+        ledcDetachPin(SERVO_PINS[idx]);
+        SERVO_PINS[idx] = new_pin;
+        ledcSetup(idx, SERVO_FREQ_HZ, LEDC_RESOLUTION);
+        ledcAttachPin(new_pin, idx);
+        uint16_t hold = last_pulse_us[idx] > 0 ? last_pulse_us[idx] : current_us[idx];
+        if (hold == 0) hold = 1500;
+        ledcWrite(new_pin, us_to_duty(hold));
+        current_us[idx] = hold;
+    } else {
+        SERVO_PINS[idx] = new_pin;
+    }
+    return true;
 }
 
 // ============================================================

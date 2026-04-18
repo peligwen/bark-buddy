@@ -1,5 +1,7 @@
 #pragma once
 #include <stdint.h>
+#include "config.h"
+#include <Arduino.h>
 
 // Return value for servos_ramp_tick:
 enum class RampResult { NONE, ENGAGE_COMPLETE, DISENGAGE_COMPLETE };
@@ -42,3 +44,12 @@ void     aux_servo_init();
 void     aux_servo_write_us(uint8_t idx, uint16_t us);  // idx: 0-2 (firmware indices 8-10)
 uint16_t aux_servo_read_us(uint8_t idx);
 #endif
+
+// --- Runtime pin remapping ---
+
+// Hot-swap a servo's GPIO pin. Re-attaches LEDC and writes last known position if engaged.
+// On failure, writes error message to err and returns false.
+bool servos_set_pin(uint8_t idx, uint8_t new_pin, String& err);
+
+// Get current GPIO pin assigned to servo index (idx 0-7). Returns 0 for out-of-range.
+inline uint8_t servo_get_pin(uint8_t idx) { return idx < 8 ? SERVO_PINS[idx] : 0; }
