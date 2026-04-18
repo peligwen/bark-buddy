@@ -207,6 +207,7 @@ void setup() {
     doc["fw_build"]       = FW_BUILD_TIMESTAMP;
     doc["gpio2_at_boot"]  = gpio2_at_boot;
     send_json(doc);
+    broadcast_servo_pins();
 }
 
 // --- Main loop ---

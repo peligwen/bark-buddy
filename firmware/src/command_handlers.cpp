@@ -47,6 +47,16 @@ static bool require_engaged(const char* cmd_type) {
     return true;
 }
 
+// --- Broadcast helpers ---
+
+void broadcast_servo_pins() {
+    JsonDocument resp;
+    resp["type"] = MSG_TELEM_SERVO_PINS;
+    JsonArray arr = resp["pins"].to<JsonArray>();
+    for (int i = 0; i < 8; i++) arr.add(SERVO_PINS[i]);
+    send_json(resp);
+}
+
 // --- Handlers ---
 
 static void handle_ping(const JsonDocument&) {
@@ -266,17 +276,18 @@ static void handle_cmd_i2c_write(const JsonDocument& doc) {
 }
 
 static void handle_cmd_offset(const JsonDocument& doc) {
-    if (!require_engaged(MSG_CMD_OFFSET)) return;
-    const char* action = doc["action"] | "read";
-    if (strcmp(action, "set") == 0) {
-        uint8_t idx = doc["index"] | 0;
-        int16_t val = doc["value"] | 0;
-        if (idx < 8) offset_set(idx, val);
-    } else if (strcmp(action, "save") == 0) {
+    // No engagement required — offsets are NVS I/O only
+    if (!doc["offset_us"].isNull()) {
+        uint8_t idx = doc["index"] | 255;
+        if (idx >= 8) {
+            send_ack(MSG_CMD_OFFSET, false, "bad_index");
+            return;
+        }
+        int16_t val = doc["offset_us"] | 0;
+        offset_set(idx, val);
         offsets_save();
-    } else if (strcmp(action, "reset") == 0) {
-        offsets_reset();
     }
+    // Always reply with all 8 offsets
     JsonDocument resp;
     resp["type"]     = MSG_ACK;
     resp["ref_type"] = MSG_CMD_OFFSET;
@@ -546,6 +557,22 @@ static void handle_cmd_probe_pin(const JsonDocument& doc) {
     send_json(resp);
 }
 
+static void handle_cmd_servo_pin(const JsonDocument& doc) {
+    uint8_t idx = doc["index"] | 255;
+    uint8_t pin = doc["pin"]   | 255;
+    if (idx == 255 || pin == 255) {
+        send_ack(MSG_CMD_SERVO_PIN, false, "missing_params");
+        return;
+    }
+    String err;
+    if (!servos_set_pin(idx, pin, err)) {
+        send_ack(MSG_CMD_SERVO_PIN, false, err.c_str());
+        return;
+    }
+    send_ack(MSG_CMD_SERVO_PIN, true);
+    broadcast_servo_pins();
+}
+
 static void handle_cmd_buzzer(const JsonDocument& doc) {
     uint16_t freq = doc["freq_hz"]     | 2400;
     uint32_t dur  = doc["duration_ms"] | 200;
@@ -669,6 +696,7 @@ static const Handler k_handlers[] = {
     { MSG_CMD_BALANCE_CONFIG, handle_cmd_balance_config },
     { MSG_CMD_BUZZER,         handle_cmd_buzzer         },
     { MSG_CMD_GPIO,           handle_cmd_gpio           },
+    { MSG_CMD_SERVO_PIN,      handle_cmd_servo_pin      },
 };
 
 void handlers_init() {

@@ -15,6 +15,7 @@
 #include "sensor_task.h"
 #include "servos.h"
 #include "config.h"
+#include "command_handlers.h"
 
 // Declared by the real firmware (main.cpp compiles in).
 extern void setup();
@@ -53,6 +54,7 @@ static void send_boot_to_new_client() {
     size_t n = serializeJson(doc, buf, sizeof(buf));
     buf[n] = '\n';
     net_tcp::send(buf, n + 1);
+    broadcast_servo_pins();
 }
 
 int main(int argc, char* argv[]) {

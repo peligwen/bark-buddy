@@ -11,7 +11,6 @@
 // Disengage: ramp to REST_POSE -> detach.
 
 uint8_t SERVO_PINS[8] = {25, 26, 27, 14, 16, 17, 4, 2};
-static uint16_t last_pulse_us[8] = {};
 static uint16_t current_us[8] = {0};
 static bool s_engaged = false;
 static bool s_ramping = false;
@@ -120,7 +119,6 @@ bool servos_engaged() {
 void servo_write_us(uint8_t index, uint16_t pulse_us) {
     if (!s_engaged || index >= 8) return;
     pulse_us = clamp_us(pulse_us);
-    last_pulse_us[index] = pulse_us;
     current_us[index] = pulse_us;
     ledcWrite(SERVO_PINS[index], us_to_duty(apply_offset(index, pulse_us)));
 }
@@ -174,10 +172,8 @@ bool servos_set_pin(uint8_t idx, uint8_t new_pin, String& err) {
         SERVO_PINS[idx] = new_pin;
         ledcSetup(idx, SERVO_FREQ_HZ, LEDC_RESOLUTION);
         ledcAttachPin(new_pin, idx);
-        uint16_t hold = last_pulse_us[idx] > 0 ? last_pulse_us[idx] : current_us[idx];
-        if (hold == 0) hold = 1500;
-        ledcWrite(new_pin, us_to_duty(hold));
-        current_us[idx] = hold;
+        uint16_t hold = current_us[idx] > 0 ? current_us[idx] : 1500;
+        servo_write_us(idx, hold);
     } else {
         SERVO_PINS[idx] = new_pin;
     }

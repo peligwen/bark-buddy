@@ -156,7 +156,7 @@ void gait_update(unsigned long now_ms) {
                       ? smoothstep(fminf((float)(now_ms - s_stand_ramp_start) / STAND_RETURN_MS, 1.0f))
                       : 1.0f;
             for (int i = 0; i < 8; i++) {
-                uint16_t tgt = apply_offset(i, target[i]);
+                uint16_t tgt = target[i];
                 if (ramping) {
                     int16_t blended = (int16_t)s_stand_ramp_from[i]
                                     + (int16_t)((float)((int16_t)tgt
@@ -197,8 +197,8 @@ void gait_update(unsigned long now_ms) {
         // IK solve
         uint16_t hip_us, knee_us;
         if (foot_to_pulses(leg, foot, hip_us, knee_us)) {
-            servo_write_us(leg * 2,     apply_offset(leg * 2,     hip_us));
-            servo_write_us(leg * 2 + 1, apply_offset(leg * 2 + 1, knee_us));
+            servo_write_us(leg * 2,     hip_us);
+            servo_write_us(leg * 2 + 1, knee_us);
         }
         // If unreachable: hold last written value (servo_write_us not called)
     }
