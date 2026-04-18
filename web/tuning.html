@@ -250,10 +250,6 @@
     padding: 10px 14px;
     transition: background 0.15s;
   }
-  .servo-row.flash-ok      { background: rgba(74, 222, 128, 0.12); }
-  .servo-row.flash-clamped { background: rgba(251, 191, 36, 0.15); }
-  .servo-row.flash-error   { background: rgba(248, 113, 113, 0.18); }
-
   .offset-cell {
     display: flex;
     flex-direction: column;
@@ -394,7 +390,7 @@
   <button class="preset-btn" onclick="loadPreset(STANDING_POSE)">Standing</button>
   <button class="preset-btn" onclick="loadPreset(REST_POSE)">Rest</button>
   <button class="preset-btn" onclick="loadPreset(CENTER_POSE)">Center</button>
-  <button class="preset-btn copy-btn" onclick="copyValues()">Copy C Array</button>
+  <button class="preset-btn copy-btn" onclick="copyValues()">Copy SERVO_PINS</button>
   <span id="copy-feedback">Copied!</span>
 </div>
 
@@ -418,9 +414,6 @@
   const STANDING_POSE = [2096, 1621, 2170, 1611,  904, 1379,  830, 1389];
   const REST_POSE     = [1800, 1500, 1870, 1500, 1202, 1500, 1165, 1500];
   const CENTER_POSE   = [1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500];
-  const SERVO_MIN = 500;
-  const SERVO_MAX = 2500;
-
   // -- Pin catalog -----------------------------------------------
   const PIN_CATALOG = [
     // Main servo headers
@@ -458,6 +451,7 @@
   let ws = null;
   let _tuningEngaged = false;
   let lifecycleState = null;
+  const activeWiggles = new Map();
 
   // Authoritative pin->servo mapping, updated from telem_servo_pins
   let currentPins = [25, 26, 27, 14, 16, 17, 4, 2];  // mirrors default SERVO_PINS
@@ -491,18 +485,32 @@
 
   // -- WebSocket -------------------------------------------------
   function toggleEngage() {
-    ws.send(JSON.stringify({ type: 'cmd_engage', enabled: !_tuningEngaged }));
+    send({ type: 'cmd_engage', enabled: !_tuningEngaged });
+  }
+
+  function cancelAllWiggles() {
+    for (const [, { interval, btn }] of activeWiggles) {
+      clearInterval(interval);
+      btn.classList.remove('active');
+      btn.disabled = false;
+    }
+    activeWiggles.clear();
   }
 
   function connect() {
     ws = new WebSocket('ws://' + location.host + '/ws');
-    ws.onopen  = () => { setStatus('connected', 'Connected'); queryAllOffsets(); };
+    ws.onopen  = () => {
+      setStatus('connected', 'Connected');
+      document.getElementById('waking-banner')?.classList.remove('show');
+      queryAllOffsets();
+    };
     ws.onclose = () => {
       setStatus('off', 'Disconnected - retrying...');
       setLifecycle(null);
+      cancelAllWiggles();
       setTimeout(connect, 2000);
     };
-    ws.onerror = () => setStatus('off', 'Connection error');
+    ws.onerror = () => { setStatus('off', 'Connection error'); setLifecycle(null); };
     ws.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data);
@@ -518,6 +526,7 @@
             document.querySelectorAll('.wiggle-btn').forEach(function(el) {
               el.disabled = !msg.engaged || !!msg.ramping;
             });
+            if (!msg.engaged) cancelAllWiggles();
           }
           if (msg.engaged != null) {
             if (msg.ramping) setLifecycle('waking');
@@ -658,7 +667,7 @@
   }
 
   function handleOffsetAck(msg) {
-    if (!Array.isArray(msg.offsets)) return;
+    if (!Array.isArray(msg.offsets) || msg.offsets.length !== 8) return;
     msg.offsets.forEach(function(val, i) {
       if (i >= 8) return;
       offsets[i] = val;
@@ -673,6 +682,7 @@
       showToast('Engage servos first to wiggle');
       return;
     }
+    if (activeWiggles.has(index)) return;
     const center = 1500;
     const amplitude = 20;
     const halfPeriod = 250;
@@ -680,17 +690,19 @@
     let step = 0;
     btn.classList.add('active');
     btn.disabled = true;
-    const interval = setInterval(function() {
+    const id = setInterval(function() {
       const target = (step % 2 === 0) ? center + amplitude : center - amplitude;
       send({ type: 'cmd_servo', index: index, pulse_us: target });
       step++;
       if (step >= totalSteps) {
-        clearInterval(interval);
+        clearInterval(id);
         send({ type: 'cmd_servo', index: index, pulse_us: center });
         btn.classList.remove('active');
         btn.disabled = false;
+        activeWiggles.delete(index);
       }
     }, halfPeriod);
+    activeWiggles.set(index, { interval: id, btn });
   }
 
   // -- Build servo grid ------------------------------------------
@@ -721,6 +733,7 @@
       (function(idx) {
         sel.onchange = function() {
           const newPin = parseInt(sel.value, 10);
+          if (!Number.isFinite(newPin)) return;
           sel.classList.add('updating');
           send({ type: 'cmd_servo_pin', index: idx, pin: newPin });
         };
@@ -790,7 +803,7 @@
       const fb = document.getElementById('copy-feedback');
       fb.classList.add('show');
       setTimeout(function() { fb.classList.remove('show'); }, 1500);
-    });
+    }).catch(function() { showToast('Copy failed'); });
   }
 
   // -- Firmware event log ----------------------------------------
@@ -808,10 +821,11 @@
     const timeStr = hh+':'+mm+':'+ss+'.'+ms;
 
     const evName = msg.event || '?';
-    const extra  = Object.entries(msg)
+    let extra  = Object.entries(msg)
       .filter(function(pair) { return !['type','event','t'].includes(pair[0]); })
       .map(function(pair) { return pair[0]+'='+pair[1]; })
       .join('  ');
+    if (extra.length > 300) extra = extra.slice(0, 297) + '...';
 
     const row = document.createElement('div');
     const isWarn = /timeout|lost|rejected|low_battery/.test(evName);
