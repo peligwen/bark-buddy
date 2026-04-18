@@ -159,7 +159,10 @@ class Server:
         return web.FileResponse(os.path.join(self._web_dir, "tuning.html"))
 
     async def _gait_handler(self, request):
-        return web.FileResponse(os.path.join(self._web_dir, "gait.html"))
+        path = os.path.join(self._web_dir, "gait.html")
+        if not os.path.exists(path):
+            raise web.HTTPNotFound()
+        return web.FileResponse(path)
 
     async def start(self, host: str = "0.0.0.0", port: int = 8080):
         app = web.Application(middlewares=[self._no_cache_middleware])
