@@ -309,6 +309,61 @@ static void test_disengage_mid_engage() {
 }
 
 // ------------------------------------------------------------------ //
+// Test: servos_set_pin() validation and live-reassignment
+// ------------------------------------------------------------------ //
+static void test_servos_set_pin() {
+    printf("\nTest: servos_set_pin\n");
+    servo_log_reset();
+    mock_reset_clock();
+    s_battery_cutoff = false;
+
+    String err;
+
+    // 1. Index out of bounds
+    err = "";
+    bool ok = servos_set_pin(8, 33, err);
+    check(!ok, "set_pin idx=8 rejected");
+    check(!err.empty(), "set_pin idx=8 sets error message");
+
+    // 2. Reserved pin (GPIO 5 = BUTTON_PIN)
+    err = "";
+    ok = servos_set_pin(0, 5, err);
+    check(!ok, "set_pin reserved pin (GPIO 5) rejected");
+    check(!err.empty(), "set_pin reserved pin sets error message");
+
+    // 3. Duplicate pin (give servo 0 the same pin as servo 1)
+    err = "";
+    ok = servos_set_pin(0, SERVO_PINS[1], err);
+    check(!ok, "set_pin duplicate pin rejected");
+    check(!err.empty(), "set_pin duplicate pin sets error message");
+
+    // 4. Valid assignment while disengaged
+    servos_detach_all();
+    err = "";
+    ok = servos_set_pin(0, 33, err);
+    check(ok, "set_pin valid pin while disengaged returns true");
+    check(SERVO_PINS[0] == 33, "SERVO_PINS[0] updated to 33 after set_pin");
+    // Reset for isolation
+    SERVO_PINS[0] = 25;
+
+    // 5. Valid assignment while engaged — live migration
+    servos_detach_all();
+    servos_engage_start();
+    run_ramp_to_completion();
+
+    err = "";
+    ok = servos_set_pin(0, 33, err);
+    check(ok, "set_pin valid pin while engaged returns true");
+    check(SERVO_PINS[0] == 33, "SERVO_PINS[0] updated to 33 while engaged");
+    check(_servo_duty[33] != 0, "new pin (33) is actively driven after live reassign");
+    check(_servo_duty[25] == 0, "old pin (25) duty zeroed after live reassign");
+
+    // Disengage and reset for isolation
+    servos_detach_all();
+    SERVO_PINS[0] = 25;
+}
+
+// ------------------------------------------------------------------ //
 // Main
 // ------------------------------------------------------------------ //
 int main() {
@@ -324,6 +379,7 @@ int main() {
     test_disengage_ramp();
     test_battery_cutoff();
     test_disengage_mid_engage();
+    test_servos_set_pin();
 
     printf("\n%d passed, %d failed\n", g_pass, g_fail);
     return g_fail > 0 ? 1 : 0;
