@@ -3,7 +3,8 @@ __pycache__/
 .pio/
 .vscode/
 sweep_results/
-.claude/
+.claude/settings.local.json
+.claude/projects/
 firmware/include/config_local.h
 firmware/stock_firmware.bin
 stock_firmware_dump/
