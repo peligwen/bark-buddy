@@ -252,7 +252,7 @@ void loop() {
     if (wifi_connected) {
         if (!tcp_client || !tcp_client.connected()) {
             WiFiClient c = tcp_server.available();
-            if (c) { tcp_client = c; tcp_client.setNoDelay(true); tcp_rx_pos = 0; }
+            if (c) { tcp_client = c; tcp_client.setNoDelay(true); tcp_rx_pos = 0; broadcast_servo_pins(); }
         }
         if (tcp_client && tcp_client.connected()) {
             while (tcp_client.available()) {

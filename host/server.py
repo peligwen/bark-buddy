@@ -117,6 +117,7 @@ class Server:
         self._switch_lock = asyncio.Lock()
         self._mdns_browser: "MdnsBrowser | None" = None
         self._open_browser = open_browser
+        self._last_servo_pins: dict | None = None
         self._register_transport_callbacks()
 
     def _register_transport_callbacks(self):
@@ -136,6 +137,8 @@ class Server:
         msg_type = msg.get("type", "")
         if msg_type == "telem_status":
             self._engaged = msg.get("engaged", self._engaged)
+        if msg_type == "telem_servo_pins":
+            self._last_servo_pins = msg
         if msg_type in ("telem_sonar", "telem_battery", "telem_imu", "telem_status",
                         "telem_event", "ota_status", "boot",
                         "telem_button", "telem_gpio", "telem_i2c", "telem_servo_pins"):
@@ -503,6 +506,10 @@ class Server:
         lock_msg = self._lock_status_msg()
         lock_msg["is_you"] = (ws is self._lock_holder)
         await ws.send_str(json.dumps(lock_msg))
+
+        # Replay last known servo-pin mapping so browser never shows stale defaults
+        if self._last_servo_pins is not None:
+            await ws.send_str(json.dumps(self._last_servo_pins))
 
         try:
             async for raw_msg in ws:
