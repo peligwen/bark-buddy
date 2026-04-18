@@ -59,35 +59,25 @@ class ServoTester:
         self._log_path = None
 
     async def connect(self):
-        """Open transport and enter test mode."""
+        """Open transport and start heartbeat."""
         ts = time.strftime("%Y%m%d_%H%M%S")
         self._log_path = f"servo_test_{ts}.ndjson"
         self._log_file = open(self._log_path, "w")
         logger.info("Logging to %s", self._log_path)
 
         await self._transport.open()
-
-        await self._transport.send_json({"type": "cmd_test_mode", "enable": True})
-        await asyncio.sleep(0.5)
-        logger.info("Test mode active")
+        logger.info("Connected")
 
         self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
 
     async def disconnect(self):
-        """Exit test mode and clean up."""
+        """Clean up and close transport."""
         if self._heartbeat_task:
             self._heartbeat_task.cancel()
             try:
                 await self._heartbeat_task
             except asyncio.CancelledError:
                 pass
-
-        # Return to standing
-        try:
-            await self._transport.send_json({"type": "cmd_test_mode", "enable": False})
-            await asyncio.sleep(1.0)
-        except Exception:
-            pass
 
         await self._transport.close()
 

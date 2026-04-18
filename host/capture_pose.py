@@ -61,16 +61,6 @@ async def set_all_servos(transport: FirmwareTransport, values: list[int],
         await asyncio.sleep(delay)
 
 
-async def enter_test_mode(transport: FirmwareTransport) -> None:
-    await transport.send_json({"type": "cmd_test_mode", "enable": True})
-    await asyncio.sleep(0.5)
-
-
-async def exit_test_mode(transport: FirmwareTransport) -> None:
-    await transport.send_json({"type": "cmd_test_mode", "enable": False})
-    await asyncio.sleep(1.0)
-
-
 # --- Algorithm functions (unchanged logic, operate on transport) ---
 
 async def gradual_move(transport, start, target, steps=50, settle_ms=100):
@@ -117,8 +107,6 @@ async def probe_servo(transport, base_pose, servo_idx, offsets, dwell_ms=100):
 async def map_all_servos(transport, args):
     """Full servo mapping: classify each servo by IMU response."""
     print("=== Servo Mapping ===\n")
-
-    await enter_test_mode(transport)
 
     # Start from center crouch
     center = [1500] * 8
@@ -206,7 +194,6 @@ async def map_all_servos(transport, args):
                     "standing_pose_tested": STANDING_POSE}, f, indent=2)
     print(f"\nSaved to {out_path}")
 
-    await exit_test_mode(transport)
     return all_results
 
 
@@ -217,7 +204,6 @@ async def find_level(transport, args):
     each servo to reduce pitch and roll toward zero.
     """
     print("=== Find Level Standing Pose ===\n")
-    await enter_test_mode(transport)
 
     # Start from center, rise to current pose
     center = [1500] * 8
@@ -236,7 +222,6 @@ async def find_level(transport, args):
     if tilt > 10:
         print("WARNING: tilt > 10° — probably on 3 legs. Aborting.")
         print("Fix the standing pose first (use --map to identify issues).")
-        await exit_test_mode(transport)
         return
 
     # Iterative adjustment: for each servo, try ±step and keep the better value
@@ -313,8 +298,6 @@ async def find_level(transport, args):
     print(f"    // {', '.join(SERVO_NAMES)}")
     print(f"}};")
 
-    await exit_test_mode(transport)
-
 
 async def walk_capture(transport, args):
     """Capture IMU during 1-second walks in each direction."""
@@ -380,7 +363,6 @@ async def run(args):
         elif args.walk:
             await walk_capture(transport, args)
         elif args.servo is not None:
-            await enter_test_mode(transport)
             center = [1500] * 8
             await set_all_servos(transport, center, reps=60, delay=0.05)
             await asyncio.sleep(0.5)
@@ -389,7 +371,6 @@ async def run(args):
             for r in results:
                 print(f"  {r['pulse_us']:4d}μs ({r['offset']:+4d})  "
                       f"pitch={r['pitch']:6.1f}  roll={r['roll']:6.1f}")
-            await exit_test_mode(transport)
         else:
             await map_all_servos(transport, args)
     finally:
