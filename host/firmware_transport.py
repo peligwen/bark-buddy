@@ -44,7 +44,6 @@ class FirmwareTransport(DeadReckoningMixin, Transport):
         self._sonar_mm = 0
         self._battery_mv = 7400
         self._firmware_info = {}
-        self._lifecycle = "unknown"
         self._engaged = False
         self._ramping = False
         self._battery_cutoff = False

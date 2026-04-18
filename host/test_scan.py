@@ -33,7 +33,6 @@ class MockTransport:
     def get_imu(self): return {"pitch": 0.0, "roll": 0.0, "yaw": 0.0}
     def get_sonar_mm(self): return 300
     def get_battery_mv(self): return 7400
-    def get_lifecycle(self): return "active"
     def get_fw_version(self): return "mock"
     def get_position(self): return (0.0, 0.0)
     def get_heading(self): return 0.0
