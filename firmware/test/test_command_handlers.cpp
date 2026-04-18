@@ -41,6 +41,7 @@ void comms_out_drain() {}
 
 // servos.h stubs
 #include "../include/servos.h"
+uint8_t SERVO_PINS[8] = {25, 26, 27, 14, 16, 17, 4, 2};
 bool servos_engaged()              { return true; }   // simulate engaged so handlers run
 bool servos_battery_cutoff()       { return false; }
 bool servos_is_ramping()           { return false; }
@@ -51,6 +52,7 @@ uint16_t servo_read_us(uint8_t)    { return 1500; }
 void servos_detach_all()           {}
 void servos_set_battery_cutoff()   {}
 RampResult servos_ramp_tick(uint32_t) { return RampResult::NONE; }
+bool servos_set_pin(uint8_t, uint8_t, String& err) { (void)err; return true; }
 
 #if AUX_SERVOS_ENABLED
 void     aux_servo_init()                      {}
