@@ -316,6 +316,7 @@ static void test_servos_set_pin() {
     servo_log_reset();
     mock_reset_clock();
     s_battery_cutoff = false;
+    servos_detach_all();
 
     String err;
 
@@ -355,7 +356,7 @@ static void test_servos_set_pin() {
     ok = servos_set_pin(0, 33, err);
     check(ok, "set_pin valid pin while engaged returns true");
     check(SERVO_PINS[0] == 33, "SERVO_PINS[0] updated to 33 while engaged");
-    check(_servo_duty[33] != 0, "new pin (33) is actively driven after live reassign");
+    check(_servo_duty[33] == expected_duty(STANDING_POSE[0]), "new pin (33) driven at STANDING_POSE[0] duty after live reassign");
     check(_servo_duty[25] == 0, "old pin (25) duty zeroed after live reassign");
 
     // Disengage and reset for isolation
