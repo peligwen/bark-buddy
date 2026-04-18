@@ -594,8 +594,8 @@ static void handle_cmd_gpio(const JsonDocument& doc) {
     if (strcmp(op_str, "mode") == 0) {
         const char* mode_str = doc["mode"] | "input_floating";
         GpioMode mode = GpioMode::FLOATING;
-        if      (strcmp(mode_str, "input_pullup")   == 0) mode = GpioMode::PULLUP;
-        else if (strcmp(mode_str, "input_pulldown") == 0) mode = GpioMode::PULLDOWN;
+        if      (strcmp(mode_str, "input_pullup")   == 0) mode = GpioMode::GPIO_PULLUP;
+        else if (strcmp(mode_str, "input_pulldown") == 0) mode = GpioMode::GPIO_PULLDOWN;
         else if (strcmp(mode_str, "output")         == 0) mode = GpioMode::GPIO_OUTPUT;
         gpio_aux_set_mode(pin, mode);
         send_ack(MSG_CMD_GPIO, true);
@@ -628,8 +628,8 @@ static void handle_cmd_gpio(const JsonDocument& doc) {
     } else if (strcmp(op_str, "subscribe") == 0) {
         const char* mode_str = doc["mode"] | "input_floating";
         GpioMode mode = GpioMode::FLOATING;
-        if      (strcmp(mode_str, "input_pullup")   == 0) mode = GpioMode::PULLUP;
-        else if (strcmp(mode_str, "input_pulldown") == 0) mode = GpioMode::PULLDOWN;
+        if      (strcmp(mode_str, "input_pullup")   == 0) mode = GpioMode::GPIO_PULLUP;
+        else if (strcmp(mode_str, "input_pulldown") == 0) mode = GpioMode::GPIO_PULLDOWN;
         else if (strcmp(mode_str, "output")         == 0) mode = GpioMode::GPIO_OUTPUT;
         if (!sensor_gpio_subscribe(pin, mode)) {
             send_ack(MSG_CMD_GPIO, false, "subscribe_failed");

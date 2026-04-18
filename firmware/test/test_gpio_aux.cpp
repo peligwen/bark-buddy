@@ -99,8 +99,8 @@ static void test_set_mode_no_crash() {
     const uint8_t pins[] = {32, 33, 1, 3};
     const GpioMode modes[] = {
         GpioMode::FLOATING,
-        GpioMode::PULLUP,
-        GpioMode::PULLDOWN,
+        GpioMode::GPIO_PULLUP,
+        GpioMode::GPIO_PULLDOWN,
         GpioMode::GPIO_OUTPUT,
     };
     bool ok = true;
@@ -118,7 +118,7 @@ static void test_set_mode_no_crash() {
 static void test_set_mode_invalid_no_crash() {
     printf("\nTest: set_mode_invalid_no_crash\n");
     gpio_aux_set_mode(0,   GpioMode::GPIO_OUTPUT);  // must not crash
-    gpio_aux_set_mode(22,  GpioMode::PULLUP);
+    gpio_aux_set_mode(22,  GpioMode::GPIO_PULLUP);
     gpio_aux_set_mode(255, GpioMode::FLOATING);
     check(true, "set_mode on invalid pins does not crash");
 }
