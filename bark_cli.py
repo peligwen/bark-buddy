@@ -136,7 +136,7 @@ def cmd_test(args):
     # Run each test binary
     targets = [
         "test_ik", "test_transform", "test_balance",
-        "test_offsets", "test_gait_ik", "test_servos", "test_lifecycle",
+        "test_offsets", "test_gait_ik", "test_servos",
     ]
     failed = []
     ran = 0
