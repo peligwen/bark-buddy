@@ -42,7 +42,22 @@ All commands receive an `{"type":"ack","ref_type":"<cmd_type>","ok":true}` (or
 | Type | Required fields | Optional fields | Notes |
 |------|----------------|-----------------|-------|
 | `cmd_servo` | `index` (0–7), `pulse_us` (int) | — | Direct servo control; requires `PINS_VERIFIED=1`. Indices 8–10 require `AUX_SERVOS_ENABLED=1`. Error codes: "bad_index" (idx ≥ 11), "aux_disabled" (idx 8–10 when `AUX_SERVOS_ENABLED=0`) |
-| `cmd_offset` | `index` (0–7), `offset_us` (int) | — | Persistent servo trim; stored in NVS via Preferences |
+| `cmd_servo_pin` | `index` (0–7), `pin` (0–39) | — | Reassign servo index to a different GPIO pin at runtime (RAM-only; reverts to compile-time `SERVO_PINS[]` on reboot). Rejected if index out of range, pin > 39, pin is reserved by `pin_registry`, or pin is already assigned to another servo index. On success also emits `telem_servo_pins`. |
+| `cmd_offset` | — | `index` (0–7), `offset_us` (int) | Persistent servo trim stored in NVS via Preferences. Omit both optional fields to read all offsets (ack includes `"offsets": [...]`). Provide both to set one offset (ack includes updated `"offsets": [...]`). No `require_engaged` gate — offsets can be read/written while disengaged. |
+
+**`cmd_offset` examples:**
+
+Read all offsets:
+```json
+{"type": "cmd_offset"}
+```
+Response: `{"type": "ack", "ref_type": "cmd_offset", "ok": true, "offsets": [0, 0, 0, 0, 0, 0, 0, 0]}`
+
+Set one offset:
+```json
+{"type": "cmd_offset", "index": 0, "offset_us": 50}
+```
+Response: `{"type": "ack", "ref_type": "cmd_offset", "ok": true, "offsets": [50, 0, 0, 0, 0, 0, 0, 0]}`
 
 ### Engage / LED
 
@@ -118,6 +133,7 @@ Firmware streams telemetry continuously. Rates are configured in `firmware/inclu
 | `telem_button` | `event` ("press"/"release"/"long_press"), `held_ms` (uint32, ms; 0 for "press") | Physical button K1 (GPIO 5, active-LOW, 10K pullup, 20ms debounce, 1000ms long-press threshold) |
 | `telem_gpio` | `pin` (int), `digital` (0/1), `analog` (int or -1) | After `cmd_gpio op=read/analog`; continuously on subscription |
 | `telem_i2c` | `bus` (int), `op` ("scan"/"read"/"write"), `addrs` (scan), `data` (read), `ok` (bool) | After `cmd_i2c` |
+| `telem_servo_pins` | `pins` (array of 8 ints) | On firmware boot (`setup()`); on each new TCP client connection (mock firmware); after a successful `cmd_servo_pin` |
 
 ---
 
