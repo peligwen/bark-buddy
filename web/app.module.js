@@ -195,6 +195,11 @@ function handleMessage(msg) {
         el.textContent = msg.holder ? "Control held by " + msg.holder : "Control request denied";
         el.classList.remove("hidden");
         setTimeout(function() { el.classList.add("hidden"); }, 3000);
+    } else if (msg.type === "ack" && msg.ok === false) {
+        var el = document.getElementById("fall-alert");
+        el.textContent = (msg.ref_type || "command") + " rejected";
+        el.classList.remove("hidden");
+        setTimeout(function() { el.classList.add("hidden"); }, 3000);
     } else if (msg.type === "telem_event") {
         var ev = msg.event;
         if (ev === "battery_cutoff_detach") {
