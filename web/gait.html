@@ -392,7 +392,6 @@
           }
         }
         if (msg.type === 'telem_event') {
-          handleFwEvent(msg);
           if (msg.event === 'engage_complete')       { _engaged = true;  setLifecycle('active');  }
           if (msg.event === 'disengage_complete')    { _engaged = false; setLifecycle('resting'); }
           if (msg.event === 'battery_cutoff_detach') { _engaged = false; setLifecycle('resting'); }
@@ -495,7 +494,7 @@
   // -- Firmware event log ------------------------------------------
   const MAX_LOG_ROWS = 200;
   const LOGGED_TYPES = new Set([
-    'telem_event', 'telem_status', 'telem_imu', 'telem_sonar',
+    'telem_event', 'telem_status',
     'telem_battery', 'telem_button', 'ack'
   ]);
 
