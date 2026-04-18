@@ -192,7 +192,7 @@ function handleMessage(msg) {
         }
     } else if (msg.type === "lock_denied") {
         var el = document.getElementById("fall-alert");
-        el.textContent = msg.operator ? "Control held by " + msg.operator : "Control request denied";
+        el.textContent = msg.holder ? "Control held by " + msg.holder : "Control request denied";
         el.classList.remove("hidden");
         setTimeout(function() { el.classList.add("hidden"); }, 3000);
     } else if (msg.type === "telem_event") {

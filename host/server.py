@@ -600,7 +600,8 @@ class Server:
             direction = msg.get("direction", "stop")
             if direction in DIRECTIONS:
                 self._transport.record_motion(direction)
-                await self._transport.send_json({"type": "cmd_move", "direction": direction})
+                speed = msg.get("speed", 1.0)
+                await self._transport.send_json({"type": "cmd_move", "direction": direction, "speed": speed})
                 self._motion = direction
             else:
                 logger.warning("Unknown direction: %s", direction)
@@ -618,10 +619,6 @@ class Server:
                 "type": "balance_state",
                 "enabled": self._balance.enabled,
             })
-
-        elif msg_type == "cmd_pose":
-            await self._transport.send_json({"type": "cmd_stand"})
-            self._motion = "stop"
 
         elif msg_type == "cmd_scan":
             action = msg.get("action", "start")

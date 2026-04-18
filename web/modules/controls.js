@@ -105,12 +105,6 @@ export function setupActions(Dog3D) {
         });
     });
 
-    document.getElementById("btn-pose-go").addEventListener("click", function () {
-        var pose = document.getElementById("pose-select").value;
-        Dog3D.setPose(pose);
-        send({ type: "cmd_pose", pose: pose });
-    });
-
     return {
         setBalanceState: function (enabled) {
             balanceEnabled = enabled;

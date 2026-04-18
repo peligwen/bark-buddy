@@ -434,18 +434,6 @@ header h1 {
 .action-btn:disabled { opacity: 0.25; cursor: default; }
 .action-btn.primary { background: var(--green-dark); color: var(--green); border-color: var(--green); }
 
-.pose-select {
-    padding: 7px 10px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    background: var(--bg);
-    color: var(--text);
-    font-size: 0.72rem;
-    cursor: pointer;
-}
-.pose-select:focus { outline: 1px solid var(--accent); }
-
-
 /* Scrollbar */
 ::-webkit-scrollbar { width: 4px; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
