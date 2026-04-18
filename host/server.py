@@ -138,7 +138,7 @@ class Server:
             self._engaged = msg.get("engaged", self._engaged)
         if msg_type in ("telem_sonar", "telem_battery", "telem_imu", "telem_status",
                         "telem_event", "ota_status", "boot",
-                        "telem_button", "telem_gpio", "telem_i2c"):
+                        "telem_button", "telem_gpio", "telem_i2c", "telem_servo_pins"):
             asyncio.ensure_future(self._broadcast(msg))
         if msg_type == "telem_button":
             event = msg.get("event", "")

@@ -23,7 +23,7 @@
     color: var(--text);
     font-size: 14px;
     padding: 24px;
-    max-width: 720px;
+    max-width: 900px;
     margin: 0 auto;
   }
   h1 {
@@ -127,6 +127,56 @@
   .lifecycle-badge[data-state="waking"] .lc-dot {
     animation: lc-pulse 1.2s ease-in-out infinite;
   }
+
+  /* Battery bar */
+  .batt-wrap {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    flex-shrink: 0;
+  }
+  .batt-label {
+    font-size: 0.65rem;
+    font-family: "SF Mono", "Fira Code", monospace;
+    font-weight: 600;
+    color: var(--text-dim);
+    letter-spacing: 0.04em;
+  }
+  .batt-bar {
+    display: flex;
+    gap: 2px;
+    align-items: center;
+    padding: 3px 5px;
+    background: rgba(0,0,0,0.25);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+  }
+  .batt-seg {
+    width: 6px;
+    height: 14px;
+    border-radius: 2px;
+    opacity: 0.15;
+    transition: opacity 0.3s;
+  }
+  .batt-seg.lit { opacity: 1; }
+  .batt-seg:nth-child(1)  { background: hsl(0,   70%, 55%); }
+  .batt-seg:nth-child(2)  { background: hsl(13,  70%, 55%); }
+  .batt-seg:nth-child(3)  { background: hsl(27,  70%, 55%); }
+  .batt-seg:nth-child(4)  { background: hsl(40,  70%, 55%); }
+  .batt-seg:nth-child(5)  { background: hsl(53,  70%, 55%); }
+  .batt-seg:nth-child(6)  { background: hsl(67,  70%, 55%); }
+  .batt-seg:nth-child(7)  { background: hsl(80,  70%, 55%); }
+  .batt-seg:nth-child(8)  { background: hsl(93,  70%, 55%); }
+  .batt-seg:nth-child(9)  { background: hsl(107, 70%, 55%); }
+  .batt-seg:nth-child(10) { background: hsl(120, 70%, 55%); }
+  @keyframes batt-flash {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.3; }
+  }
+  .batt-bar.critical .batt-seg.lit {
+    animation: batt-flash 1s ease-in-out infinite;
+  }
+  .batt-bar.stale .batt-seg { opacity: 0.08; }
 
   /* Waking banner */
   #waking-banner {
@@ -233,7 +283,7 @@
   }
   #copy-feedback.show { opacity: 1; }
 
-  /* New servo grid -- slim layout */
+  /* Servo grid */
   .servo-grid {
     display: flex;
     flex-direction: column;
@@ -241,7 +291,7 @@
   }
   .servo-row {
     display: grid;
-    grid-template-columns: 120px 1fr 80px 36px;
+    grid-template-columns: 100px 1.5fr 1fr 70px 80px 36px;
     align-items: center;
     gap: 12px;
     background: var(--bg-panel);
@@ -296,6 +346,7 @@
     accent-color: var(--accent);
     cursor: pointer;
   }
+  input[type=range]:disabled { opacity: 0.4; cursor: not-allowed; }
   input[type=number] {
     width: 100%;
     background: var(--bg-card);
@@ -381,6 +432,21 @@
   <div class="dot" id="ws-dot"></div>
   <span id="status-text">Connecting...</span>
   <div class="lifecycle-badge" id="lifecycle-badge" data-state="unknown"><span class="lc-dot"></span><span id="lifecycle-text">-</span></div>
+  <div class="batt-wrap" title="Battery: no signal">
+    <span class="batt-label">Batt</span>
+    <div class="batt-bar stale" id="batt-bar">
+      <span class="batt-seg" data-idx="0"></span>
+      <span class="batt-seg" data-idx="1"></span>
+      <span class="batt-seg" data-idx="2"></span>
+      <span class="batt-seg" data-idx="3"></span>
+      <span class="batt-seg" data-idx="4"></span>
+      <span class="batt-seg" data-idx="5"></span>
+      <span class="batt-seg" data-idx="6"></span>
+      <span class="batt-seg" data-idx="7"></span>
+      <span class="batt-seg" data-idx="8"></span>
+      <span class="batt-seg" data-idx="9"></span>
+    </div>
+  </div>
   <button class="test-btn" id="engage-btn" onclick="toggleEngage()" disabled>Engage Servos</button>
 </div>
 
@@ -456,6 +522,16 @@
   // Authoritative pin->servo mapping, updated from telem_servo_pins
   let currentPins = [25, 26, 27, 14, 16, 17, 4, 2];  // mirrors default SERVO_PINS
 
+  // Per-servo position state (slider source of truth)
+  const SERVO_MIN = 500;
+  const SERVO_MAX = 2500;
+  const THROTTLE_MS = 50;
+  const values     = new Array(8).fill(1500);
+  const _lastSend  = new Array(8).fill(0);
+  const _pendingVal = new Array(8).fill(null);
+  const _pendingTmr = new Array(8).fill(null);
+  let _dragging = false;
+
   // Per-servo offset state
   const offsets = new Array(8).fill(0);
 
@@ -497,6 +573,31 @@
     activeWiggles.clear();
   }
 
+  // -- Battery bar -----------------------------------------------
+  var _battStaleTimer = null;
+  var _battSegs = null;
+
+  function updateBatteryBar({ voltage_mv, pct, low }) {
+    if (!_battSegs) _battSegs = document.querySelectorAll('#batt-bar .batt-seg');
+    const bar  = document.getElementById('batt-bar');
+    const wrap = bar && bar.closest('.batt-wrap');
+    if (!bar) return;
+
+    clearTimeout(_battStaleTimer);
+    bar.classList.remove('stale');
+    _battStaleTimer = setTimeout(function() {
+      bar.classList.add('stale');
+      bar.classList.remove('critical');
+      _battSegs.forEach(function(s) { s.classList.remove('lit'); });
+      if (wrap) wrap.title = 'Battery: no signal';
+    }, 5000);
+
+    const lit = Math.min(10, Math.ceil(pct / 10));
+    _battSegs.forEach(function(s, i) { s.classList.toggle('lit', i < lit); });
+    bar.classList.toggle('critical', !!low || pct <= 10);
+    if (wrap) wrap.title = 'Battery: ' + voltage_mv + ' mV (' + pct + '%)';
+  }
+
   function connect() {
     ws = new WebSocket('ws://' + location.host + '/ws');
     ws.onopen  = () => {
@@ -523,8 +624,15 @@
               btn.disabled = !!msg.ramping || !!msg.battery_cutoff;
               btn.classList.toggle('active', !!msg.engaged && !msg.ramping);
             }
+            var ctrlsDisabled = !msg.engaged || !!msg.ramping;
             document.querySelectorAll('.wiggle-btn').forEach(function(el) {
-              el.disabled = !msg.engaged || !!msg.ramping;
+              el.disabled = ctrlsDisabled;
+            });
+            document.querySelectorAll('input[type=range]').forEach(function(el) {
+              el.disabled = ctrlsDisabled;
+            });
+            document.querySelectorAll('#servo-grid input[type=number]').forEach(function(el) {
+              el.disabled = ctrlsDisabled;
             });
             if (!msg.engaged) cancelAllWiggles();
           }
@@ -541,6 +649,7 @@
           if (msg.event === 'battery_cutoff_detach') { _tuningEngaged = false; setLifecycle('resting'); }
           if (msg.event === 'heartbeat_detach')      { _tuningEngaged = false; setLifecycle('resting'); }
         }
+        if (msg.type === 'telem_battery') updateBatteryBar(msg);
         if (msg.type === 'telem_servo_pins') handleServoPins(msg);
         if (msg.type === 'ack') {
           if (!msg.ok && (msg.error === 'not_active' || msg.error === 'not_engaged')) {
@@ -622,8 +731,7 @@
       } else {
         const usedBy = currentPins.findIndex(function(p, j) { return j !== thisIdx && p === gpio; });
         if (usedBy >= 0) {
-          opt.disabled = true;
-          optText += ' [-> servo ' + usedBy + ']';
+          optText += ' [swap with servo ' + usedBy + ']';
         }
       }
       opt.textContent = optText;
@@ -637,17 +745,14 @@
 
   // -- Servo pin ack handlers ------------------------------------
   function handleServoPinAck(msg) {
-    if (!msg.ok) {
-      for (let i = 0; i < 8; i++) {
-        const sel = document.getElementById('pin-sel-' + i);
-        if (sel) {
-          sel.classList.remove('updating');
-          buildPinSelectOptions(sel, currentPins[i], i);
-        }
-      }
-      showToast('Pin rejected: ' + (msg.error || 'unknown error'));
+    for (let i = 0; i < 8; i++) {
+      const sel = document.getElementById('pin-sel-' + i);
+      if (!sel) continue;
+      sel.classList.remove('updating');
+      if (!msg.ok) buildPinSelectOptions(sel, currentPins[i], i);
     }
-    // If ok=true, telem_servo_pins will update everything
+    if (!msg.ok) showToast('Pin rejected: ' + (msg.error || 'unknown error'));
+    // If ok=true, telem_servo_pins will rebuild options with the updated mapping
   }
 
   function handleServoPins(msg) {
@@ -693,16 +798,52 @@
     const id = setInterval(function() {
       const target = (step % 2 === 0) ? center + amplitude : center - amplitude;
       send({ type: 'cmd_servo', index: index, pulse_us: target });
+      var sl = document.getElementById('slider-' + index);
+      var n  = document.getElementById('num-' + index);
+      if (sl) sl.value = target;
+      if (n)  n.value  = target;
       step++;
       if (step >= totalSteps) {
         clearInterval(id);
         send({ type: 'cmd_servo', index: index, pulse_us: center });
+        if (sl) sl.value = center;
+        if (n)  n.value  = center;
+        values[index] = center;
         btn.classList.remove('active');
         btn.disabled = false;
         activeWiggles.delete(index);
       }
     }, halfPeriod);
     activeWiggles.set(index, { interval: id, btn });
+  }
+
+  // -- Servo position send helpers --------------------------------
+  function sendServo(index, value) {
+    values[index] = value;
+    send({ type: 'cmd_servo', index: index, pulse_us: value });
+  }
+
+  function throttledSendServo(index, value) {
+    values[index] = value;
+    var now = Date.now();
+    if (now - _lastSend[index] >= THROTTLE_MS) {
+      _lastSend[index] = now;
+      _pendingVal[index] = null;
+      send({ type: 'cmd_servo', index: index, pulse_us: value });
+    } else {
+      _pendingVal[index] = value;
+      if (!_pendingTmr[index]) {
+        var remaining = THROTTLE_MS - (now - _lastSend[index]);
+        _pendingTmr[index] = setTimeout(function() {
+          _pendingTmr[index] = null;
+          if (_pendingVal[index] !== null) {
+            _lastSend[index] = Date.now();
+            send({ type: 'cmd_servo', index: index, pulse_us: _pendingVal[index] });
+            _pendingVal[index] = null;
+          }
+        }, remaining);
+      }
+    }
   }
 
   // -- Build servo grid ------------------------------------------
@@ -768,8 +909,51 @@
       offsetCell.appendChild(offsetLbl);
       offsetCell.appendChild(offsetInput);
 
+      // Slider
+      var slider = document.createElement('input');
+      slider.type = 'range';
+      slider.min = SERVO_MIN;
+      slider.max = SERVO_MAX;
+      slider.step = 1;
+      slider.value = values[i];
+      slider.id = 'slider-' + i;
+      slider.disabled = true;
+      (function(idx, sl) {
+        sl.addEventListener('pointerdown', function() { _dragging = true; });
+        sl.addEventListener('pointerup',   function() { _dragging = false; });
+        sl.oninput = function() {
+          var v = parseInt(sl.value, 10);
+          var n = document.getElementById('num-' + idx);
+          if (n) n.value = v;
+          throttledSendServo(idx, v);
+        };
+        sl.onchange = function() {
+          sendServo(idx, parseInt(sl.value, 10));
+        };
+      })(i, slider);
+
+      // Paired number input
+      var numInput = document.createElement('input');
+      numInput.type = 'number';
+      numInput.min = SERVO_MIN;
+      numInput.max = SERVO_MAX;
+      numInput.value = values[i];
+      numInput.id = 'num-' + i;
+      numInput.disabled = true;
+      (function(idx, ni) {
+        ni.onchange = function() {
+          var v = parseInt(ni.value, 10);
+          if (isNaN(v)) v = values[idx];
+          v = Math.max(SERVO_MIN, Math.min(SERVO_MAX, v));
+          ni.value = v;
+          var sl = document.getElementById('slider-' + idx);
+          if (sl) sl.value = v;
+          sendServo(idx, v);
+        };
+      })(i, numInput);
+
       // Wiggle button
-      const wiggleBtn = document.createElement('button');
+      var wiggleBtn = document.createElement('button');
       wiggleBtn.className = 'test-btn wiggle-btn';
       wiggleBtn.textContent = '~';
       wiggleBtn.title = 'Wiggle +-20 us for 2 s - identifies this servo';
@@ -779,6 +963,8 @@
 
       row.appendChild(label);
       row.appendChild(sel);
+      row.appendChild(slider);
+      row.appendChild(numInput);
       row.appendChild(offsetCell);
       row.appendChild(wiggleBtn);
       grid.appendChild(row);
@@ -788,6 +974,11 @@
   // -- Presets ---------------------------------------------------
   function loadPreset(pose) {
     pose.forEach(function(v, i) {
+      values[i] = v;
+      var sl = document.getElementById('slider-' + i);
+      var n  = document.getElementById('num-' + i);
+      if (sl) sl.value = v;
+      if (n)  n.value  = v;
       send({ type: 'cmd_servo', index: i, pulse_us: v });
     });
   }
