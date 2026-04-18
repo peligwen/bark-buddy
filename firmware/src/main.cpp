@@ -14,6 +14,7 @@
 #include "update_led.h"
 #include "buzzer.h"
 #include "comms_out.h"
+#include "battery_led.h"
 #ifndef WIFI_ENABLED
 #define WIFI_ENABLED 0
 #endif
@@ -170,6 +171,7 @@ void setup() {
 #ifndef MOCK_FIRMWARE
     buzzer_init();
 #endif
+    battery_led_init();
 
     // Boot rainbow — runs briefly on every boot, confirms firmware is alive after a flash
     s_update_led_active = true;
@@ -213,6 +215,7 @@ void setup() {
 // --- Main loop ---
 void loop() {
     unsigned long now = millis();
+    battery_led_tick(now);
 
     // WiFi connect / reconnect
 #if WIFI_ENABLED
@@ -282,7 +285,8 @@ void loop() {
         int   raw     = analogRead(BATTERY_ADC_PIN);
         float voltage = (raw / 4095.0f) * 3.3f * BATTERY_DIVIDER;
         int   mv      = (int)(voltage * 1000);
-        if (mv < BATTERY_LOW_MV && mv > 1000 && !servos_battery_cutoff()) {
+        battery_led_update_voltage(mv, servos_battery_cutoff());
+        if (mv < BATTERY_CUTOFF_MV && mv > 1000 && !servos_battery_cutoff()) {
             servos_set_battery_cutoff();  // latches AND detaches
             gait_set_state(GaitState::STOP);
             JsonDocument lb_evt;

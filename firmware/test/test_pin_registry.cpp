@@ -51,7 +51,7 @@ static void test_buzzer_pin_reserved() {
 static void test_led_pin_reserved() {
     printf("\nTest: test_led_pin_reserved\n");
     check(reserved(18),                             "pin 18 is reserved");
-    check(reserved_with_reason(18, "led"),          "pin 18 reason is 'led'");
+    check(reserved_with_reason(18, "battery_led"),  "pin 18 reason is 'battery_led'");
 }
 
 static void test_button_pin_reserved() {

@@ -21,6 +21,7 @@ firmware/compile_commands.json
 
 # Compiled test binaries (firmware/test/ — extensionless executables)
 firmware/test/test_*
+!firmware/test/test_*.cpp
 firmware/test/bark-mock
 firmware/test/bark-mock-dbg
 firmware/test/bark-mock-dbg.dSYM/

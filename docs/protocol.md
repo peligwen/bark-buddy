@@ -64,7 +64,7 @@ Response: `{"type": "ack", "ref_type": "cmd_offset", "ok": true, "offsets": [50,
 | Type | Required fields | Optional fields | Firmware behavior |
 |------|----------------|-----------------|-------------------|
 | `cmd_engage` | `enabled` (bool) | — | Master engage/disengage. Disengage ramps to rest pose over `SHUTDOWN_RAMP_MS`, then detaches servos. Battery cutoff latches until power-cycle |
-| `cmd_led` | `led` (int, 0=onboard, 1=sonar RGB front, 2=sonar RGB rear) | `r`, `g`, `b` (0–255) | Set LED color. `led=0` drives GPIO 18 (active-LOW blue LED). `led=1/2` controls sonar module RGB via `sonar_set_rgb()` |
+| `cmd_led` | `led` (int, 1=sonar RGB front, 2=sonar RGB rear) | `r`, `g`, `b` (0–255) | Set eye LED color. `led=1/2` controls sonar module RGB via `sonar_set_rgb()`. **`led=0` is reserved** — returns `ack ok:false` (GPIO 18 is owned by the battery indicator) |
 
 ### Buzzer
 
@@ -143,7 +143,20 @@ Firmware streams telemetry continuously. Rates are configured in `firmware/inclu
 - Heartbeat timeout: 10s without any message → stop gait, set LEDs blue (disconnected state)
 - On new TCP client: firmware sends `boot` message
 - Host retries TCP connection with exponential backoff on disconnect
-- Battery cutoff: when `voltage_mv` falls below `BATTERY_LOW_MV` (6400 mV), `telem_status.battery_cutoff` latches true; `cmd_engage enabled=true` is rejected until power-cycle
+- Battery cutoff: when `voltage_mv` falls below `BATTERY_CUTOFF_MV` (6400 mV), `telem_status.battery_cutoff` latches true; `cmd_engage enabled=true` is rejected until power-cycle
+
+### Battery LED (GPIO 18, onboard blue, active-LOW)
+
+Firmware-owned indicator — operates independently of host connection:
+
+| State    | Voltage threshold (entry)                         | Blink rate  |
+|----------|---------------------------------------------------|-------------|
+| OK       | > 6700 mV                                        | off         |
+| Low      | ≤ 6700 mV (`BATTERY_LOW_MV`)                     | 1 Hz        |
+| Critical | ≤ 6500 mV (`BATTERY_CRITICAL_MV`)                | 2 Hz        |
+| Cutoff   | latched once mV < 6400 mV (`BATTERY_CUTOFF_MV`)  | 4 Hz panic  |
+
+Recovery uses 100 mV hysteresis (`BATTERY_HYSTERESIS_MV`) to prevent threshold chatter. The Cutoff state is a one-way latch — it does not clear until power is cycled. GPIO 18 is exclusively owned by this indicator; `cmd_led {led:0}` returns `ack ok:false`.
 
 ---
 

@@ -93,7 +93,10 @@ static const uint16_t REST_POSE[8] = {
 // --- Battery ADC (VERIFIED: Hiwonder.__adcp = ADC(Pin(34), atten=3)) ---
 #define BATTERY_ADC_PIN     34
 #define BATTERY_DIVIDER     3.9f    // voltage divider ratio (~1:4 resistor divider)
-#define BATTERY_LOW_MV      6400    // 2S LiPo cutoff (~3.2V/cell)
+#define BATTERY_LOW_MV      6700    // 1 Hz blink warning
+#define BATTERY_CRITICAL_MV 6500    // 2 Hz blink warning
+#define BATTERY_CUTOFF_MV   6400    // 2S LiPo cutoff (~3.2V/cell) — servos detach
+#define BATTERY_HYSTERESIS_MV 100   // prevents rate chatter near thresholds
 
 // --- WiFi ---
 // Credentials come from config_local.h (gitignored).

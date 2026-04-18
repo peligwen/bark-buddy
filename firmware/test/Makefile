@@ -1,6 +1,6 @@
 CXX = clang++
 CXXFLAGS = -std=c++17 -O2 -Wall -Wno-absolute-value -I. -I../include
-TARGETS = test_ik test_transform test_balance test_offsets test_gait_ik test_gait_taper test_servos test_engage test_buzzer test_button test_gpio_aux test_aux_servo test_comms_out test_pin_registry test_pin_registry_aux test_command_handlers test_command_handlers_aux
+TARGETS = test_ik test_transform test_balance test_offsets test_gait_ik test_gait_taper test_servos test_engage test_buzzer test_button test_gpio_aux test_aux_servo test_comms_out test_pin_registry test_pin_registry_aux test_command_handlers test_command_handlers_aux test_battery_led
 
 # Mock firmware build
 MOCK_FLAGS = -std=c++17 -O2 -Wall \
@@ -24,6 +24,7 @@ MOCK_SRC = \
 	../mock/gpio_aux_mock.cpp \
 	../src/main.cpp \
 	../src/balance.cpp \
+	../src/battery_led.cpp \
 	../src/command_handlers.cpp \
 	../src/comms_out.cpp \
 	../src/gait.cpp \
@@ -93,6 +94,9 @@ test_command_handlers: test_command_handlers.cpp mock_arduino.h ../include/confi
 test_command_handlers_aux: test_command_handlers.cpp mock_arduino.h ../include/config.h ../src/command_handlers.cpp
 	$(CXX) $(CXXFLAGS) -DMOCK_FIRMWARE=1 -DAUX_SERVOS_ENABLED=1 -I../mock -I../.pio/libdeps/mechdog/ArduinoJson/src \
 		-o $@ test_command_handlers.cpp
+
+test_battery_led: test_battery_led.cpp mock_arduino.h ../include/battery_led.h ../include/config.h ../src/battery_led.cpp
+	$(CXX) $(CXXFLAGS) -DMOCK_FIRMWARE=1 -o $@ test_battery_led.cpp ../src/battery_led.cpp
 
 test: all
 	@for t in test_*; do [ -x "$$t" ] || continue; echo "=== $$t ===" && ./$$t; done

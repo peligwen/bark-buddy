@@ -161,9 +161,13 @@ static void handle_cmd_gait_params(const JsonDocument& doc) {
 
 static void handle_cmd_led(const JsonDocument& doc) {
     uint8_t led = doc["led"] | 1;
-    uint8_t r   = doc["r"]   | 0;
-    uint8_t g   = doc["g"]   | 0;
-    uint8_t b   = doc["b"]   | 0;
+    if (led == 0) {
+        send_ack(MSG_CMD_LED, false);
+        return;
+    }
+    uint8_t r = doc["r"] | 0;
+    uint8_t g = doc["g"] | 0;
+    uint8_t b = doc["b"] | 0;
     sensor_led_set(led, r, g, b);
     send_ack(MSG_CMD_LED, true);
 }

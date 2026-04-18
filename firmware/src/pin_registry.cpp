@@ -26,9 +26,9 @@ bool pin_is_reserved(uint8_t pin, const char** reason_out) {
         return true;
     }
 
-    // Onboard LED
+    // Onboard LED (owned by battery_led — exclusive)
     if (pin == ONBOARD_LED_PIN) {
-        set_reason(reason_out, "led");
+        set_reason(reason_out, "battery_led");
         return true;
     }
 
