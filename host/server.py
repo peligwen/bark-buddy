@@ -158,11 +158,15 @@ class Server:
     async def _tuning_handler(self, request):
         return web.FileResponse(os.path.join(self._web_dir, "tuning.html"))
 
+    async def _gait_handler(self, request):
+        return web.FileResponse(os.path.join(self._web_dir, "gait.html"))
+
     async def start(self, host: str = "0.0.0.0", port: int = 8080):
         app = web.Application(middlewares=[self._no_cache_middleware])
         app.router.add_get("/ws", self._ws_handler)
         app.router.add_get("/", self._index_handler)
         app.router.add_get("/tuning", self._tuning_handler)
+        app.router.add_get("/gait", self._gait_handler)
         app.router.add_get("/api/firmware/status",  self._handle_firmware_status)
         app.router.add_post("/api/firmware/build",  self._handle_firmware_build)
         app.router.add_get("/api/firmware/binary",  self._handle_firmware_binary)
@@ -669,7 +673,7 @@ class Server:
 
         elif msg_type in ("cmd_engage", "cmd_ota_update", "cmd_servo", "cmd_transform",
                           "cmd_gait_params", "cmd_probe_pin",
-                          "cmd_balance_config"):
+                          "cmd_balance_config", "cmd_offset", "cmd_servo_pin"):
             # Firmware-direct passthrough — forward as-is.
             # cmd_engage: lock gating already ran in the block above; forwarding here.
             if msg_type == "cmd_servo":
