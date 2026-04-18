@@ -683,7 +683,8 @@ class Server:
 
         elif msg_type in ("cmd_engage", "cmd_ota_update", "cmd_servo", "cmd_transform",
                           "cmd_gait_params", "cmd_probe_pin",
-                          "cmd_balance_config", "cmd_offset", "cmd_servo_pin"):
+                          "cmd_balance_config", "cmd_offset", "cmd_servo_pin",
+                          "cmd_buzzer", "cmd_led", "cmd_gpio", "cmd_i2c"):
             # Firmware-direct passthrough — forward as-is.
             # cmd_engage: lock gating already ran in the block above; forwarding here.
             if msg_type == "cmd_servo":
