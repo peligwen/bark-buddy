@@ -1,3 +1,5 @@
+> **Superseded 2026-04-18** — The lifecycle FSM described here was deleted in the Engage Switch Refactor. Kept for historical reference only.
+
 # Startup & Lifecycle State Machine Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

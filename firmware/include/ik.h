@@ -1,7 +1,7 @@
 #pragma once
-// ik.h — Inverse kinematics for Hiwonder MechDog (ESP32)
+// ik.h — 2-DOF planar IK per leg (hip pitch + knee pitch) for Hiwonder MechDog (ESP32)
 //
-// Coordinate convention (stock firmware / ground-truth):
+// Coordinate convention:
 //   x: forward  (positive = nose direction)
 //   y: lateral  (positive = left side of dog)
 //   z: vertical (negative = down toward ground)

@@ -7,20 +7,20 @@ Captured during project scoping and evolution (April 2026).
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
 | Primary firmware | Custom C++ via PlatformIO | Full control over gait engine, servo PWM, sensor streaming, and balance. JSON protocol is cleaner than stock CMD. WiFi TCP enables wireless operation |
-| Stock firmware role | Fallback and bootstrapping | Used for pin discovery (REPL introspection), initial hardware validation, and as a fallback when custom firmware isn't flashed. Not the long-term path |
-| Servo pin verification | `PINS_VERIFIED` gate in config.h | Custom firmware won't drive servos until GPIO pins are confirmed via stock REPL introspection. Safety guard against wrong-pin damage |
+| Stock firmware role | ~~Fallback and bootstrapping~~ — resolved | Stock paths deleted in Custom-Firmware-Only Refactor. Pin discovery via stock REPL is complete; `PINS_VERIFIED=1` is set. Custom firmware is the only supported path. |
+| Servo pin verification | `PINS_VERIFIED` gate in config.h | Custom firmware won't drive servos until GPIO pins are confirmed. Pin discovery was done via stock REPL introspection during bootstrapping; pins are now verified. |
 
 ## Communication
 
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
 | Primary transport | WiFi TCP (port 9000) with JSON/NDJSON | Wireless operation, structured protocol, bidirectional telemetry streaming. Custom firmware listens, host connects |
-| Debug transport | USB serial (115200 baud) | Available on both firmware paths. Used for development, log inspection, and flashing |
-| Fallback transport | Serial REPL / WiFi WebREPL | For stock firmware only — REPL command injection over serial or WebREPL. Bootstrapping and fallback |
-| Custom firmware protocol | JSON/NDJSON (newline-delimited) | ArduinoJson on firmware side. Structured, extensible, same format as WebSocket protocol. No translation layer needed |
-| Stock firmware protocol | CMD text protocol (`CMD\|func\|data\|$`) | Built into stock firmware. Requires REPL command translation on host side |
-| Browser protocol | WebSocket + JSON | Clean, decoupled from firmware protocol. Same format regardless of which firmware path is active |
-| Connection loss | Heartbeat + retry with backoff | Custom FW: 5s heartbeat timeout triggers safe stop. Stock FW: 500ms serial timeout, exponential backoff retry |
+| Debug transport | USB serial (115200 baud) | Used for development, log inspection, and flashing. Also supported as a live transport by `FirmwareTransport`. |
+| Fallback transport | ~~Serial REPL / WiFi WebREPL~~ — removed | Stock firmware REPL transport deleted in Custom-Firmware-Only Refactor. `FirmwareTransport` is the sole transport. |
+| Firmware protocol | JSON/NDJSON (newline-delimited) | ArduinoJson on firmware side. Structured, extensible, same format as WebSocket protocol. No translation layer needed. |
+| ~~Stock firmware protocol~~ | ~~CMD text protocol (`CMD\|func\|data\|$`)~~ | ~~Built into stock firmware.~~ Removed — CMD protocol and stock paths deleted. |
+| Browser protocol | WebSocket + JSON | Clean, decoupled from firmware protocol. |
+| Connection loss | Heartbeat + retry with backoff | 5s heartbeat timeout triggers safe stop (engage latch released). Reconnect retries with backoff. |
 
 ## Engage Switch (April 2026)
 
@@ -30,8 +30,8 @@ The lifecycle FSM (multi-state BOOTING/IDLE/ACTIVE/RESTING/LOW_BATTERY) was repl
 
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
-| Custom gait engine | C++ gait with hip/knee amplitude, frequency, phase | Full parametric control. PID balance, soft-start servos, idle timeout. Tested via PlatformIO test suite |
-| Stock gait engine | `_dog.move(speed, direction)` only | Stock firmware's gait works but is opaque. Don't modify `set_gait_params()` or `homeostasis()` — breaks defaults |
+| Gait engine | C++ gait with IK foot-position pipeline, hip/knee amplitude, frequency, phase | Full parametric control. PID balance, soft-start servos. Tested via PlatformIO test suite. |
+| ~~Stock gait engine~~ | ~~`_dog.move(speed, direction)` only~~ | ~~Stock firmware's gait.~~ Removed — stock firmware deleted. |
 | Behavior model | Composable layers | Balance runs as always-on layer; remote, patrol, and scan stack on top. Not exclusive modes |
 | Wall detection | Chain-based mesh + DBSCAN/PCA fallback | Point cloud chains are primary (vertices become mesh). DBSCAN clustering + PCA line fitting as fallback for sparse data |
 

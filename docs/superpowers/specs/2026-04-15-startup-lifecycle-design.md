@@ -1,3 +1,5 @@
+> **Superseded 2026-04-18** — The lifecycle FSM described here was deleted in the Engage Switch Refactor. Kept for historical reference only.
+
 # Startup & Lifecycle State Machine Design
 
 ## Context
