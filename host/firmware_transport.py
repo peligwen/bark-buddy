@@ -142,14 +142,6 @@ class FirmwareTransport(DeadReckoningMixin, Transport):
     def get_battery_mv(self) -> int:
         return self._battery_mv
 
-    def get_lifecycle(self) -> str:
-        """Backwards-compat shim: returns synthetic lifecycle string."""
-        if self._ramping:
-            return "ramping"
-        if self._engaged:
-            return "active"
-        return "disengaged"
-
     def get_engaged(self) -> bool:
         return self._engaged
 

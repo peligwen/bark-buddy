@@ -271,14 +271,6 @@ static void handle_cmd_i2c(const JsonDocument& doc) {
     send_json(resp);
 }
 
-static void handle_cmd_i2c_write(const JsonDocument& doc) {
-    // Deprecated: use cmd_i2c with op="write". Kept for one release cycle.
-    JsonDocument d2;
-    d2.set(doc);
-    d2["op"] = "write";
-    handle_cmd_i2c(d2);
-}
-
 static void handle_cmd_offset(const JsonDocument& doc) {
     // No engagement required — offsets are NVS I/O only
     if (!doc["offset_us"].isNull()) {
@@ -694,7 +686,6 @@ static const Handler k_handlers[] = {
     { MSG_CMD_GAIT_PARAMS,  handle_cmd_gait_params  },
     { MSG_CMD_OFFSET,       handle_cmd_offset       },
     { MSG_CMD_I2C,          handle_cmd_i2c          },
-    { MSG_CMD_I2C_WRITE,    handle_cmd_i2c_write    },
     { MSG_CMD_OTA_UPDATE,     handle_cmd_ota_update     },
     { MSG_CMD_PROBE_PIN,      handle_cmd_probe_pin      },
     { MSG_CMD_BALANCE_CONFIG, handle_cmd_balance_config },

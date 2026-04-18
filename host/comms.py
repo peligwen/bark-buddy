@@ -41,9 +41,6 @@ class Transport(ABC):
     def get_battery_mv(self) -> int:
         return 7400
 
-    def get_lifecycle(self) -> str:
-        return "unknown"
-
     def get_fw_version(self) -> str:
         return ""
 

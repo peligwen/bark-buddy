@@ -483,13 +483,18 @@ class Server:
             "connected": self._transport.is_open() if self._transport else False,
             "scanning": self._scan.running,
             "transport": self._transport_label,
-            "lifecycle": self._transport.get_lifecycle() if self._transport else "unknown",
             "engaged": self._transport.get_engaged() if self._transport else False,
             "ramping": self._transport.get_ramping() if self._transport else False,
             "battery_cutoff": self._transport.get_battery_cutoff() if self._transport else False,
             "fw_version": self._transport.get_fw_version() if self._transport else "",
             "available_fw_version": self._available_fw_version,
         }
+        if self._transport:
+            _r = self._transport.get_ramping()
+            _e = self._transport.get_engaged()
+            status["lifecycle"] = "ramping" if _r else ("active" if _e else "disengaged")
+        else:
+            status["lifecycle"] = "unknown"
         wifi_info = self._detected_wifi
         if wifi_info and wifi_info.get("connected"):
             status["wifi_available"] = True
@@ -662,7 +667,6 @@ class Server:
             if self._transport:
                 self._transport.reset()
             self._motion = "stop"
-            self._action = None
             self._mode = "remote"
             await self._broadcast_status()
             # Recompute web hash in case files changed
@@ -803,7 +807,6 @@ class Server:
             "connected": self._transport.is_open() if self._transport else False,
             "scanning": self._scan.running,
             "battery_mv": battery_mv,
-            "lifecycle": self._transport.get_lifecycle() if self._transport else "unknown",
             "engaged": self._transport.get_engaged() if self._transport else False,
             "ramping": self._transport.get_ramping() if self._transport else False,
             "battery_cutoff": self._transport.get_battery_cutoff() if self._transport else False,
@@ -811,6 +814,12 @@ class Server:
             "available_fw_version": self._available_fw_version,
             "transport": self._transport_label,
         }
+        if self._transport:
+            _r = self._transport.get_ramping()
+            _e = self._transport.get_engaged()
+            status["lifecycle"] = "ramping" if _r else ("active" if _e else "disengaged")
+        else:
+            status["lifecycle"] = "unknown"
         if self._scan.running:
             status["scan_progress"] = self._scan.progress
         ota_status = (self._transport.firmware_info if self._transport else {}).get('ota_status')
