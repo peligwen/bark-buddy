@@ -3,7 +3,8 @@ import Dog3D from './dog3d/index.js';
 import { connect, send, setMessageHandler } from './modules/ws.js';
 import { setupDpad, setupKeyboard, setupActions, setCanControl, setEngaged } from './modules/controls.js';
 import { setupBatteryGraph, recordBattery,
-         setupOtaPanel, updateOtaStatus } from './modules/panels.js';
+         setupOtaPanel, updateOtaStatus,
+         initOffsetPanel, updateServoPins } from './modules/panels.js';
 import { diagInit, diagHandleTelem } from './modules/diag.js';
 
 // --- State ---
@@ -173,6 +174,8 @@ function handleMessage(msg) {
         el.textContent = msg.holder ? "Control held by " + msg.holder : "Control request denied";
         el.classList.remove("hidden");
         setTimeout(function() { el.classList.add("hidden"); }, 3000);
+    } else if (msg.type === 'telem_servo_pins') {
+        updateServoPins(msg);
     } else if (msg.type === "ack" && msg.ok === false) {
         var el = document.getElementById("fall-alert");
         el.textContent = (msg.ref_type || "command") + " rejected";
@@ -240,6 +243,7 @@ setupEngage();
 setupReset();
 setupBatteryGraph();
 setupOtaPanel();
+initOffsetPanel(send);
 
 // Kinematics overlay toggle (button + K key)
 var overlayOn = false;
