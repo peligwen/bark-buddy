@@ -11,11 +11,11 @@ import hashlib
 import json
 import logging
 import os
-import re
 
 from aiohttp import web
 
 from behaviors.balance import BalanceLayer
+from ota import OtaManager
 from lock import ControlLock
 from behaviors.button_engage import ButtonEngageBehavior
 from dog import Dog, DIRECTIONS
@@ -43,34 +43,6 @@ def _transport_priority(label: str) -> int:
     return _TRANSPORT_PRIORITY.get(label, 0)
 
 
-def _read_available_fw_version() -> str:
-    """Parse FW_VERSION from firmware/include/config.h source."""
-    config_path = os.path.join(os.path.dirname(__file__), "..", "firmware", "include", "config.h")
-    try:
-        with open(config_path) as f:
-            m = re.search(r'#define\s+FW_VERSION\s+"([^"]+)"', f.read())
-            return m.group(1) if m else ""
-    except FileNotFoundError:
-        return ""
-
-
-def _firmware_binary_path() -> str:
-    """Path to the built firmware binary."""
-    return os.path.abspath(os.path.join(
-        os.path.dirname(__file__), "..", "firmware",
-        ".pio", "build", "mechdog", "firmware.bin"
-    ))
-
-
-def _compute_sha256(path: str) -> str:
-    """Return lowercase hex SHA-256 digest of the file at path."""
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(65536), b""):
-            h.update(chunk)
-    return h.hexdigest()
-
-
 class Server:
     def __init__(self, transport: Dog, web_dir: str, transport_label: str = "fw",
                  no_mdns: bool = False, open_browser: bool = False):
@@ -96,8 +68,10 @@ class Server:
         # Control lock
         self._lock = ControlLock(timeout=30.0)
         self._client_names: dict[web.WebSocketResponse, str] = {}
-        self._available_fw_version = _read_available_fw_version()
-        self._binary_sha256: str | None = None
+        self._ota = OtaManager(
+            get_transport_fn=lambda: self._transport,
+            get_transport_label_fn=lambda: self._transport_label,
+        )
         self._device_monitor: "DeviceMonitor | None" = None
         self._user_override_transport: bool = False  # True when user manually selected transport
         self._switch_lock = asyncio.Lock()
@@ -148,10 +122,7 @@ class Server:
         app = web.Application(middlewares=[self._no_cache_middleware])
         app.router.add_get("/ws", self._ws_handler)
         app.router.add_get("/", self._index_handler)
-        app.router.add_get("/api/firmware/status",  self._handle_firmware_status)
-        app.router.add_post("/api/firmware/build",  self._handle_firmware_build)
-        app.router.add_get("/api/firmware/binary",  self._handle_firmware_binary)
-        app.router.add_post("/api/firmware/update", self._handle_firmware_update)
+        self._ota.add_routes(app.router)
         app.router.add_static("/", self._web_dir)
         app.on_startup.append(self._on_startup)
         app.on_shutdown.append(self._on_shutdown)
@@ -344,7 +315,7 @@ class Server:
             "ramping": self._transport.get_ramping() if self._transport else False,
             "battery_cutoff": self._transport.get_battery_cutoff() if self._transport else False,
             "fw_version": self._transport.get_fw_version() if self._transport else "",
-            "available_fw_version": self._available_fw_version,
+            "available_fw_version": self._ota.available_version,
         }
         if self._transport:
             _r = self._transport.get_ramping()
@@ -513,103 +484,6 @@ class Server:
         else:
             logger.warning("Unknown WS message type: %s", msg_type)
 
-    async def _handle_firmware_status(self, request: web.Request) -> web.Response:
-        current = self._transport.get_fw_version() if self._transport else ""
-        available = self._available_fw_version
-        is_wifi = 'fw:' in self._transport_label and '/dev/' not in self._transport_label
-        binary_path = _firmware_binary_path()
-        binary_exists = os.path.exists(binary_path)
-        sha256_hex = self._binary_sha256 if binary_exists else None
-        return web.json_response({
-            "current_version": current,
-            "available_version": available,
-            "update_available": bool(current and available and current != available),
-            "transport": self._transport_label,
-            "can_ota": is_wifi,
-            "binary_ready": binary_exists,
-            "sha256": sha256_hex,
-        })
-
-    async def _do_firmware_build(self) -> dict:
-        """Run pio build and return result dict."""
-        firmware_dir = os.path.abspath(
-            os.path.join(os.path.dirname(__file__), "..", "firmware")
-        )
-        try:
-            # Use subprocess_exec (not shell) — args passed as list, no injection risk
-            proc = await asyncio.create_subprocess_exec(
-                "pio", "run",
-                cwd=firmware_dir,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.STDOUT,
-            )
-            try:
-                stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=180.0)
-                ok = proc.returncode == 0
-                output = stdout.decode(errors="replace")
-            except asyncio.TimeoutError:
-                proc.kill()
-                return {"ok": False, "error": "Build timed out after 180s", "output": ""}
-        except FileNotFoundError:
-            return {"ok": False, "error": "pio not found in PATH", "output": ""}
-        binary_path = _firmware_binary_path()
-        binary_ready = ok and os.path.exists(binary_path)
-        if binary_ready:
-            self._binary_sha256 = _compute_sha256(binary_path)
-        return {
-            "ok": ok,
-            "output": output[-3000:],
-            "binary_ready": binary_ready,
-        }
-
-    async def _handle_firmware_build(self, request: web.Request) -> web.Response:
-        result = await self._do_firmware_build()
-        return web.json_response(result)
-
-    async def _handle_firmware_binary(self, request: web.Request) -> web.Response:
-        path = _firmware_binary_path()
-        if not os.path.exists(path):
-            return web.json_response({"error": "No firmware binary. Run /api/firmware/build first."}, status=404)
-        return web.FileResponse(path, headers={
-            "Content-Type": "application/octet-stream",
-            "Content-Disposition": "attachment; filename=firmware.bin",
-        })
-
-    async def _handle_firmware_update(self, request: web.Request) -> web.Response:
-        """Orchestrate OTA: build, then send cmd_ota_update to firmware."""
-        # 1. Build
-        build_data = await self._do_firmware_build()
-        if not build_data.get("ok"):
-            return web.json_response(
-                {"ok": False, "error": "Build failed", "output": build_data.get("output")},
-                status=500
-            )
-        # 2. Determine binary URL using request host
-        host_parts = request.host.split(":")
-        host_ip = host_parts[0]
-        host_port = host_parts[1] if len(host_parts) > 1 else "8080"
-        binary_url = f"http://{host_ip}:{host_port}/api/firmware/binary"
-        # 3. Compute SHA-256 of the freshly built binary
-        sha256_hex = _compute_sha256(_firmware_binary_path())
-        self._binary_sha256 = sha256_hex
-        # 4. Send OTA command
-        if not self._transport:
-            return web.json_response({"ok": False, "error": "No firmware transport"}, status=400)
-        try:
-            await self._transport.send_json({
-                "type": "cmd_ota_update",
-                "url": binary_url,
-                "sha256": sha256_hex,
-            })
-        except Exception as e:
-            return web.json_response({"ok": False, "error": f"Failed to send OTA command: {e}"}, status=500)
-        return web.json_response({
-            "ok": True,
-            "binary_url": binary_url,
-            "new_version": self._available_fw_version,
-            "sha256": sha256_hex,
-        })
-
     async def _broadcast_status(self, battery_mv=None):
         """Broadcast current status to all clients."""
         status = {
@@ -623,7 +497,7 @@ class Server:
             "ramping": self._transport.get_ramping() if self._transport else False,
             "battery_cutoff": self._transport.get_battery_cutoff() if self._transport else False,
             "fw_version": self._transport.get_fw_version() if self._transport else "",
-            "available_fw_version": self._available_fw_version,
+            "available_fw_version": self._ota.available_version,
             "transport": self._transport_label,
         }
         ota_status = (self._transport.firmware_info if self._transport else {}).get('ota_status')
