@@ -147,7 +147,7 @@ async def flash_wifi(host: str | None, tcp_port: int = 9000) -> int:
     # ------------------------------------------------------------------
     # 4. Open FirmwareTransport
     # ------------------------------------------------------------------
-    from firmware_transport import FirmwareTransport
+    from dog import Dog
 
     done_event = asyncio.Event()
     ota_result: dict = {"ok": False}
@@ -180,7 +180,7 @@ async def flash_wifi(host: str | None, tcp_port: int = 9000) -> int:
                 ota_result["ok"] = False
                 done_event.set()
 
-    transport = FirmwareTransport(host=fw_host, tcp_port=fw_port)
+    transport = Dog(host=fw_host, tcp_port=fw_port)
     transport.set_telem_callback(_telem_cb)
 
     print(f"[ota] Connecting to firmware at {fw_host}:{fw_port} ...")

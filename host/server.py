@@ -849,7 +849,6 @@ def _restart_server():
     os.kill(os.getpid(), signal.SIGTERM)
 
 
-
 async def main(args):
     fw_tcp = getattr(args, 'fw_tcp', None)
     if fw_tcp:
