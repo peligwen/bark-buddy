@@ -8,7 +8,6 @@ Firmware pushes NDJSON telemetry; cached values updated by background reader.
 import asyncio
 import json
 import logging
-from typing import Optional
 
 from .io import DogIO, SERIAL_BAUD
 
@@ -29,7 +28,7 @@ class Dog:
         await dog.close()
     """
 
-    def __init__(self, port: str = None, host: str = None, tcp_port: int = 9000,
+    def __init__(self, port: str | None = None, host: str | None = None, tcp_port: int = 9000,
                  dtr_reset: bool = False):
         self._port = port
         self._host = host
@@ -76,7 +75,7 @@ class Dog:
                 await self._send_json_raw({"type": "cmd_engage", "enabled": False})
                 await self.recv_ack("cmd_engage", timeout=1.0)
             except Exception:
-                pass
+                pass  # transport may already be dead; shutdown should proceed
         await self._io.close()
         logger.info("Dog closed")
 
@@ -126,7 +125,7 @@ class Dog:
     def set_telem_callback(self, cb) -> None:
         self._telem_callback = cb
 
-    async def recv_ack(self, ref_type: str, timeout: float = 2.0) -> Optional[dict]:
+    async def recv_ack(self, ref_type: str, timeout: float = 2.0) -> dict | None:
         loop = asyncio.get_running_loop()
         deadline = loop.time() + timeout
         while True:
@@ -191,8 +190,6 @@ class Dog:
             self._handle_telem(msg)
         except json.JSONDecodeError as e:
             logger.warning("Dog: bad JSON (ignored): %s", e)
-        except UnicodeDecodeError:
-            pass
 
     def _handle_telem(self, msg: dict) -> None:
         msg_type = msg.get("type", "")
