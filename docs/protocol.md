@@ -220,7 +220,7 @@ Battery cutoff latches at 6400 mV (3.2 V/cell for 2S LiPo). Requires reboot to c
 
 ```json
 {"type": "telem_status", "engaged": true, "ramping": false,
- "balance": true, "battery_cutoff": false, "mode": "remote"}
+ "balance": true, "battery_cutoff": false, "ms_since_last_host_msg": 120}
 ```
 
 | Field | Description |
@@ -229,7 +229,7 @@ Battery cutoff latches at 6400 mV (3.2 V/cell for 2S LiPo). Requires reboot to c
 | ramping | engage or disengage ramp in progress |
 | balance | active balance enabled |
 | battery_cutoff | latched low-battery cutoff; servos off; requires reboot |
-| mode | always `"remote"` post Phase 1 |
+| ms_since_last_host_msg | milliseconds since firmware last received a host message; used as a watchdog liveness indicator |
 
 ### telem_button
 
@@ -270,6 +270,27 @@ Current servo-index → GPIO mapping. Sent on client connect and after `cmd_serv
 ```
 
 Array index matches servo index (0 = FL_hip … 7 = RR_knee).
+
+### telem_event
+
+Asynchronous lifecycle events. Emitted outside the 1 Hz status cadence, immediately when the triggering condition occurs.
+
+```json
+{"type": "telem_event", "event": "engage_complete", "t": 12450}
+{"type": "telem_event", "event": "heartbeat_detach", "t": 22100, "ms_since_last_msg": 10001}
+{"type": "telem_event", "event": "battery_cutoff_detach", "t": 31000, "mv": 6350}
+```
+
+| `event` value | When emitted |
+|---------------|-------------|
+| `engage_start` | Engage ramp begins (cmd_engage enabled=true accepted) |
+| `engage_complete` | Engage ramp finishes; servos fully powered at standing pose |
+| `disengage_start` | Disengage ramp begins (cmd_engage enabled=false accepted) |
+| `disengage_complete` | Disengage ramp finishes; PWM cut |
+| `heartbeat_detach` | Host went silent for > HEARTBEAT_TIMEOUT_MS; servos detached. Includes `ms_since_last_msg` field. |
+| `battery_cutoff_detach` | Battery voltage dropped below cutoff threshold; servos detached and latch set. Includes `mv` field. |
+
+`t` is `millis()` at event time (uint32, wraps after ~49 days).
 
 ### ack
 
