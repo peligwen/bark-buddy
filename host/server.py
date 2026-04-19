@@ -97,7 +97,7 @@ class Server:
             lambda v: setattr(self, '_engaged', v),
             self._is_locked,
         )
-        self._mode = "remote"
+        self._mode = "remote"  # valid states: "remote"
         self._motion = "stop"  # last motion direction
         self._web_hash = self._compute_web_hash(web_dir)
         # Control lock
@@ -403,7 +403,6 @@ class Server:
             "balance": self._balance.enabled,
             "fallen": self._balance.is_fallen,
             "connected": self._transport.is_open() if self._transport else False,
-            "scanning": self._scan.running,
             "transport": self._transport_label,
             "engaged": self._transport.get_engaged() if self._transport else False,
             "ramping": self._transport.get_ramping() if self._transport else False,
