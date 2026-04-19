@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+from typing import Awaitable, Callable
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +86,7 @@ class DogIO:
 
     # --- Background tasks ---
 
-    def start_tasks(self, on_line_cb, send_ping_cb) -> None:
+    def start_tasks(self, on_line_cb: Callable[[bytes], None], send_ping_cb: Callable[[], Awaitable[None]]) -> None:
         """Start reader and keepalive tasks. Call after open_*()."""
         self._reader_task = asyncio.create_task(self._reader_loop(on_line_cb))
         self._keepalive_task = asyncio.create_task(self._keepalive_loop(send_ping_cb))
@@ -95,7 +96,7 @@ class DogIO:
             while self._open and self._reader:
                 line = await self._reader.readline()
                 if not line:
-                    logger.warning("DogIO: EOF — TCP connection closed")
+                    logger.warning("DogIO: EOF — connection closed")
                     self._open = False
                     break
                 on_line_cb(line)
