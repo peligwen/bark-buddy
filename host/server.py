@@ -504,7 +504,7 @@ class Server:
 
         # --- Control commands (gated by lock) ---
         if msg_type in ("cmd_move", "cmd_stand", "cmd_balance",
-                         "cmd_engage", "cmd_scan"):
+                         "cmd_engage"):
             await self._check_lock_timeout()
             if not self._can_control(ws):
                 await ws.send_str(json.dumps({
@@ -521,8 +521,6 @@ class Server:
                 self._lock_time = _time.monotonic()
 
         if msg_type == "cmd_move":
-            if self._mode == "scan":
-                return
             direction = msg.get("direction", "stop")
             if direction in DIRECTIONS:
                 self._transport.record_motion(direction)
@@ -533,8 +531,6 @@ class Server:
                 logger.warning("Unknown direction: %s", direction)
 
         elif msg_type == "cmd_stand":
-            if self._mode == "scan":
-                return
             await self._transport.send_json({"type": "cmd_stand"})
             self._motion = "stand"
 
@@ -546,44 +542,7 @@ class Server:
                 "enabled": self._balance.enabled,
             })
 
-        elif msg_type == "cmd_scan":
-            action = msg.get("action", "start")
-            if action == "start" and not self._scan.running:
-                # Use transport's dead-reckoned position as scan origin
-                ox, oy, heading = 0.0, 0.0, 0.0
-                pos = self._transport.get_position()
-                if pos is not None:
-                    ox, oy = pos[0], pos[1]
-                h = self._transport.get_heading()
-                if h is not None:
-                    heading = h
-                self._mode = "scan"
-                await self._broadcast_status()
-                self._scan.start(
-                    origin_x=ox, origin_y=oy,
-                    origin_heading=heading,
-                    done_callback=self._scan_task_done,
-                )
-            elif action == "stop":
-                await self._scan.cancel()
-                self._mode = "remote"
-                await self._broadcast_status()
-
         # --- Non-gated commands ---
-        elif msg_type == "cmd_map":
-            action = msg.get("action", "get")
-            if action == "get":
-                await self._broadcast({
-                    "type": "map_data",
-                    **self._map.to_dict(),
-                })
-            elif action == "clear":
-                self._map.clear()
-                await self._broadcast({
-                    "type": "map_data",
-                    **self._map.to_dict(),
-                })
-
         elif msg_type == "cmd_reset":
             if self._transport:
                 self._transport.reset()
@@ -726,7 +685,6 @@ class Server:
             "balance": self._balance.enabled,
             "fallen": self._balance.is_fallen,
             "connected": self._transport.is_open() if self._transport else False,
-            "scanning": self._scan.running,
             "battery_mv": battery_mv,
             "engaged": self._transport.get_engaged() if self._transport else False,
             "ramping": self._transport.get_ramping() if self._transport else False,
@@ -735,14 +693,6 @@ class Server:
             "available_fw_version": self._available_fw_version,
             "transport": self._transport_label,
         }
-        if self._transport:
-            _r = self._transport.get_ramping()
-            _e = self._transport.get_engaged()
-            status["lifecycle"] = "ramping" if _r else ("active" if _e else "disengaged")
-        else:
-            status["lifecycle"] = "unknown"
-        if self._scan.running:
-            status["scan_progress"] = self._scan.progress
         ota_status = (self._transport.firmware_info if self._transport else {}).get('ota_status')
         if ota_status:
             status["ota_status"] = ota_status
@@ -765,9 +715,7 @@ class Server:
         """Run odometry + balance checks; firmware pushes telem via set_telem_callback."""
         imu_interval = 0.05   # 20 Hz odometry/balance check
         battery_interval = 1.0 / BATTERY_POLL_HZ
-        wall_regen_interval = 1.0
         last_battery = 0.0
-        last_wall_regen = 0.0
 
         while True:
             try:
@@ -801,19 +749,6 @@ class Server:
                     if battery is not None:
                         await self._broadcast_status(battery_mv=battery)
                     last_battery = now
-
-                # Point cloud maintenance
-                if not self._scan.running:
-                    self._map.consolidate()
-                    self._map.decay_tick()
-
-                # Wall regen broadcast
-                if now - last_wall_regen >= wall_regen_interval and self._ws_clients:
-                    await self._broadcast({
-                        "type": "map_data",
-                        **self._map.to_dict(),
-                    })
-                    last_wall_regen = now
 
                 await asyncio.sleep(imu_interval)
 
