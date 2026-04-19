@@ -35,7 +35,6 @@ function showFallAlert(fallen) {
 }
 
 function updateUltrasonic(mm) {
-    Dog3D.updateUltrasonic(mm);
     var el = document.getElementById("ultra-val");
     el.textContent = mm + "mm";
     if (mm < 100) el.className = "status-value danger-text";
