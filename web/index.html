@@ -15,7 +15,6 @@
             <span class="stat batt-clickable" id="batt-stat"><span class="stat-label">Batt</span> <span id="battery-val">--</span></span>
             <span class="stat"><span class="stat-label">Bal</span> <span id="balance-val" class="off">OFF</span></span>
             <div id="header-right">
-                <a href="/tuning" class="fw-badge" style="text-decoration:none;opacity:0.7;" title="Servo tuning &amp; pin probe">TUNING</a>
                 <span id="fw-badge" class="fw-badge unknown" title="Firmware version" role="button">FW --</span>
                 <span id="transport-badge" class="transport-badge"></span>
                 <button id="btn-lock" class="header-btn">Take Control</button>
@@ -46,21 +45,9 @@
                     <span><span class="stat-label">Pitch</span> <span id="pitch-val">0.0</span></span>
                     <span><span class="stat-label">Roll</span> <span id="roll-val">0.0</span></span>
                     <span><span class="stat-label">Dist</span> <span id="ultra-val">--</span></span>
-                    <span id="lifecycle-badge" class="lifecycle-badge lifecycle-booting">booting</span>
                 </div>
             </div>
-            <div id="scan-section" class="view-box">
-                <span class="view-label">Scan Map</span>
-                <div id="scan-progress" class="hidden">
-                    <div class="progress-bar"><div id="scan-progress-fill" class="progress-fill"></div></div>
-                    <span id="scan-progress-text">0%</span>
-                </div>
-                <canvas id="map-canvas"></canvas>
-                <div id="map-info">
-                    <span id="map-points">0 pts</span>
-                    <span id="map-scans">0 scans</span>
-                </div>
-            </div>
+
         </div>
 
         <div id="panel-right">
@@ -91,14 +78,10 @@
             <div class="ctrl-section">
                 <h2>Operations</h2>
                 <div class="action-bar">
-                    <button class="action-btn" id="btn-scan-start">Scan Area</button>
-                    <button class="action-btn" id="btn-scan-stop" disabled>Stop Scan</button>
-                    <button class="action-btn" id="btn-map-clear">Clear Map</button>
                     <button class="action-btn" id="btn-reset">Reset</button>
                     <button class="action-btn" id="btn-restart" style="color:var(--red)">Restart Server</button>
                 </div>
             </div>
-
 
         </div>
     </div>
