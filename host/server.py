@@ -16,6 +16,7 @@ import re
 from aiohttp import web
 
 from behaviors.balance import BalanceLayer
+from lock import ControlLock
 from behaviors.button_engage import ButtonEngageBehavior
 from dog import Dog, DIRECTIONS
 from dog.discover import find_serial_port, detect_serial_dog
@@ -87,16 +88,13 @@ class Server:
             transport,
             lambda: self._engaged,
             lambda v: setattr(self, '_engaged', v),
-            self._is_locked,
+            lambda: self._lock.is_locked(),
         )
         self._mode = "remote"  # valid states: "remote"
         self._motion = "stop"  # last motion direction
         self._web_hash = self._compute_web_hash(web_dir)
         # Control lock
-        self._lock_holder: web.WebSocketResponse | None = None
-        self._lock_name: str = ""
-        self._lock_time: float = 0.0
-        self._lock_timeout: float = 30.0  # seconds of inactivity before auto-release
+        self._lock = ControlLock(timeout=30.0)
         self._client_names: dict[web.WebSocketResponse, str] = {}
         self._available_fw_version = _read_available_fw_version()
         self._binary_sha256: str | None = None
@@ -246,7 +244,7 @@ class Server:
                 new_transport,
                 lambda: self._engaged,
                 lambda v: setattr(self, '_engaged', v),
-                self._is_locked,
+                lambda: self._lock.is_locked(),
             )
             self._transport_label = new_label
 
@@ -314,67 +312,14 @@ class Server:
                     h.update(f.read())
         return h.hexdigest()[:8]
 
-    # --- Control lock ---
-
-    def _lock_timed_out(self) -> bool:
-        """Return True if the lock holder has timed out (sync, no side effects)."""
-        if self._lock_holder and self._lock_time:
-            import time
-            return time.monotonic() - self._lock_time > self._lock_timeout
-        return False
-
-    async def _check_lock_timeout(self) -> None:
-        """Release lock via _release_lock() if the holder has timed out."""
-        if self._lock_timed_out():
-            await self._release_lock()
-
-    def _is_locked_by(self, ws: web.WebSocketResponse) -> bool:
-        """Check if the given client holds the lock (does not trigger release)."""
-        if self._lock_timed_out():
-            return False
-        return self._lock_holder is ws
-
-    def _is_locked(self) -> bool:
-        """Check if any client holds the lock (does not trigger release)."""
-        if self._lock_timed_out():
-            return False
-        return self._lock_holder is not None
-
-    def _can_control(self, ws: web.WebSocketResponse) -> bool:
-        """Check if the given client is allowed to send commands (does not trigger release)."""
-        if self._lock_timed_out():
-            return True
-        return self._lock_holder is None or self._lock_holder is ws
-
-    def _lock_status_msg(self) -> dict:
-        timed_out = self._lock_timed_out()
-        return {
-            "type": "lock_status",
-            "locked": self._lock_holder is not None and not timed_out,
-            "holder": self._lock_name if self._lock_holder and not timed_out else None,
-            "is_you": False,  # overridden per-client
-        }
-
-    async def _acquire_lock(self, ws: web.WebSocketResponse, name: str) -> None:
-        """Acquire the control lock for a client."""
-        import time as _t
-        self._lock_holder = ws
-        self._lock_name = name
-        self._lock_time = _t.monotonic()
-
-    async def _release_lock(self) -> None:
-        """Release the control lock."""
-        self._lock_holder = None
-        self._lock_name = ""
-        self._lock_time = 0.0
-
     async def _broadcast_lock_status(self) -> None:
-        await self._check_lock_timeout()
-        msg = self._lock_status_msg()
+        if self._lock.is_timed_out():
+            self._lock.release()
+        msg = self._lock.status_msg()
         dead = set()
         for ws in self._ws_clients:
             m = dict(msg)
-            m["is_you"] = (ws is self._lock_holder)
+            m["is_you"] = self._lock.is_locked_by(ws)
             try:
                 await ws.send_str(json.dumps(m))
             except (ConnectionError, ConnectionResetError):
@@ -419,9 +364,10 @@ class Server:
         }))
 
         # Send lock status
-        await self._check_lock_timeout()
-        lock_msg = self._lock_status_msg()
-        lock_msg["is_you"] = (ws is self._lock_holder)
+        if self._lock.is_timed_out():
+            self._lock.release()
+        lock_msg = self._lock.status_msg()
+        lock_msg["is_you"] = self._lock.is_locked_by(ws)
         await ws.send_str(json.dumps(lock_msg))
 
         # Replay last known servo-pin mapping so browser never shows stale defaults
@@ -438,8 +384,7 @@ class Server:
             self._ws_clients.discard(ws)
             self._client_names.pop(ws, None)
             # Release lock if this client held it
-            if self._lock_holder is ws:
-                await self._release_lock()
+            if self._lock.release_if_holder(ws):
                 await self._broadcast_lock_status()
             logger.info("WebSocket client disconnected (%d remaining)", len(self._ws_clients))
 
@@ -447,7 +392,6 @@ class Server:
 
     async def _handle_ws_message(self, data: str, ws: web.WebSocketResponse):
         """Handle a JSON message from the browser."""
-        import time as _time
         try:
             msg = json.loads(data)
         except json.JSONDecodeError:
@@ -464,52 +408,51 @@ class Server:
         # --- Lock commands (always allowed) ---
         if msg_type == "cmd_lock":
             name = msg.get("name", "Anonymous")
-            if self._can_control(ws):
-                await self._acquire_lock(ws, name)
+            if self._lock.can_control(ws):
+                self._lock.acquire(ws, name)
                 await self._broadcast_lock_status()
-            elif self._lock_holder is not None:
+            elif self._lock.holder is not None:
                 # Send challenge to current holder
-                await self._lock_holder.send_str(json.dumps({
+                await self._lock.holder.send_str(json.dumps({
                     "type": "lock_challenge",
                     "challenger": name,
                 }))
                 # Notify challenger they need to wait
                 await ws.send_str(json.dumps({
                     "type": "lock_denied",
-                    "holder": self._lock_name,
+                    "holder": self._lock.holder_name,
                 }))
             return
 
         if msg_type == "cmd_unlock":
-            if self._lock_holder is ws:
-                await self._release_lock()
+            if self._lock.release_if_holder(ws):
                 await self._broadcast_lock_status()
             return
 
         if msg_type == "cmd_lock_yield":
             # Current holder yields to a challenger
-            if self._lock_holder is ws:
-                await self._release_lock()
+            if self._lock.release_if_holder(ws):
                 await self._broadcast_lock_status()
             return
 
         # --- Control commands (gated by lock) ---
         if msg_type in ("cmd_move", "cmd_stand", "cmd_balance",
                          "cmd_engage"):
-            await self._check_lock_timeout()
-            if not self._can_control(ws):
+            if self._lock.is_timed_out():
+                self._lock.release()
+            if not self._lock.can_control(ws):
                 await ws.send_str(json.dumps({
                     "type": "lock_denied",
-                    "holder": self._lock_name,
+                    "holder": self._lock.holder_name,
                 }))
                 return
             # Auto-acquire lock on first control if no one holds it
-            if self._lock_holder is None:
-                await self._acquire_lock(ws, self._client_names.get(ws, "Operator"))
+            if self._lock.holder is None:
+                self._lock.acquire(ws, self._client_names.get(ws, "Operator"))
                 await self._broadcast_lock_status()
             # Refresh lock timeout on any control action
-            if self._lock_holder is ws:
-                self._lock_time = _time.monotonic()
+            if self._lock.is_locked_by(ws):
+                self._lock.touch()
 
         if msg_type == "cmd_move":
             direction = msg.get("direction", "stop")
