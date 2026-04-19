@@ -120,7 +120,7 @@ def cmd_flash(args):
     else:
         # Auto-detect: USB first
         _ensure_host_importable()
-        from server import find_serial_port
+        from dog.discover import find_serial_port
         if find_serial_port():
             _do_usb_flash()
         else:

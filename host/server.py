@@ -13,13 +13,12 @@ import logging
 import os
 import re
 
-from config_util import read_config_local_value as _read_config_local_value
-
 from aiohttp import web
 
 from behaviors.balance import BalanceLayer
 from behaviors.button_engage import ButtonEngageBehavior
-from comms import Transport, DIRECTIONS
+from dog import Dog, DIRECTIONS
+from dog.discover import find_serial_port, detect_serial_dog
 
 logger = logging.getLogger(__name__)
 
@@ -71,15 +70,8 @@ def _compute_sha256(path: str) -> str:
     return h.hexdigest()
 
 
-def find_serial_port() -> str | None:
-    """Auto-detect a USB serial port for MechDog."""
-    import glob
-    ports = glob.glob("/dev/cu.usbserial*") + glob.glob("/dev/ttyUSB*")
-    return ports[0] if ports else None
-
-
 class Server:
-    def __init__(self, transport: Transport, web_dir: str, transport_label: str = "fw",
+    def __init__(self, transport: Dog, web_dir: str, transport_label: str = "fw",
                  no_mdns: bool = False, open_browser: bool = False):
         self._transport = transport
         self._web_dir = web_dir
@@ -274,12 +266,11 @@ class Server:
         self._user_override_transport = True
 
         try:
-            from firmware_transport import FirmwareTransport
             if mode == "fw-usb":
                 port = find_serial_port()
                 if not port:
                     return {"ok": False, "error": "No USB serial device found"}
-                transport = FirmwareTransport(port=port)
+                transport = Dog(port=port)
                 label = f"fw:{port.split('/')[-1]}"
             elif mode == "fw-wifi":
                 wifi = self._detected_wifi
@@ -287,7 +278,7 @@ class Server:
                     return {"ok": False, "error": "No WiFi firmware detected"}
                 ip = wifi["ip"]
                 tcp_port = wifi.get("port", 9000)
-                transport = FirmwareTransport(host=ip, tcp_port=tcp_port)
+                transport = Dog(host=ip, tcp_port=tcp_port)
                 label = f"fw:{ip}"
             else:
                 return {"ok": False, "error": f"Unknown mode: {mode}"}
@@ -523,7 +514,6 @@ class Server:
         if msg_type == "cmd_move":
             direction = msg.get("direction", "stop")
             if direction in DIRECTIONS:
-                self._transport.record_motion(direction)
                 speed = msg.get("speed", 1.0)
                 await self._transport.send_json({"type": "cmd_move", "direction": direction, "speed": speed})
                 self._motion = direction
@@ -731,17 +721,13 @@ class Server:
                 elif balance_event["recovered"]:
                     await self._broadcast({"type": "event_recovered"})
 
-                # Odometry broadcast
+                # Odometry broadcast — heading from IMU yaw; no dead-reckoning position
                 if self._transport and self._ws_clients:
-                    odom = {"type": "telem_odometry", "motion": self._motion}
-                    pos = self._transport.get_position()
-                    heading = self._transport.get_heading()
-                    if pos is not None:
-                        odom["x"] = round(pos[0], 4)
-                        odom["y"] = round(pos[1], 4)
-                    if heading is not None:
-                        odom["heading"] = round(heading, 1)
-                    await self._broadcast(odom)
+                    await self._broadcast({
+                        "type": "telem_odometry",
+                        "motion": self._motion,
+                        "heading": round(self._transport.get_heading(), 1),
+                    })
 
                 # Battery status broadcast
                 if now - last_battery >= battery_interval:
@@ -795,8 +781,7 @@ class Server:
         if not self._user_override_transport and wifi_priority > current_priority:
             logger.info("mDNS: auto-connecting to %s:%d", ip, port)
             try:
-                from firmware_transport import FirmwareTransport
-                transport = FirmwareTransport(host=ip, tcp_port=port)
+                transport = Dog(host=ip, tcp_port=port)
                 await self._replace_transport(transport, f"fw:{ip}")
             except Exception as e:
                 logger.warning("mDNS: auto-connect to %s:%d failed: %s", ip, port, e)
@@ -822,7 +807,7 @@ class Server:
         current_priority = _transport_priority(self._transport_label)
         # Probe what's on the port
         try:
-            transport, label = await _detect_serial_transport(port)
+            transport, label = await detect_serial_dog(port)
         except Exception as e:
             logger.warning("Hot-plug: probe failed for %s: %s", port, e)
             return
@@ -846,8 +831,7 @@ class Server:
             ip = self._detected_wifi["ip"]
             tcp_port = self._detected_wifi.get("port", 9000)
             try:
-                from firmware_transport import FirmwareTransport
-                transport = FirmwareTransport(host=ip, tcp_port=tcp_port)
+                transport = Dog(host=ip, tcp_port=tcp_port)
                 await self._replace_transport(transport, f"fw:{ip}")
                 return
             except Exception as e:
@@ -865,53 +849,15 @@ def _restart_server():
     os.kill(os.getpid(), signal.SIGTERM)
 
 
-def _probe_serial_sync(port: str) -> bool:
-    """Blocking serial probe — runs in a thread via asyncio.to_thread.
-
-    Returns True if custom firmware (JSON pong) detected.
-    """
-    import serial
-    import time
-    try:
-        ser = serial.Serial(port, 115200, timeout=2)
-        time.sleep(3.0)
-        resp = ""
-        for _ in range(3):
-            ser.write(b'{"type":"ping"}\n')
-            time.sleep(0.5)
-            resp += ser.read(ser.in_waiting).decode(errors="replace")
-            if '"pong"' in resp:
-                break
-        ser.close()
-        return '"pong"' in resp
-    except Exception as e:
-        logger.warning("Serial probe failed: %s", e)
-        return False
-
-
-async def _detect_serial_transport(port: str):
-    """Probe a serial port for custom firmware. Raises ConnectionError if not found."""
-    logger.info("Probing %s for custom firmware...", port)
-    found = await asyncio.to_thread(_probe_serial_sync, port)
-    if not found:
-        raise ConnectionError(f"No custom firmware response on {port}")
-    from firmware_transport import FirmwareTransport
-    transport = FirmwareTransport(port=port)
-    label = f"fw:{port.split('/')[-1]}"
-    logger.info("Detected custom firmware on %s", port)
-    return transport, label
-
 
 async def main(args):
-    from firmware_transport import FirmwareTransport
-
     fw_tcp = getattr(args, 'fw_tcp', None)
     if fw_tcp:
         # Explicit TCP connection (mock or remote WiFi)
         parts = fw_tcp.split(":")
         host = parts[0]
         tcp_port = int(parts[1]) if len(parts) > 1 else 9000
-        transport = FirmwareTransport(host=host, tcp_port=tcp_port)
+        transport = Dog(host=host, tcp_port=tcp_port)
         is_local = host in ("127.0.0.1", "localhost")
         transport_label = "mock" if is_local else f"fw-wifi:{host}"
         logger.info("Using TCP firmware transport: %s:%d", host, tcp_port)
@@ -921,7 +867,7 @@ async def main(args):
         if serial_port:
             logger.info("Found serial port: %s", serial_port)
             try:
-                transport, transport_label = await _detect_serial_transport(serial_port)
+                transport, transport_label = await detect_serial_dog(serial_port)
             except ConnectionError as e:
                 logger.error("%s", e)
                 print(f"\nNo MechDog detected on {serial_port}.\n"
