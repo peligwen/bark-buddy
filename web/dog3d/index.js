@@ -2,8 +2,6 @@
 import { state, S, COL, BODY_L, BODY_H, standingHeight } from './state.js';
 import { buildDog } from './model.js';
 import { animateGait, setPose, clearPose, applySimJoints } from './gait.js';
-import { initUltraHit, updateUltraBeam } from './sonar.js';
-import { clearWalls, buildWallsFromChains } from './walls.js';
 import { toggleOverlay, updateOverlay } from './overlay.js';
 import { updateCameraPosition, setupControls } from './camera.js';
 
@@ -78,7 +76,6 @@ function init(containerId) {
     state.dogGroup.position.y = standingHeight();
     state.scene.add(state.dogGroup);
 
-    initUltraHit();
     setupControls();
     window.addEventListener("resize", onResize);
     animate();
@@ -119,7 +116,6 @@ function animate(time) {
             animateGait(dt);
         }
 
-        updateUltraBeam();
     }
 
     updateOverlay();
@@ -176,17 +172,14 @@ var Dog3D = {
         state.currentMotion = "stop";
         state.walkPhase = 0;
         state.simJoints = null;
-        clearWalls();
         if (state.dogGroup) {
             state.dogGroup.position.set(0, standingHeight(), 0);
             state.dogGroup.rotation.set(0, 0, 0);
         }
     },
 
-    setMapData: function (data) {
-        if (data && data.chains && data.chains.length > 0) {
-            buildWallsFromChains(data.chains);
-        }
+    setMapData: function (_data) {
+        // mapping wall rendering removed — will be rebuilt with SLAM
     },
 
     toggleOverlay: function (show) {
