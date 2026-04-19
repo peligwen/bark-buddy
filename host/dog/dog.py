@@ -9,7 +9,7 @@ import asyncio
 import json
 import logging
 
-from .io import DogIO, SERIAL_BAUD
+from .io import DogIO
 
 logger = logging.getLogger(__name__)
 
