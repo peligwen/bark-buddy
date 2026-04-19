@@ -10,7 +10,7 @@
 // Engage: attach at REST_POSE -> ramp to STANDING_POSE (non-blocking, millis-based).
 // Disengage: ramp to REST_POSE -> detach.
 
-uint8_t SERVO_PINS[8] = {25, 26, 27, 14, 16, 17, 4, 2};
+uint8_t SERVO_PINS[8] = {25, 26, 27, 14, 16, 17, 15, 2};
 static uint16_t current_us[8] = {0};
 static bool s_engaged = false;
 static bool s_ramping = false;
