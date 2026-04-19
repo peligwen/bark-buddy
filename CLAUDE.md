@@ -26,7 +26,7 @@ Semi-autonomous control system for Hiwonder MechDog robot dog. Stock hardware (n
 ## Layout
 
 - `firmware/` — C++ firmware (PlatformIO, ESP32); `src/` motion + hardware, `include/` headers, `mock/` platform shims + physics model, `test/` unit tests + Makefile
-- `host/` — Python host; `server.py` web server + WebSocket, `firmware_transport.py` sole transport, `comms.py` Transport ABC, `dead_reckoning.py` odometry mixin, `behaviors/balance.py` balance layer
+- `host/` — Python host; `server.py` web server + WebSocket, `dog/` transport package (Dog class, io, discover), `ota.py` firmware OTA, `lock.py` WS control lock, `behaviors/balance.py` balance layer
 - `web/` — static UI (ES modules); `dog3d/` Three.js 3D viz, `modules/` ws/controls/panels/diag
 - `bark_cli.py` — CLI entry point
 - `docs/` — five core docs + attic.md + superpowers/

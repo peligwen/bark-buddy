@@ -8,7 +8,9 @@ Browser (vanilla JS + Three.js)
     ▼
 Python host (aiohttp)
     ├── server.py             — WS session, command routing, telemetry relay, static files
-    ├── firmware_transport.py — sole transport to firmware
+    ├── dog/                  — transport package (Dog class, io, discover)
+    ├── ota.py                — firmware OTA
+    ├── lock.py               — WS control lock
     └── behaviors/
         ├── balance.py        — active pitch/roll compensation via cmd_transform
         └── button_engage.py  — K1 button → engage/disengage
@@ -39,17 +41,17 @@ No layer reaches past its neighbor. The browser never speaks TCP; firmware never
 
 **Command path (browser → firmware):**
 1. Browser sends JSON over WebSocket to `server.py`
-2. `server.py` routes to a behavior or calls `FirmwareTransport.send_json()`
+2. `server.py` routes to a behavior or calls `Dog.send_json()`
 3. Firmware receives NDJSON, dispatches via handler table, actuates servos
 
 **Telemetry path (firmware → browser):**
 1. Firmware sensor task streams NDJSON (IMU 50 Hz, sonar 20 Hz, status 1 Hz, battery 1 Hz)
-2. `FirmwareTransport` parses and fires Python callbacks
+2. `Dog` parses and fires Python callbacks
 3. `server.py` relays to all connected WebSocket clients as JSON
 
 ## Transport Boundary
 
-`FirmwareTransport.send_json(msg: dict)` is the **only** host→firmware command path.
+`Dog.send_json(msg: dict)` is the **only** host→firmware command path.
 No text protocols, no direct serial writes, no alternate transports.
 
 Auto-detection order on startup: USB serial JSON ping → mDNS `_mechdog._tcp` → exit with guidance.
@@ -57,7 +59,7 @@ Override: `--fw-tcp HOST[:PORT]`.
 
 ## Composable Behavior Pattern
 
-Behaviors take a `FirmwareTransport` instance and run as asyncio tasks alongside the main
+Behaviors take a `Dog` instance and run as asyncio tasks alongside the main
 WebSocket loop. They register telemetry callbacks and send commands through the transport.
 
 ```python
