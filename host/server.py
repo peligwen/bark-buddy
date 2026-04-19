@@ -19,8 +19,6 @@ from aiohttp import web
 
 from behaviors.balance import BalanceLayer
 from behaviors.button_engage import ButtonEngageBehavior
-from behaviors.map_store import MapStore
-from behaviors.scan import ScanBehavior
 from comms import Transport, DIRECTIONS
 
 logger = logging.getLogger(__name__)
@@ -92,8 +90,6 @@ class Server:
         self._reconnect_task: asyncio.Task | None = None
         self._detected_wifi: dict | None = None
         self._balance = BalanceLayer(transport)
-        self._scan = ScanBehavior(transport)
-        self._map = MapStore()
         self._engaged: bool = False
         self._button_engage = ButtonEngageBehavior(
             transport,
@@ -101,7 +97,7 @@ class Server:
             lambda v: setattr(self, '_engaged', v),
             self._is_locked,
         )
-        self._mode = "remote"  # remote | scan
+        self._mode = "remote"
         self._motion = "stop"  # last motion direction
         self._web_hash = self._compute_web_hash(web_dir)
         # Control lock
@@ -158,21 +154,10 @@ class Server:
     async def _index_handler(self, request):
         return web.FileResponse(os.path.join(self._web_dir, "index.html"))
 
-    async def _tuning_handler(self, request):
-        return web.FileResponse(os.path.join(self._web_dir, "tuning.html"))
-
-    async def _gait_handler(self, request):
-        path = os.path.join(self._web_dir, "gait.html")
-        if not os.path.exists(path):
-            raise web.HTTPNotFound()
-        return web.FileResponse(path)
-
     async def start(self, host: str = "0.0.0.0", port: int = 8080):
         app = web.Application(middlewares=[self._no_cache_middleware])
         app.router.add_get("/ws", self._ws_handler)
         app.router.add_get("/", self._index_handler)
-        app.router.add_get("/tuning", self._tuning_handler)
-        app.router.add_get("/gait", self._gait_handler)
         app.router.add_get("/api/firmware/status",  self._handle_firmware_status)
         app.router.add_post("/api/firmware/build",  self._handle_firmware_build)
         app.router.add_get("/api/firmware/binary",  self._handle_firmware_binary)
@@ -205,10 +190,6 @@ class Server:
             }
             logger.info("Firmware WiFi detected: %s (TCP port %s)", fw["wifi_ip"], fw.get("tcp_port", 9000))
 
-        # Register scan callbacks
-        self._scan.on_point(self._on_scan_point)
-        self._scan.on_complete(self._on_scan_complete)
-
         self._poll_task = asyncio.create_task(self._telemetry_loop())
         self._reconnect_task = asyncio.create_task(self._reconnect_loop())
         from device_monitor import DeviceMonitor
@@ -238,8 +219,6 @@ class Server:
                     await task
                 except asyncio.CancelledError:
                     pass
-        if self._scan.running:
-            await self._scan.cancel()
         for ws in set(self._ws_clients):
             await ws.close()
         if self._transport and self._transport.is_open():
@@ -265,22 +244,18 @@ class Server:
             except Exception:
                 pass
 
-            # Swap in new transport, balance, scan, button_engage
+            # Swap in new transport, balance, button_engage
             from behaviors.balance import BalanceLayer
             from behaviors.button_engage import ButtonEngageBehavior
-            from behaviors.scan import ScanBehavior
             self._transport = new_transport
             self._register_transport_callbacks()
             self._balance = BalanceLayer(new_transport)
-            self._scan = ScanBehavior(new_transport)
             self._button_engage = ButtonEngageBehavior(
                 new_transport,
                 lambda: self._engaged,
                 lambda v: setattr(self, '_engaged', v),
                 self._is_locked,
             )
-            self._scan.on_point(self._on_scan_point)
-            self._scan.on_complete(self._on_scan_complete)
             self._transport_label = new_label
 
             # Open new transport
@@ -325,29 +300,6 @@ class Server:
             logger.exception("Failed to switch transport to %s", mode)
             return {"ok": False, "error": str(e)}
 
-    async def _add_live_point(self, distance_mm: int) -> None:
-        """Add an ultrasonic reading as a map point using current position/heading."""
-        import math
-        pos = self._transport.get_position()
-        heading = self._transport.get_heading()
-        if pos is None or heading is None:
-            return
-        rad = math.radians(heading)
-        dist_m = distance_mm / 1000.0
-        x = pos[0] + dist_m * math.cos(rad)
-        y = pos[1] + dist_m * math.sin(rad)
-        point = self._map.add_point(x=x, y=y, z=0.09, distance_mm=distance_mm, source="ultrasonic")
-        # Broadcast live point for real-time 2D map
-        if point and self._ws_clients:
-            await self._broadcast({
-                "type": "scan_point",
-                "x": round(x, 3),
-                "y": round(y, 3),
-                "distance_mm": distance_mm,
-                "progress": 0,
-                "confidence": round(point.confidence, 2),
-            })
-
     async def _on_fall(self, imu: dict = None):
         """Broadcast fall event to all clients."""
         msg = {"type": "event_fall"}
@@ -359,36 +311,6 @@ class Server:
     async def _on_recovered(self, imu: dict = None):
         """Broadcast recovery event to all clients."""
         await self._broadcast({"type": "event_recovered"})
-
-    async def _on_scan_point(self, point, progress: int):
-        """Broadcast each scan point as it's captured."""
-        await self._broadcast({
-            "type": "scan_point",
-            "angle": round(point.angle, 1),
-            "distance_mm": point.distance_mm,
-            "x": round(point.x, 3),
-            "y": round(point.y, 3),
-            "progress": progress,
-        })
-
-    def _scan_task_done(self, task: asyncio.Task):
-        """Handle scan task completion, including unexpected errors."""
-        exc = task.exception() if not task.cancelled() else None
-        if exc:
-            logger.error("Scan task failed: %s", exc)
-            self._mode = "remote"
-            asyncio.create_task(self._broadcast_status())
-
-    async def _on_scan_complete(self, result):
-        """Store scan result and broadcast the full map."""
-        self._map.add_scan(result)
-        self._mode = "remote"
-        await self._broadcast({"type": "scan_complete"})
-        await self._broadcast_status()
-        await self._broadcast({
-            "type": "map_data",
-            **self._map.to_dict(),
-        })
 
     @staticmethod
     def _compute_web_hash(web_dir: str) -> str:
