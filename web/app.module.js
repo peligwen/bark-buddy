@@ -1,9 +1,7 @@
 // Bark-Buddy Web UI — ES module entry point
 import Dog3D from './dog3d/index.js';
-import { updateLifecycleIndicator } from './dog3d/overlay.js';
 import { connect, send, setMessageHandler } from './modules/ws.js';
 import { setupDpad, setupKeyboard, setupActions, setCanControl, setEngaged } from './modules/controls.js';
-import { dogMapState, addScanPoint, renderFullMap, drawMap, setupScan } from './modules/map.js';
 import { setupBatteryGraph, recordBattery,
          setupOtaPanel, updateOtaStatus } from './modules/panels.js';
 import { diagInit, diagHandleTelem } from './modules/diag.js';
@@ -37,7 +35,6 @@ function showFallAlert(fallen) {
 }
 
 function updateUltrasonic(mm) {
-    Dog3D.updateUltrasonic(mm);
     var el = document.getElementById("ultra-val");
     el.textContent = mm + "mm";
     if (mm < 100) el.className = "status-value danger-text";
@@ -62,12 +59,8 @@ function updateStatus(msg) {
     }
     if (msg.mode != null) {
         document.getElementById("mode-val").textContent = msg.mode;
-        scanCtrl.setScanRunning(msg.mode === "scan");
     }
     if (msg.balance != null && actionsCtrl) actionsCtrl.setBalanceState(msg.balance);
-    if (msg.lifecycle != null) {
-        updateLifecycleIndicator(msg.lifecycle);
-    }
     if (msg.engaged != null || msg.ramping != null || msg.battery_cutoff != null) {
         var engaged = msg.engaged === true;
         var ramping = msg.ramping === true;
@@ -97,10 +90,6 @@ function updateStatus(msg) {
             fwBadge.className = 'fw-badge unknown';
             fwBadge.title = 'Firmware version unknown';
         }
-    }
-    if (msg.scan_progress != null) {
-        document.getElementById("scan-progress-fill").style.width = msg.scan_progress + "%";
-        document.getElementById("scan-progress-text").textContent = msg.scan_progress + "%";
     }
 }
 
@@ -156,17 +145,12 @@ function handleMessage(msg) {
         Dog3D.updateIMU(msg);
     } else if (msg.type === "telem_odometry") {
         Dog3D.updateOdometry(msg);
-        dogMapState.x = msg.x || 0;
-        dogMapState.y = msg.y || 0;
-        dogMapState.heading = msg.heading || 0;
-        dogMapState.motion = msg.motion || "stop";
         updateMotionIndicator(msg.motion);
         if (msg.heading != null) {
             var h = Math.round(msg.heading) % 360;
             if (h < 0) h += 360;
             document.getElementById("heading-val").textContent = h + "\u00B0";
         }
-        drawMap();
     } else if (msg.type === "telem_status") {
         updateStatus(msg);
         if (msg.ota_status) updateOtaStatus(msg.ota_status, msg.ota_error);
@@ -178,12 +162,6 @@ function handleMessage(msg) {
         showFallAlert(true); Dog3D.setFallen(true);
     } else if (msg.type === "event_recovered") {
         showFallAlert(false); Dog3D.setFallen(false);
-    } else if (msg.type === "scan_point") {
-        addScanPoint(msg);
-    } else if (msg.type === "scan_complete") {
-        scanCtrl.setScanRunning(false);
-    } else if (msg.type === "map_data") {
-        renderFullMap(msg, Dog3D);
     } else if (msg.type === "lock_status") {
         updateLockUI(msg);
     } else if (msg.type === "lock_challenge") {
@@ -216,7 +194,7 @@ function handleMessage(msg) {
             setEngaged(false, false);
         }
     } else if (msg.type === "reset") {
-        Dog3D.reset(); scanCtrl.setScanRunning(false);
+        Dog3D.reset();
     } else if (msg.type === "version") {
         if (window._appVersion && msg.hash !== window._appVersion) location.reload();
         window._appVersion = msg.hash;
@@ -257,7 +235,6 @@ setupDpad();
 setEngaged(false, false);  // dim D-pad until engaged
 updateEngageToggle(false, false, false);
 setupKeyboard();
-var scanCtrl = setupScan(send);
 setupLock();
 setupEngage();
 setupReset();
@@ -280,5 +257,4 @@ document.addEventListener("keydown", function (e) {
 
 connect(function () {
     send({ type: "cmd_identify", name: operatorName });
-    send({ type: "cmd_map", action: "get" });
 });

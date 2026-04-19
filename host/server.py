@@ -19,8 +19,6 @@ from aiohttp import web
 
 from behaviors.balance import BalanceLayer
 from behaviors.button_engage import ButtonEngageBehavior
-from behaviors.map_store import MapStore
-from behaviors.scan import ScanBehavior
 from comms import Transport, DIRECTIONS
 
 logger = logging.getLogger(__name__)
@@ -92,8 +90,6 @@ class Server:
         self._reconnect_task: asyncio.Task | None = None
         self._detected_wifi: dict | None = None
         self._balance = BalanceLayer(transport)
-        self._scan = ScanBehavior(transport)
-        self._map = MapStore()
         self._engaged: bool = False
         self._button_engage = ButtonEngageBehavior(
             transport,
@@ -101,7 +97,7 @@ class Server:
             lambda v: setattr(self, '_engaged', v),
             self._is_locked,
         )
-        self._mode = "remote"  # remote | scan
+        self._mode = "remote"  # valid states: "remote"
         self._motion = "stop"  # last motion direction
         self._web_hash = self._compute_web_hash(web_dir)
         # Control lock
@@ -158,21 +154,10 @@ class Server:
     async def _index_handler(self, request):
         return web.FileResponse(os.path.join(self._web_dir, "index.html"))
 
-    async def _tuning_handler(self, request):
-        return web.FileResponse(os.path.join(self._web_dir, "tuning.html"))
-
-    async def _gait_handler(self, request):
-        path = os.path.join(self._web_dir, "gait.html")
-        if not os.path.exists(path):
-            raise web.HTTPNotFound()
-        return web.FileResponse(path)
-
     async def start(self, host: str = "0.0.0.0", port: int = 8080):
         app = web.Application(middlewares=[self._no_cache_middleware])
         app.router.add_get("/ws", self._ws_handler)
         app.router.add_get("/", self._index_handler)
-        app.router.add_get("/tuning", self._tuning_handler)
-        app.router.add_get("/gait", self._gait_handler)
         app.router.add_get("/api/firmware/status",  self._handle_firmware_status)
         app.router.add_post("/api/firmware/build",  self._handle_firmware_build)
         app.router.add_get("/api/firmware/binary",  self._handle_firmware_binary)
@@ -205,10 +190,6 @@ class Server:
             }
             logger.info("Firmware WiFi detected: %s (TCP port %s)", fw["wifi_ip"], fw.get("tcp_port", 9000))
 
-        # Register scan callbacks
-        self._scan.on_point(self._on_scan_point)
-        self._scan.on_complete(self._on_scan_complete)
-
         self._poll_task = asyncio.create_task(self._telemetry_loop())
         self._reconnect_task = asyncio.create_task(self._reconnect_loop())
         from device_monitor import DeviceMonitor
@@ -238,8 +219,6 @@ class Server:
                     await task
                 except asyncio.CancelledError:
                     pass
-        if self._scan.running:
-            await self._scan.cancel()
         for ws in set(self._ws_clients):
             await ws.close()
         if self._transport and self._transport.is_open():
@@ -265,22 +244,18 @@ class Server:
             except Exception:
                 pass
 
-            # Swap in new transport, balance, scan, button_engage
+            # Swap in new transport, balance, button_engage
             from behaviors.balance import BalanceLayer
             from behaviors.button_engage import ButtonEngageBehavior
-            from behaviors.scan import ScanBehavior
             self._transport = new_transport
             self._register_transport_callbacks()
             self._balance = BalanceLayer(new_transport)
-            self._scan = ScanBehavior(new_transport)
             self._button_engage = ButtonEngageBehavior(
                 new_transport,
                 lambda: self._engaged,
                 lambda v: setattr(self, '_engaged', v),
                 self._is_locked,
             )
-            self._scan.on_point(self._on_scan_point)
-            self._scan.on_complete(self._on_scan_complete)
             self._transport_label = new_label
 
             # Open new transport
@@ -325,29 +300,6 @@ class Server:
             logger.exception("Failed to switch transport to %s", mode)
             return {"ok": False, "error": str(e)}
 
-    async def _add_live_point(self, distance_mm: int) -> None:
-        """Add an ultrasonic reading as a map point using current position/heading."""
-        import math
-        pos = self._transport.get_position()
-        heading = self._transport.get_heading()
-        if pos is None or heading is None:
-            return
-        rad = math.radians(heading)
-        dist_m = distance_mm / 1000.0
-        x = pos[0] + dist_m * math.cos(rad)
-        y = pos[1] + dist_m * math.sin(rad)
-        point = self._map.add_point(x=x, y=y, z=0.09, distance_mm=distance_mm, source="ultrasonic")
-        # Broadcast live point for real-time 2D map
-        if point and self._ws_clients:
-            await self._broadcast({
-                "type": "scan_point",
-                "x": round(x, 3),
-                "y": round(y, 3),
-                "distance_mm": distance_mm,
-                "progress": 0,
-                "confidence": round(point.confidence, 2),
-            })
-
     async def _on_fall(self, imu: dict = None):
         """Broadcast fall event to all clients."""
         msg = {"type": "event_fall"}
@@ -359,36 +311,6 @@ class Server:
     async def _on_recovered(self, imu: dict = None):
         """Broadcast recovery event to all clients."""
         await self._broadcast({"type": "event_recovered"})
-
-    async def _on_scan_point(self, point, progress: int):
-        """Broadcast each scan point as it's captured."""
-        await self._broadcast({
-            "type": "scan_point",
-            "angle": round(point.angle, 1),
-            "distance_mm": point.distance_mm,
-            "x": round(point.x, 3),
-            "y": round(point.y, 3),
-            "progress": progress,
-        })
-
-    def _scan_task_done(self, task: asyncio.Task):
-        """Handle scan task completion, including unexpected errors."""
-        exc = task.exception() if not task.cancelled() else None
-        if exc:
-            logger.error("Scan task failed: %s", exc)
-            self._mode = "remote"
-            asyncio.create_task(self._broadcast_status())
-
-    async def _on_scan_complete(self, result):
-        """Store scan result and broadcast the full map."""
-        self._map.add_scan(result)
-        self._mode = "remote"
-        await self._broadcast({"type": "scan_complete"})
-        await self._broadcast_status()
-        await self._broadcast({
-            "type": "map_data",
-            **self._map.to_dict(),
-        })
 
     @staticmethod
     def _compute_web_hash(web_dir: str) -> str:
@@ -481,7 +403,6 @@ class Server:
             "balance": self._balance.enabled,
             "fallen": self._balance.is_fallen,
             "connected": self._transport.is_open() if self._transport else False,
-            "scanning": self._scan.running,
             "transport": self._transport_label,
             "engaged": self._transport.get_engaged() if self._transport else False,
             "ramping": self._transport.get_ramping() if self._transport else False,
@@ -583,7 +504,7 @@ class Server:
 
         # --- Control commands (gated by lock) ---
         if msg_type in ("cmd_move", "cmd_stand", "cmd_balance",
-                         "cmd_engage", "cmd_scan"):
+                         "cmd_engage"):
             await self._check_lock_timeout()
             if not self._can_control(ws):
                 await ws.send_str(json.dumps({
@@ -600,8 +521,6 @@ class Server:
                 self._lock_time = _time.monotonic()
 
         if msg_type == "cmd_move":
-            if self._mode == "scan":
-                return
             direction = msg.get("direction", "stop")
             if direction in DIRECTIONS:
                 self._transport.record_motion(direction)
@@ -612,8 +531,6 @@ class Server:
                 logger.warning("Unknown direction: %s", direction)
 
         elif msg_type == "cmd_stand":
-            if self._mode == "scan":
-                return
             await self._transport.send_json({"type": "cmd_stand"})
             self._motion = "stand"
 
@@ -625,44 +542,7 @@ class Server:
                 "enabled": self._balance.enabled,
             })
 
-        elif msg_type == "cmd_scan":
-            action = msg.get("action", "start")
-            if action == "start" and not self._scan.running:
-                # Use transport's dead-reckoned position as scan origin
-                ox, oy, heading = 0.0, 0.0, 0.0
-                pos = self._transport.get_position()
-                if pos is not None:
-                    ox, oy = pos[0], pos[1]
-                h = self._transport.get_heading()
-                if h is not None:
-                    heading = h
-                self._mode = "scan"
-                await self._broadcast_status()
-                self._scan.start(
-                    origin_x=ox, origin_y=oy,
-                    origin_heading=heading,
-                    done_callback=self._scan_task_done,
-                )
-            elif action == "stop":
-                await self._scan.cancel()
-                self._mode = "remote"
-                await self._broadcast_status()
-
         # --- Non-gated commands ---
-        elif msg_type == "cmd_map":
-            action = msg.get("action", "get")
-            if action == "get":
-                await self._broadcast({
-                    "type": "map_data",
-                    **self._map.to_dict(),
-                })
-            elif action == "clear":
-                self._map.clear()
-                await self._broadcast({
-                    "type": "map_data",
-                    **self._map.to_dict(),
-                })
-
         elif msg_type == "cmd_reset":
             if self._transport:
                 self._transport.reset()
@@ -805,7 +685,6 @@ class Server:
             "balance": self._balance.enabled,
             "fallen": self._balance.is_fallen,
             "connected": self._transport.is_open() if self._transport else False,
-            "scanning": self._scan.running,
             "battery_mv": battery_mv,
             "engaged": self._transport.get_engaged() if self._transport else False,
             "ramping": self._transport.get_ramping() if self._transport else False,
@@ -814,14 +693,6 @@ class Server:
             "available_fw_version": self._available_fw_version,
             "transport": self._transport_label,
         }
-        if self._transport:
-            _r = self._transport.get_ramping()
-            _e = self._transport.get_engaged()
-            status["lifecycle"] = "ramping" if _r else ("active" if _e else "disengaged")
-        else:
-            status["lifecycle"] = "unknown"
-        if self._scan.running:
-            status["scan_progress"] = self._scan.progress
         ota_status = (self._transport.firmware_info if self._transport else {}).get('ota_status')
         if ota_status:
             status["ota_status"] = ota_status
@@ -844,9 +715,7 @@ class Server:
         """Run odometry + balance checks; firmware pushes telem via set_telem_callback."""
         imu_interval = 0.05   # 20 Hz odometry/balance check
         battery_interval = 1.0 / BATTERY_POLL_HZ
-        wall_regen_interval = 1.0
         last_battery = 0.0
-        last_wall_regen = 0.0
 
         while True:
             try:
@@ -880,19 +749,6 @@ class Server:
                     if battery is not None:
                         await self._broadcast_status(battery_mv=battery)
                     last_battery = now
-
-                # Point cloud maintenance
-                if not self._scan.running:
-                    self._map.consolidate()
-                    self._map.decay_tick()
-
-                # Wall regen broadcast
-                if now - last_wall_regen >= wall_regen_interval and self._ws_clients:
-                    await self._broadcast({
-                        "type": "map_data",
-                        **self._map.to_dict(),
-                    })
-                    last_wall_regen = now
 
                 await asyncio.sleep(imu_interval)
 

@@ -285,25 +285,6 @@ header h1 {
 }
 #telem-overlay .stat-label { color: rgba(255,255,255,0.35); }
 
-/* Lifecycle badge */
-.lifecycle-badge {
-    display: inline-block;
-    padding: 1px 6px;
-    border-radius: 3px;
-    font-size: 0.55rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    pointer-events: none;
-}
-.lifecycle-booting  { background: #333; color: #888; }
-.lifecycle-waking   { background: #1e2e10; color: #8bc34a; }
-.lifecycle-idle     { background: #0e1e2e; color: #64b5f6; }
-.lifecycle-active   { background: #0e2a0e; color: #66bb6a; }
-.lifecycle-sleeping  { background: #2a1e0a; color: #ffa726; }
-.lifecycle-resting   { background: #2a0e0e; color: #ef5350; }
-.lifecycle-updating  { background: #1a0e2e; color: #b388ff; animation: pulse-updating 2s infinite alternate; }
-
 /* OTA modal inner panel */
 .modal-inner {
     background: var(--bg-panel);
@@ -333,23 +314,6 @@ header h1 {
 }
 #dog-3d-container:active { cursor: grabbing; }
 #dog-3d-container canvas { display: block; width: 100% !important; height: 100% !important; }
-
-/* Map */
-#scan-section { padding: 0; }
-#map-canvas { width: 100%; flex: 1; min-height: 0; display: block; }
-#map-info {
-    display: flex;
-    justify-content: space-between;
-    font-size: 0.6rem;
-    font-family: "SF Mono", "Fira Code", monospace;
-    color: var(--text-dim);
-    padding: 2px 8px 4px;
-}
-#scan-progress { display: flex; align-items: center; gap: 6px; padding: 4px 8px 0; }
-#scan-progress.hidden { display: none; }
-.progress-bar { flex: 1; height: 3px; background: var(--border); border-radius: 2px; overflow: hidden; }
-.progress-fill { height: 100%; width: 0%; background: var(--accent); border-radius: 2px; transition: width 0.2s; }
-#scan-progress-text { font-size: 0.65rem; font-family: monospace; color: var(--accent); width: 30px; text-align: right; }
 
 /* ===== Right: controls ===== */
 #panel-right {
@@ -481,13 +445,6 @@ header h1 {
         flex: 0 0 auto;
         height: 50vw;
         max-height: 240px;
-    }
-
-    /* Map: shorter, still full width */
-    #scan-section {
-        flex: 0 0 auto;
-        height: 30vw;
-        max-height: 150px;
     }
 
     #panel-right {
