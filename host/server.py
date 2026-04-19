@@ -11,15 +11,15 @@ import hashlib
 import json
 import logging
 import os
-import re
-
-from config_util import read_config_local_value as _read_config_local_value
 
 from aiohttp import web
 
 from behaviors.balance import BalanceLayer
+from ota import OtaManager
+from lock import ControlLock
 from behaviors.button_engage import ButtonEngageBehavior
-from comms import Transport, DIRECTIONS
+from dog import Dog, DIRECTIONS
+from dog.discover import find_serial_port, detect_serial_dog
 
 logger = logging.getLogger(__name__)
 
@@ -43,43 +43,8 @@ def _transport_priority(label: str) -> int:
     return _TRANSPORT_PRIORITY.get(label, 0)
 
 
-def _read_available_fw_version() -> str:
-    """Parse FW_VERSION from firmware/include/config.h source."""
-    config_path = os.path.join(os.path.dirname(__file__), "..", "firmware", "include", "config.h")
-    try:
-        with open(config_path) as f:
-            m = re.search(r'#define\s+FW_VERSION\s+"([^"]+)"', f.read())
-            return m.group(1) if m else ""
-    except FileNotFoundError:
-        return ""
-
-
-def _firmware_binary_path() -> str:
-    """Path to the built firmware binary."""
-    return os.path.abspath(os.path.join(
-        os.path.dirname(__file__), "..", "firmware",
-        ".pio", "build", "mechdog", "firmware.bin"
-    ))
-
-
-def _compute_sha256(path: str) -> str:
-    """Return lowercase hex SHA-256 digest of the file at path."""
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(65536), b""):
-            h.update(chunk)
-    return h.hexdigest()
-
-
-def find_serial_port() -> str | None:
-    """Auto-detect a USB serial port for MechDog."""
-    import glob
-    ports = glob.glob("/dev/cu.usbserial*") + glob.glob("/dev/ttyUSB*")
-    return ports[0] if ports else None
-
-
 class Server:
-    def __init__(self, transport: Transport, web_dir: str, transport_label: str = "fw",
+    def __init__(self, transport: Dog, web_dir: str, transport_label: str = "fw",
                  no_mdns: bool = False, open_browser: bool = False):
         self._transport = transport
         self._web_dir = web_dir
@@ -95,19 +60,18 @@ class Server:
             transport,
             lambda: self._engaged,
             lambda v: setattr(self, '_engaged', v),
-            self._is_locked,
+            lambda: self._lock.is_locked(),
         )
         self._mode = "remote"  # valid states: "remote"
         self._motion = "stop"  # last motion direction
         self._web_hash = self._compute_web_hash(web_dir)
         # Control lock
-        self._lock_holder: web.WebSocketResponse | None = None
-        self._lock_name: str = ""
-        self._lock_time: float = 0.0
-        self._lock_timeout: float = 30.0  # seconds of inactivity before auto-release
+        self._lock = ControlLock(timeout=30.0)
         self._client_names: dict[web.WebSocketResponse, str] = {}
-        self._available_fw_version = _read_available_fw_version()
-        self._binary_sha256: str | None = None
+        self._ota = OtaManager(
+            get_transport_fn=lambda: self._transport,
+            get_transport_label_fn=lambda: self._transport_label,
+        )
         self._device_monitor: "DeviceMonitor | None" = None
         self._user_override_transport: bool = False  # True when user manually selected transport
         self._switch_lock = asyncio.Lock()
@@ -158,10 +122,7 @@ class Server:
         app = web.Application(middlewares=[self._no_cache_middleware])
         app.router.add_get("/ws", self._ws_handler)
         app.router.add_get("/", self._index_handler)
-        app.router.add_get("/api/firmware/status",  self._handle_firmware_status)
-        app.router.add_post("/api/firmware/build",  self._handle_firmware_build)
-        app.router.add_get("/api/firmware/binary",  self._handle_firmware_binary)
-        app.router.add_post("/api/firmware/update", self._handle_firmware_update)
+        self._ota.add_routes(app.router)
         app.router.add_static("/", self._web_dir)
         app.on_startup.append(self._on_startup)
         app.on_shutdown.append(self._on_shutdown)
@@ -254,7 +215,7 @@ class Server:
                 new_transport,
                 lambda: self._engaged,
                 lambda v: setattr(self, '_engaged', v),
-                self._is_locked,
+                lambda: self._lock.is_locked(),
             )
             self._transport_label = new_label
 
@@ -274,12 +235,11 @@ class Server:
         self._user_override_transport = True
 
         try:
-            from firmware_transport import FirmwareTransport
             if mode == "fw-usb":
                 port = find_serial_port()
                 if not port:
                     return {"ok": False, "error": "No USB serial device found"}
-                transport = FirmwareTransport(port=port)
+                transport = Dog(port=port)
                 label = f"fw:{port.split('/')[-1]}"
             elif mode == "fw-wifi":
                 wifi = self._detected_wifi
@@ -287,7 +247,7 @@ class Server:
                     return {"ok": False, "error": "No WiFi firmware detected"}
                 ip = wifi["ip"]
                 tcp_port = wifi.get("port", 9000)
-                transport = FirmwareTransport(host=ip, tcp_port=tcp_port)
+                transport = Dog(host=ip, tcp_port=tcp_port)
                 label = f"fw:{ip}"
             else:
                 return {"ok": False, "error": f"Unknown mode: {mode}"}
@@ -300,18 +260,6 @@ class Server:
             logger.exception("Failed to switch transport to %s", mode)
             return {"ok": False, "error": str(e)}
 
-    async def _on_fall(self, imu: dict = None):
-        """Broadcast fall event to all clients."""
-        msg = {"type": "event_fall"}
-        if imu:
-            msg["pitch"] = imu.get("pitch", 0)
-            msg["roll"] = imu.get("roll", 0)
-        await self._broadcast(msg)
-
-    async def _on_recovered(self, imu: dict = None):
-        """Broadcast recovery event to all clients."""
-        await self._broadcast({"type": "event_recovered"})
-
     @staticmethod
     def _compute_web_hash(web_dir: str) -> str:
         """Hash web files to detect when clients need to reload."""
@@ -323,67 +271,14 @@ class Server:
                     h.update(f.read())
         return h.hexdigest()[:8]
 
-    # --- Control lock ---
-
-    def _lock_timed_out(self) -> bool:
-        """Return True if the lock holder has timed out (sync, no side effects)."""
-        if self._lock_holder and self._lock_time:
-            import time
-            return time.monotonic() - self._lock_time > self._lock_timeout
-        return False
-
-    async def _check_lock_timeout(self) -> None:
-        """Release lock via _release_lock() if the holder has timed out."""
-        if self._lock_timed_out():
-            await self._release_lock()
-
-    def _is_locked_by(self, ws: web.WebSocketResponse) -> bool:
-        """Check if the given client holds the lock (does not trigger release)."""
-        if self._lock_timed_out():
-            return False
-        return self._lock_holder is ws
-
-    def _is_locked(self) -> bool:
-        """Check if any client holds the lock (does not trigger release)."""
-        if self._lock_timed_out():
-            return False
-        return self._lock_holder is not None
-
-    def _can_control(self, ws: web.WebSocketResponse) -> bool:
-        """Check if the given client is allowed to send commands (does not trigger release)."""
-        if self._lock_timed_out():
-            return True
-        return self._lock_holder is None or self._lock_holder is ws
-
-    def _lock_status_msg(self) -> dict:
-        timed_out = self._lock_timed_out()
-        return {
-            "type": "lock_status",
-            "locked": self._lock_holder is not None and not timed_out,
-            "holder": self._lock_name if self._lock_holder and not timed_out else None,
-            "is_you": False,  # overridden per-client
-        }
-
-    async def _acquire_lock(self, ws: web.WebSocketResponse, name: str) -> None:
-        """Acquire the control lock for a client."""
-        import time as _t
-        self._lock_holder = ws
-        self._lock_name = name
-        self._lock_time = _t.monotonic()
-
-    async def _release_lock(self) -> None:
-        """Release the control lock."""
-        self._lock_holder = None
-        self._lock_name = ""
-        self._lock_time = 0.0
-
     async def _broadcast_lock_status(self) -> None:
-        await self._check_lock_timeout()
-        msg = self._lock_status_msg()
+        if self._lock.is_timed_out():
+            self._lock.release()
+        msg = self._lock.status_msg()
         dead = set()
         for ws in self._ws_clients:
             m = dict(msg)
-            m["is_you"] = (ws is self._lock_holder)
+            m["is_you"] = self._lock.is_locked_by(ws)
             try:
                 await ws.send_str(json.dumps(m))
             except (ConnectionError, ConnectionResetError):
@@ -408,7 +303,7 @@ class Server:
             "ramping": self._transport.get_ramping() if self._transport else False,
             "battery_cutoff": self._transport.get_battery_cutoff() if self._transport else False,
             "fw_version": self._transport.get_fw_version() if self._transport else "",
-            "available_fw_version": self._available_fw_version,
+            "available_fw_version": self._ota.available_version,
         }
         if self._transport:
             _r = self._transport.get_ramping()
@@ -428,9 +323,10 @@ class Server:
         }))
 
         # Send lock status
-        await self._check_lock_timeout()
-        lock_msg = self._lock_status_msg()
-        lock_msg["is_you"] = (ws is self._lock_holder)
+        if self._lock.is_timed_out():
+            self._lock.release()
+        lock_msg = self._lock.status_msg()
+        lock_msg["is_you"] = self._lock.is_locked_by(ws)
         await ws.send_str(json.dumps(lock_msg))
 
         # Replay last known servo-pin mapping so browser never shows stale defaults
@@ -447,8 +343,7 @@ class Server:
             self._ws_clients.discard(ws)
             self._client_names.pop(ws, None)
             # Release lock if this client held it
-            if self._lock_holder is ws:
-                await self._release_lock()
+            if self._lock.release_if_holder(ws):
                 await self._broadcast_lock_status()
             logger.info("WebSocket client disconnected (%d remaining)", len(self._ws_clients))
 
@@ -456,7 +351,6 @@ class Server:
 
     async def _handle_ws_message(self, data: str, ws: web.WebSocketResponse):
         """Handle a JSON message from the browser."""
-        import time as _time
         try:
             msg = json.loads(data)
         except json.JSONDecodeError:
@@ -473,57 +367,55 @@ class Server:
         # --- Lock commands (always allowed) ---
         if msg_type == "cmd_lock":
             name = msg.get("name", "Anonymous")
-            if self._can_control(ws):
-                await self._acquire_lock(ws, name)
+            if self._lock.can_control(ws):
+                self._lock.acquire(ws, name)
                 await self._broadcast_lock_status()
-            elif self._lock_holder is not None:
+            elif self._lock.holder is not None:
                 # Send challenge to current holder
-                await self._lock_holder.send_str(json.dumps({
+                await self._lock.holder.send_str(json.dumps({
                     "type": "lock_challenge",
                     "challenger": name,
                 }))
                 # Notify challenger they need to wait
                 await ws.send_str(json.dumps({
                     "type": "lock_denied",
-                    "holder": self._lock_name,
+                    "holder": self._lock.holder_name,
                 }))
             return
 
         if msg_type == "cmd_unlock":
-            if self._lock_holder is ws:
-                await self._release_lock()
+            if self._lock.release_if_holder(ws):
                 await self._broadcast_lock_status()
             return
 
         if msg_type == "cmd_lock_yield":
             # Current holder yields to a challenger
-            if self._lock_holder is ws:
-                await self._release_lock()
+            if self._lock.release_if_holder(ws):
                 await self._broadcast_lock_status()
             return
 
         # --- Control commands (gated by lock) ---
         if msg_type in ("cmd_move", "cmd_stand", "cmd_balance",
                          "cmd_engage"):
-            await self._check_lock_timeout()
-            if not self._can_control(ws):
+            if self._lock.is_timed_out():
+                self._lock.release()
+            if not self._lock.can_control(ws):
                 await ws.send_str(json.dumps({
                     "type": "lock_denied",
-                    "holder": self._lock_name,
+                    "holder": self._lock.holder_name,
                 }))
                 return
             # Auto-acquire lock on first control if no one holds it
-            if self._lock_holder is None:
-                await self._acquire_lock(ws, self._client_names.get(ws, "Operator"))
+            if self._lock.holder is None:
+                self._lock.acquire(ws, self._client_names.get(ws, "Operator"))
                 await self._broadcast_lock_status()
             # Refresh lock timeout on any control action
-            if self._lock_holder is ws:
-                self._lock_time = _time.monotonic()
+            if self._lock.is_locked_by(ws):
+                self._lock.touch()
 
         if msg_type == "cmd_move":
             direction = msg.get("direction", "stop")
             if direction in DIRECTIONS:
-                self._transport.record_motion(direction)
                 speed = msg.get("speed", 1.0)
                 await self._transport.send_json({"type": "cmd_move", "direction": direction, "speed": speed})
                 self._motion = direction
@@ -544,8 +436,6 @@ class Server:
 
         # --- Non-gated commands ---
         elif msg_type == "cmd_reset":
-            if self._transport:
-                self._transport.reset()
             self._motion = "stop"
             self._mode = "remote"
             await self._broadcast_status()
@@ -580,103 +470,6 @@ class Server:
         else:
             logger.warning("Unknown WS message type: %s", msg_type)
 
-    async def _handle_firmware_status(self, request: web.Request) -> web.Response:
-        current = self._transport.get_fw_version() if self._transport else ""
-        available = self._available_fw_version
-        is_wifi = 'fw:' in self._transport_label and '/dev/' not in self._transport_label
-        binary_path = _firmware_binary_path()
-        binary_exists = os.path.exists(binary_path)
-        sha256_hex = self._binary_sha256 if binary_exists else None
-        return web.json_response({
-            "current_version": current,
-            "available_version": available,
-            "update_available": bool(current and available and current != available),
-            "transport": self._transport_label,
-            "can_ota": is_wifi,
-            "binary_ready": binary_exists,
-            "sha256": sha256_hex,
-        })
-
-    async def _do_firmware_build(self) -> dict:
-        """Run pio build and return result dict."""
-        firmware_dir = os.path.abspath(
-            os.path.join(os.path.dirname(__file__), "..", "firmware")
-        )
-        try:
-            # Use subprocess_exec (not shell) — args passed as list, no injection risk
-            proc = await asyncio.create_subprocess_exec(
-                "pio", "run",
-                cwd=firmware_dir,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.STDOUT,
-            )
-            try:
-                stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=180.0)
-                ok = proc.returncode == 0
-                output = stdout.decode(errors="replace")
-            except asyncio.TimeoutError:
-                proc.kill()
-                return {"ok": False, "error": "Build timed out after 180s", "output": ""}
-        except FileNotFoundError:
-            return {"ok": False, "error": "pio not found in PATH", "output": ""}
-        binary_path = _firmware_binary_path()
-        binary_ready = ok and os.path.exists(binary_path)
-        if binary_ready:
-            self._binary_sha256 = _compute_sha256(binary_path)
-        return {
-            "ok": ok,
-            "output": output[-3000:],
-            "binary_ready": binary_ready,
-        }
-
-    async def _handle_firmware_build(self, request: web.Request) -> web.Response:
-        result = await self._do_firmware_build()
-        return web.json_response(result)
-
-    async def _handle_firmware_binary(self, request: web.Request) -> web.Response:
-        path = _firmware_binary_path()
-        if not os.path.exists(path):
-            return web.json_response({"error": "No firmware binary. Run /api/firmware/build first."}, status=404)
-        return web.FileResponse(path, headers={
-            "Content-Type": "application/octet-stream",
-            "Content-Disposition": "attachment; filename=firmware.bin",
-        })
-
-    async def _handle_firmware_update(self, request: web.Request) -> web.Response:
-        """Orchestrate OTA: build, then send cmd_ota_update to firmware."""
-        # 1. Build
-        build_data = await self._do_firmware_build()
-        if not build_data.get("ok"):
-            return web.json_response(
-                {"ok": False, "error": "Build failed", "output": build_data.get("output")},
-                status=500
-            )
-        # 2. Determine binary URL using request host
-        host_parts = request.host.split(":")
-        host_ip = host_parts[0]
-        host_port = host_parts[1] if len(host_parts) > 1 else "8080"
-        binary_url = f"http://{host_ip}:{host_port}/api/firmware/binary"
-        # 3. Compute SHA-256 of the freshly built binary
-        sha256_hex = _compute_sha256(_firmware_binary_path())
-        self._binary_sha256 = sha256_hex
-        # 4. Send OTA command
-        if not self._transport:
-            return web.json_response({"ok": False, "error": "No firmware transport"}, status=400)
-        try:
-            await self._transport.send_json({
-                "type": "cmd_ota_update",
-                "url": binary_url,
-                "sha256": sha256_hex,
-            })
-        except Exception as e:
-            return web.json_response({"ok": False, "error": f"Failed to send OTA command: {e}"}, status=500)
-        return web.json_response({
-            "ok": True,
-            "binary_url": binary_url,
-            "new_version": self._available_fw_version,
-            "sha256": sha256_hex,
-        })
-
     async def _broadcast_status(self, battery_mv=None):
         """Broadcast current status to all clients."""
         status = {
@@ -690,7 +483,7 @@ class Server:
             "ramping": self._transport.get_ramping() if self._transport else False,
             "battery_cutoff": self._transport.get_battery_cutoff() if self._transport else False,
             "fw_version": self._transport.get_fw_version() if self._transport else "",
-            "available_fw_version": self._available_fw_version,
+            "available_fw_version": self._ota.available_version,
             "transport": self._transport_label,
         }
         ota_status = (self._transport.firmware_info if self._transport else {}).get('ota_status')
@@ -731,17 +524,13 @@ class Server:
                 elif balance_event["recovered"]:
                     await self._broadcast({"type": "event_recovered"})
 
-                # Odometry broadcast
+                # Odometry broadcast — heading from IMU yaw; no dead-reckoning position
                 if self._transport and self._ws_clients:
-                    odom = {"type": "telem_odometry", "motion": self._motion}
-                    pos = self._transport.get_position()
-                    heading = self._transport.get_heading()
-                    if pos is not None:
-                        odom["x"] = round(pos[0], 4)
-                        odom["y"] = round(pos[1], 4)
-                    if heading is not None:
-                        odom["heading"] = round(heading, 1)
-                    await self._broadcast(odom)
+                    await self._broadcast({
+                        "type": "telem_odometry",
+                        "motion": self._motion,
+                        "heading": round(self._transport.get_heading(), 1),
+                    })
 
                 # Battery status broadcast
                 if now - last_battery >= battery_interval:
@@ -795,8 +584,7 @@ class Server:
         if not self._user_override_transport and wifi_priority > current_priority:
             logger.info("mDNS: auto-connecting to %s:%d", ip, port)
             try:
-                from firmware_transport import FirmwareTransport
-                transport = FirmwareTransport(host=ip, tcp_port=port)
+                transport = Dog(host=ip, tcp_port=port)
                 await self._replace_transport(transport, f"fw:{ip}")
             except Exception as e:
                 logger.warning("mDNS: auto-connect to %s:%d failed: %s", ip, port, e)
@@ -822,7 +610,7 @@ class Server:
         current_priority = _transport_priority(self._transport_label)
         # Probe what's on the port
         try:
-            transport, label = await _detect_serial_transport(port)
+            transport, label = await detect_serial_dog(port)
         except Exception as e:
             logger.warning("Hot-plug: probe failed for %s: %s", port, e)
             return
@@ -846,8 +634,7 @@ class Server:
             ip = self._detected_wifi["ip"]
             tcp_port = self._detected_wifi.get("port", 9000)
             try:
-                from firmware_transport import FirmwareTransport
-                transport = FirmwareTransport(host=ip, tcp_port=tcp_port)
+                transport = Dog(host=ip, tcp_port=tcp_port)
                 await self._replace_transport(transport, f"fw:{ip}")
                 return
             except Exception as e:
@@ -865,53 +652,14 @@ def _restart_server():
     os.kill(os.getpid(), signal.SIGTERM)
 
 
-def _probe_serial_sync(port: str) -> bool:
-    """Blocking serial probe — runs in a thread via asyncio.to_thread.
-
-    Returns True if custom firmware (JSON pong) detected.
-    """
-    import serial
-    import time
-    try:
-        ser = serial.Serial(port, 115200, timeout=2)
-        time.sleep(3.0)
-        resp = ""
-        for _ in range(3):
-            ser.write(b'{"type":"ping"}\n')
-            time.sleep(0.5)
-            resp += ser.read(ser.in_waiting).decode(errors="replace")
-            if '"pong"' in resp:
-                break
-        ser.close()
-        return '"pong"' in resp
-    except Exception as e:
-        logger.warning("Serial probe failed: %s", e)
-        return False
-
-
-async def _detect_serial_transport(port: str):
-    """Probe a serial port for custom firmware. Raises ConnectionError if not found."""
-    logger.info("Probing %s for custom firmware...", port)
-    found = await asyncio.to_thread(_probe_serial_sync, port)
-    if not found:
-        raise ConnectionError(f"No custom firmware response on {port}")
-    from firmware_transport import FirmwareTransport
-    transport = FirmwareTransport(port=port)
-    label = f"fw:{port.split('/')[-1]}"
-    logger.info("Detected custom firmware on %s", port)
-    return transport, label
-
-
 async def main(args):
-    from firmware_transport import FirmwareTransport
-
     fw_tcp = getattr(args, 'fw_tcp', None)
     if fw_tcp:
         # Explicit TCP connection (mock or remote WiFi)
         parts = fw_tcp.split(":")
         host = parts[0]
         tcp_port = int(parts[1]) if len(parts) > 1 else 9000
-        transport = FirmwareTransport(host=host, tcp_port=tcp_port)
+        transport = Dog(host=host, tcp_port=tcp_port)
         is_local = host in ("127.0.0.1", "localhost")
         transport_label = "mock" if is_local else f"fw-wifi:{host}"
         logger.info("Using TCP firmware transport: %s:%d", host, tcp_port)
@@ -921,7 +669,7 @@ async def main(args):
         if serial_port:
             logger.info("Found serial port: %s", serial_port)
             try:
-                transport, transport_label = await _detect_serial_transport(serial_port)
+                transport, transport_label = await detect_serial_dog(serial_port)
             except ConnectionError as e:
                 logger.error("%s", e)
                 print(f"\nNo MechDog detected on {serial_port}.\n"

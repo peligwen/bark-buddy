@@ -81,6 +81,32 @@
                     <button class="action-btn" id="btn-reset">Reset</button>
                     <button class="action-btn" id="btn-restart" style="color:var(--red)">Restart Server</button>
                 </div>
+    <details id="offset-panel" style="margin-top:12px">
+      <summary style="cursor:pointer;font-size:0.85rem;color:#aaa;user-select:none">Offsets &amp; Pins</summary>
+      <div style="margin-top:8px;display:flex;flex-direction:column;gap:6px;font-size:0.8rem">
+        <div style="color:#888">Servo offset (index 0–7, ±500 µs)</div>
+        <div style="display:flex;gap:6px;align-items:center">
+          <select id="offset-idx" style="width:50px">
+            <option>0</option><option>1</option><option>2</option><option>3</option>
+            <option>4</option><option>5</option><option>6</option><option>7</option>
+          </select>
+          <input id="offset-val" type="number" min="-500" max="500" value="0"
+                 style="width:70px;background:#1a1a2e;color:#e0e0e0;border:1px solid #444;padding:2px 4px">
+          <button id="offset-set-btn" style="padding:2px 8px">Set</button>
+        </div>
+        <div style="color:#888;margin-top:4px">Servo pin (GPIO)</div>
+        <div style="display:flex;gap:6px;align-items:center">
+          <select id="pin-idx" style="width:50px">
+            <option>0</option><option>1</option><option>2</option><option>3</option>
+            <option>4</option><option>5</option><option>6</option><option>7</option>
+          </select>
+          <input id="pin-val" type="number" min="0" max="39" value="0"
+                 style="width:60px;background:#1a1a2e;color:#e0e0e0;border:1px solid #444;padding:2px 4px">
+          <button id="pin-set-btn" style="padding:2px 8px">Set Pin</button>
+        </div>
+        <div id="servo-pins-display" style="color:#666;font-size:0.75rem;margin-top:4px"></div>
+      </div>
+    </details>
             </div>
 
         </div>

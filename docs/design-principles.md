@@ -8,7 +8,7 @@ Prescriptive rules for bark-buddy. These govern architectural decisions and code
 
 ## Architecture boundaries
 
-**Single transport.** `Dog.send_json()` is the only host→firmware path. JSON only; no text protocols. (Currently named `FirmwareTransport.send_json()` — Phase 3 will rename it to `Dog`.)
+**Single transport.** `Dog.send_json()` is the only host→firmware path. JSON only; no text protocols.
 
 **Layer discipline.** Firmware owns motion + hardware; host owns coordination/behaviors; web owns presentation. No layer reaches past its neighbor.
 
