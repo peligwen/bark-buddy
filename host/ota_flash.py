@@ -49,7 +49,7 @@ async def flash_wifi(host: str | None, tcp_port: int = 9000) -> int:
       1. Resolve target via mDNS (if host is None)
       2. Build firmware with pio run
       3. Compute SHA-256 of firmware binary
-      4. Open FirmwareTransport TCP connection
+      4. Open Dog TCP connection
       5. Spin up a transient HTTP server on local_ip:0
       6. Send cmd_ota_update
       7. Watch ota_status messages until complete/failed/timeout
@@ -145,7 +145,7 @@ async def flash_wifi(host: str | None, tcp_port: int = 9000) -> int:
     print(f"[ota] Firmware binary: {binary_size:,} bytes, sha256={sha256_hex[:16]}...")
 
     # ------------------------------------------------------------------
-    # 4. Open FirmwareTransport
+    # 4. Open Dog
     # ------------------------------------------------------------------
     from dog import Dog
 

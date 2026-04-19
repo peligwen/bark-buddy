@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 class ButtonEngageBehavior:
     def __init__(self, transport, get_engaged_fn, set_engaged_fn, get_lock_held_fn):
         """
-        transport:          FirmwareTransport instance
+        transport:          Dog instance
         get_engaged_fn:     zero-arg callable returning current engaged state (bool)
         set_engaged_fn:     one-arg callable that sets engaged state (bool) — used for optimistic updates
         get_lock_held_fn:   zero-arg callable returning True when a remote operator holds the lock (timeout-aware)

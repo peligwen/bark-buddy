@@ -260,18 +260,6 @@ class Server:
             logger.exception("Failed to switch transport to %s", mode)
             return {"ok": False, "error": str(e)}
 
-    async def _on_fall(self, imu: dict = None):
-        """Broadcast fall event to all clients."""
-        msg = {"type": "event_fall"}
-        if imu:
-            msg["pitch"] = imu.get("pitch", 0)
-            msg["roll"] = imu.get("roll", 0)
-        await self._broadcast(msg)
-
-    async def _on_recovered(self, imu: dict = None):
-        """Broadcast recovery event to all clients."""
-        await self._broadcast({"type": "event_recovered"})
-
     @staticmethod
     def _compute_web_hash(web_dir: str) -> str:
         """Hash web files to detect when clients need to reload."""
@@ -448,8 +436,6 @@ class Server:
 
         # --- Non-gated commands ---
         elif msg_type == "cmd_reset":
-            if self._transport:
-                self._transport.reset()
             self._motion = "stop"
             self._mode = "remote"
             await self._broadcast_status()
