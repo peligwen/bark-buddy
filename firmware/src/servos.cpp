@@ -4,8 +4,8 @@
 #include "pin_registry.h"
 #include <Arduino.h>
 
-// Hardware PWM via ESP32 LEDC peripheral (arduino-esp32 2.x channel-based API).
-// Servo index i → LEDC channel i. Writes use ledcWrite(channel, duty).
+// Hardware PWM via ESP32 LEDC peripheral (3.x pin-based API).
+// All LEDC calls use GPIO pin numbers directly — no channel bookkeeping.
 // 50Hz, 14-bit resolution (~1.22us/tick). Zero CPU cost during pulse generation.
 // Engage: attach at REST_POSE -> ramp to STANDING_POSE (non-blocking, millis-based).
 // Disengage: ramp to REST_POSE -> detach.
@@ -46,11 +46,10 @@ bool servos_engage_start() {
 #else
     if (s_engaged || s_ramping || s_battery_cutoff) return false;
     for (int i = 0; i < 8; i++) {
-        ledcSetup(i, SERVO_FREQ_HZ, LEDC_RESOLUTION);
-        ledcAttachPin(SERVO_PINS[i], i);
+        ledcAttach(SERVO_PINS[i], SERVO_FREQ_HZ, LEDC_RESOLUTION);
         uint16_t pos = clamp_us(REST_POSE[i]);
         current_us[i] = pos;
-        ledcWrite(i, us_to_duty(pos));
+        ledcWrite(SERVO_PINS[i], us_to_duty(pos));
     }
     s_engaged = true;
 #if AUX_SERVOS_ENABLED
@@ -120,7 +119,7 @@ bool servo_write_us(uint8_t index, uint16_t pulse_us) {
     if (!s_engaged || index >= 8) return false;
     pulse_us = clamp_us(pulse_us);
     current_us[index] = pulse_us;
-    ledcWrite(index, us_to_duty(apply_offset(index, pulse_us)));
+    ledcWrite(SERVO_PINS[index], us_to_duty(apply_offset(index, pulse_us)));
     return true;
 }
 
@@ -134,12 +133,12 @@ void servos_detach_all() {
     s_engaged = false;
     s_ramping = false;
     for (int i = 0; i < 8; i++) {
-        ledcDetachPin(SERVO_PINS[i]);
+        ledcDetach(SERVO_PINS[i]);
         current_us[i] = 0;
     }
 #if AUX_SERVOS_ENABLED
     for (int i = 0; i < AUX_SERVO_COUNT; i++) {
-        ledcDetachPin(AUX_SERVO_PINS[i]);
+        ledcDetach(AUX_SERVO_PINS[i]);
         aux_current_us[i] = 0;
     }
 #endif
@@ -169,16 +168,14 @@ bool servos_set_pin(uint8_t idx, uint8_t new_pin, String& err) {
     uint8_t old_pin = SERVO_PINS[idx];
     if (old_pin == new_pin) return true;
     if (s_engaged) {
-        ledcDetachPin(old_pin);
-        if (swap_j >= 0) ledcDetachPin(new_pin);
+        ledcDetach(old_pin);
+        if (swap_j >= 0) ledcDetach(new_pin);
         SERVO_PINS[idx] = new_pin;
-        ledcSetup(idx, SERVO_FREQ_HZ, LEDC_RESOLUTION);
-        ledcAttachPin(new_pin, idx);
+        ledcAttach(new_pin, SERVO_FREQ_HZ, LEDC_RESOLUTION);
         servo_write_us(idx, current_us[idx] > 0 ? current_us[idx] : 1500);
         if (swap_j >= 0) {
             SERVO_PINS[swap_j] = old_pin;
-            ledcSetup(swap_j, SERVO_FREQ_HZ, LEDC_RESOLUTION);
-            ledcAttachPin(old_pin, swap_j);
+            ledcAttach(old_pin, SERVO_FREQ_HZ, LEDC_RESOLUTION);
             servo_write_us(swap_j, current_us[swap_j] > 0 ? current_us[swap_j] : 1500);
         }
     } else {
@@ -195,11 +192,10 @@ bool servos_set_pin(uint8_t idx, uint8_t new_pin, String& err) {
 
 void aux_servo_init() {
     for (int i = 0; i < AUX_SERVO_COUNT; i++) {
-        ledcSetup(AUX_SERVO_LEDC_CH[i], SERVO_FREQ_HZ, LEDC_RESOLUTION);
-        ledcAttachPin(AUX_SERVO_PINS[i], AUX_SERVO_LEDC_CH[i]);
+        ledcAttach(AUX_SERVO_PINS[i], SERVO_FREQ_HZ, LEDC_RESOLUTION);
         uint16_t pos = clamp_us(1500);
         aux_current_us[i] = pos;
-        ledcWrite(AUX_SERVO_LEDC_CH[i], us_to_duty(pos));
+        ledcWrite(AUX_SERVO_PINS[i], us_to_duty(pos));
     }
 }
 
@@ -207,7 +203,7 @@ void aux_servo_write_us(uint8_t idx, uint16_t us) {
     if (!s_engaged || idx >= AUX_SERVO_COUNT) return;
     us = clamp_us(us);
     aux_current_us[idx] = us;
-    ledcWrite(AUX_SERVO_LEDC_CH[idx], us_to_duty(us));
+    ledcWrite(AUX_SERVO_PINS[idx], us_to_duty(us));
 }
 
 uint16_t aux_servo_read_us(uint8_t idx) {

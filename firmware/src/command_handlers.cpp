@@ -477,9 +477,8 @@ static void handle_cmd_ota_update(const JsonDocument& doc) {
 }
 
 // --- Pin probe (servo identification tool) ---
-// Uses LEDC channel 8 (not used by servos 0-7) to wiggle an arbitrary GPIO.
+// Uses LEDC pin-based API (3.x) to wiggle an arbitrary GPIO.
 // Lets the user identify which physical servo is on which pin.
-#define PROBE_LEDC_CHANNEL   8
 #define PROBE_FREQ_HZ        50
 #define PROBE_RESOLUTION     14
 #define PROBE_AMPLITUDE_US   30
@@ -529,22 +528,21 @@ static void handle_cmd_probe_pin(const JsonDocument& doc) {
     if (center < 500)  center = 500;
     if (center > 2500) center = 2500;
 
-    ledcSetup(PROBE_LEDC_CHANNEL, PROBE_FREQ_HZ, PROBE_RESOLUTION);
-    ledcAttachPin(pin, PROBE_LEDC_CHANNEL);
+    ledcAttach(pin, PROBE_FREQ_HZ, PROBE_RESOLUTION);
 
     // Wiggle ±PROBE_AMPLITUDE_US around center, PROBE_CYCLES times
     for (int i = 0; i < PROBE_CYCLES; i++) {
         uint16_t hi = center + PROBE_AMPLITUDE_US;
         uint16_t lo = (center > PROBE_AMPLITUDE_US) ? (center - PROBE_AMPLITUDE_US) : 500u;
-        ledcWrite(PROBE_LEDC_CHANNEL, probe_us_to_duty(hi));
+        ledcWrite(pin, probe_us_to_duty(hi));
         delay(PROBE_HALF_PERIOD_MS);
-        ledcWrite(PROBE_LEDC_CHANNEL, probe_us_to_duty(lo));
+        ledcWrite(pin, probe_us_to_duty(lo));
         delay(PROBE_HALF_PERIOD_MS);
     }
     // Return to center, then detach
-    ledcWrite(PROBE_LEDC_CHANNEL, probe_us_to_duty(center));
+    ledcWrite(pin, probe_us_to_duty(center));
     delay(50);
-    ledcDetachPin(pin);
+    ledcDetach(pin);
 
     JsonDocument resp;
     resp["type"]     = MSG_ACK;

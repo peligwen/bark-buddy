@@ -50,29 +50,16 @@ inline void servo_log_reset() { _servo_log_count = 0; memset(_servo_duty, 0, siz
 inline const ServoCapture* servo_log_entries() { return _servo_log; }
 inline int servo_log_count() { return _servo_log_count; }
 
-// LEDC stubs — arduino-esp32 2.x channel-based API.
-// Setup: ledcSetup(channel, freq, res) + ledcAttachPin(pin, channel).
-// Write: ledcWrite(channel, duty).
-// The channel→pin map is populated by ledcAttachPin so ledcWrite can
-// translate to the correct pin slot for ServoCapture.
-static uint8_t _channel_to_pin[16] = {};
-
-// Old-style API (arduino-esp32 2.x)
-inline void ledcSetup(uint8_t channel, uint32_t freq, uint8_t resolution) { (void)channel; (void)freq; (void)resolution; }
-inline void ledcAttachPin(uint8_t pin, uint8_t channel) { _channel_to_pin[channel] = pin; }
-inline void ledcDetachPin(uint8_t pin) { _servo_duty[pin] = 0; }
-
-// New-style stubs (3.x) kept as no-ops so code that uses either API compiles.
+// LEDC stubs — 3.x pin-based API (ledcAttach/ledcWrite(pin,...)/ledcDetach).
+// All calls use GPIO pin numbers directly; no channel tracking needed.
 inline void ledcAttach(uint8_t pin, uint32_t freq, uint8_t resolution) { (void)pin; (void)freq; (void)resolution; }
 inline void ledcDetach(uint8_t pin) { _servo_duty[pin] = 0; }
 
-// ledcWrite(channel, duty): translates channel→pin via _channel_to_pin.
 #ifdef MOCK_FIRMWARE
 namespace physics { void on_servo_duty(uint8_t pin, uint32_t duty); }
 #endif
 
-inline bool ledcWrite(uint8_t channel, uint32_t duty) {
-    uint8_t pin = _channel_to_pin[channel];
+inline void ledcWrite(uint8_t pin, uint32_t duty) {
     _servo_duty[pin] = duty;
     if (_servo_log_count < MAX_CAPTURES) {
         _servo_log[_servo_log_count++] = {pin, duty, (unsigned long)millis()};
@@ -80,7 +67,6 @@ inline bool ledcWrite(uint8_t channel, uint32_t duty) {
 #ifdef MOCK_FIRMWARE
     physics::on_servo_duty(pin, duty);
 #endif
-    return true;
 }
 
 
