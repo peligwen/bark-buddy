@@ -5,6 +5,8 @@ __pycache__/
 sweep_results/
 .claude/settings.local.json
 .claude/projects/
+.claude/plans/
+.claude/worktrees/
 firmware/include/config_local.h
 firmware/stock_firmware.bin
 stock_firmware_dump/
