@@ -10,7 +10,7 @@ The separate ESP32-S3 on the vision module is for the camera only and is not con
 
 ## Servo Layout
 
-Eight PWM servos controlled via ESP32 LEDC (14-bit, 50 Hz). Servo index `i` → LEDC channel `i`.
+Eight PWM servos controlled via ESP32 LEDC (14-bit, 50 Hz). Driven via arduino-esp32 3.x pin-based LEDC API (`ledcAttach`/`ledcWrite(pin)`); no channel bookkeeping required — the core assigns channels internally.
 Default GPIO assignments from `firmware/src/servos.cpp:SERVO_PINS[8]`.
 
 | Index | Name | Default GPIO | Standing (μs) | Rest (μs) | Polarity |
@@ -64,7 +64,7 @@ Accelerometer: m/s² body frame. Gyroscope: deg/s body frame. IMU data-ready int
 | Button K1 | 5 | Active-LOW, 10 kΩ pullup; debounce 20 ms; long-press ≥ 1000 ms |
 | IMU interrupt | 35 | QMI8658 INT2 data-ready; input-only pin |
 | Onboard LED | 18 | Active-LOW; `cmd_led {led:0}` controls it; brightness capped at 40/255 |
-| Buzzer | 21 | NPN transistor drive; LEDC channel 9 |
+| Buzzer | 21 | NPN transistor drive; LEDC pin-based (arduino-esp32 3.x) |
 
 ## Auxiliary GPIO
 
@@ -82,12 +82,7 @@ GPIO 12 is a flash-voltage strapping pin (series 5.1 kΩ resistor present).
 
 14-bit resolution: 16384 ticks per 20 ms period (50 Hz).
 
-| Channel | Use |
-|---------|-----|
-| 0–7 | Main servos (indices 0–7) |
-| 8 | Pin probe (servo-pin verification) |
-| 9 | Buzzer |
-| 10–12 | Aux servos (if enabled) |
+arduino-esp32 3.x pin-based API: servos, buzzer, and probe are attached with `ledcAttach(pin, freq, resolution)` and driven with `ledcWrite(pin, duty)`. Channel assignment is handled internally by the core; no channel constants are required in firmware code.
 
 ## Battery Thresholds
 

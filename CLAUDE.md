@@ -33,7 +33,7 @@ Semi-autonomous control system for Hiwonder MechDog robot dog. Stock hardware (n
 
 ## Conventions
 
-- Firmware: C++ (PlatformIO), ArduinoJson, ESP32-WROOM-32D (D0WD chip)
+- Firmware: C++ (PlatformIO, arduino-esp32 3.3.8), ArduinoJson, ESP32-WROOM-32D (D0WD chip)
 - Mock firmware build: `cd firmware/test && make bark-mock` (clang++, C++17, MOCK_FIRMWARE=1)
 - Host: Python 3.11+, asyncio, pyserial-asyncio, websockets
 - Web: Vanilla HTML/CSS/JS (ES modules), Three.js r128 via CDN
