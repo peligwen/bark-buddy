@@ -13,6 +13,9 @@
 #include "gpio_aux.h"
 #include "pin_registry.h"
 #include <Arduino.h>
+#ifdef WIFI_ENABLED
+#include <WiFi.h>  // WiFiClient; implicit in 2.x, explicit in 3.x
+#endif
 #include <ArduinoJson.h>
 #include <string.h>
 #if WIFI_ENABLED
@@ -392,7 +395,7 @@ static void handle_cmd_ota_update(const JsonDocument& doc) {
     uint8_t buf[4096];
     mbedtls_sha256_context sha_ctx;
     mbedtls_sha256_init(&sha_ctx);
-    mbedtls_sha256_starts_ret(&sha_ctx, 0);  // 0 = SHA-256 (not SHA-224)
+    mbedtls_sha256_starts(&sha_ctx, 0);  // 0 = SHA-256 (not SHA-224)
 
     bool write_error = false;
     bool timeout_error = false;
@@ -421,11 +424,11 @@ static void handle_cmd_ota_update(const JsonDocument& doc) {
             write_error = true;
             break;
         }
-        mbedtls_sha256_update_ret(&sha_ctx, buf, n);
+        mbedtls_sha256_update(&sha_ctx, buf, n);
     }
 
     uint8_t hash[32];
-    int mret = mbedtls_sha256_finish_ret(&sha_ctx, hash);
+    int mret = mbedtls_sha256_finish(&sha_ctx, hash);
     mbedtls_sha256_free(&sha_ctx);
 
     http.end();

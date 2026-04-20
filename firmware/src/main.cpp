@@ -251,7 +251,7 @@ void loop() {
 #if WIFI_ENABLED
     if (wifi_connected) {
         if (!tcp_client || !tcp_client.connected()) {
-            WiFiClient c = tcp_server.available();
+            WiFiClient c = tcp_server.accept();
             if (c) { tcp_client = c; tcp_client.setNoDelay(true); tcp_rx_pos = 0; broadcast_servo_pins(); }
         }
         if (tcp_client && tcp_client.connected()) {

@@ -77,9 +77,11 @@ struct WiFiServer {
     void setNoDelay(bool) {}
 
     // Returns a valid WiFiClient if a new connection arrived, else invalid one.
+    // available() is the 2.x name; accept() is the 3.x name.
     WiFiClient available() {
         WiFiClient c;
         c._valid = net_tcp::accept_client();
         return c;
     }
+    WiFiClient accept() { return available(); }
 };
