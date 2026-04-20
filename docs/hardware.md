@@ -17,12 +17,14 @@ Default GPIO assignments from `firmware/src/servos.cpp:SERVO_PINS[8]`.
 |-------|------|--------------|---------------|-----------|----------|
 | 0 | FL_hip | 25 | 2096 | 1800 | auto (+1) |
 | 1 | FL_knee | 26 | 1621 | 1500 | auto (+1) |
-| 2 | FR_hip | 27 | 2170 | 1870 | auto (+1) |
-| 3 | FR_knee | 14 | 1611 | 1500 | auto (+1) |
-| 4 | RL_hip | 16 | 904 | 1202 | auto (−1) |
-| 5 | RL_knee | 17 | 1379 | 1500 | auto (−1) |
+| 2 | FR_hip | 16 | 904 | 1202 | auto (−1) VERIFIED |
+| 3 | FR_knee | 17 | 1379 | 1500 | auto (−1) |
+| 4 | RL_hip | 27 | 2170 | 1870 | auto (+1) UNVERIFIED |
+| 5 | RL_knee | 14 | 1611 | 1500 | auto (+1) UNVERIFIED |
 | 6 | RR_hip | 15 | 830 | 1165 | override +1 |
 | 7 | RR_knee | 2 | 1389 | 1500 | override −1 |
+
+Nudge test (2026-04-20) found indices 2–3 and 4–5 had the wrong GPIOs for their labels. Fix applied: swapped `SERVO_PINS`, `STANDING_POSE`, and `REST_POSE` at slots [2,3] ↔ [4,5]. RL polarity at indices 4–5 is auto-derived but not yet verified on hardware — update once confirmed.
 
 **Polarity:** derived from standing pulse relative to 1500 μs (>1500 → +1, <1500 → −1).
 RR_hip/RR_knee are physically mounted inverted; polarity overrides correct the IK.
