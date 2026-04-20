@@ -185,6 +185,39 @@
         <button id="xform-reset-btn" style="align-self:flex-start;padding:2px 8px;margin-top:2px;font-size:0.75rem;background:#1a1a2e;color:#888;border:1px solid #444;border-radius:4px;cursor:pointer">Reset</button>
       </div>
     </details>
+    <details id="servo-nudge-panel" style="margin-top:12px">
+      <summary style="cursor:pointer;font-size:0.85rem;color:#aaa;user-select:none">Servo Nudge</summary>
+      <div style="margin-top:8px;display:flex;flex-direction:column;gap:6px;font-size:0.8rem">
+        <div style="color:#888">Nudge a single servo by pulse width to identify joint mapping</div>
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+          <span style="color:#888">Index</span>
+          <select id="servo-nudge-index" style="width:50px;background:#1a1a2e;color:#e0e0e0;border:1px solid #444;padding:2px 4px">
+            <option>0</option><option>1</option><option>2</option><option>3</option>
+            <option>4</option><option>5</option><option>6</option><option>7</option>
+          </select>
+          <span style="color:#888">Step</span>
+          <select id="servo-nudge-step" style="width:54px;background:#1a1a2e;color:#e0e0e0;border:1px solid #444;padding:2px 4px">
+            <option value="5">5</option>
+            <option value="10" selected>10</option>
+            <option value="20">20</option>
+            <option value="50">50</option>
+          </select>
+          <span style="color:#666">µs</span>
+          <button id="servo-nudge-minus" style="padding:2px 10px;font-size:1rem;background:#1a1a2e;color:#e0e0e0;border:1px solid #444;border-radius:4px;cursor:pointer">−</button>
+          <button id="servo-nudge-plus"  style="padding:2px 10px;font-size:1rem;background:#1a1a2e;color:#e0e0e0;border:1px solid #444;border-radius:4px;cursor:pointer">+</button>
+        </div>
+        <div style="margin-top:4px;display:grid;grid-template-columns:repeat(4,1fr);gap:3px;font-family:monospace;font-size:0.75rem">
+          <span style="color:#666">0: <span id="servo-nudge-readout-0">1500</span> µs</span>
+          <span style="color:#666">1: <span id="servo-nudge-readout-1">1500</span> µs</span>
+          <span style="color:#666">2: <span id="servo-nudge-readout-2">1500</span> µs</span>
+          <span style="color:#666">3: <span id="servo-nudge-readout-3">1500</span> µs</span>
+          <span style="color:#666">4: <span id="servo-nudge-readout-4">1500</span> µs</span>
+          <span style="color:#666">5: <span id="servo-nudge-readout-5">1500</span> µs</span>
+          <span style="color:#666">6: <span id="servo-nudge-readout-6">1500</span> µs</span>
+          <span style="color:#666">7: <span id="servo-nudge-readout-7">1500</span> µs</span>
+        </div>
+      </div>
+    </details>
             </div>
 
         </div>

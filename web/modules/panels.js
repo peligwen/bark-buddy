@@ -274,3 +274,26 @@ export function initTransformPanel(sendFn) {
         });
     }
 }
+
+// --- Servo Nudge Panel ---
+
+export function initServoNudgePanel(sendFn) {
+    var pulses = [1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500];
+
+    var minusBtn = document.getElementById('servo-nudge-minus');
+    var plusBtn  = document.getElementById('servo-nudge-plus');
+    if (!minusBtn || !plusBtn) return;
+
+    function nudge(sign) {
+        var idx  = parseInt(document.getElementById('servo-nudge-index').value, 10);
+        var step = parseInt(document.getElementById('servo-nudge-step').value, 10);
+        var next = clamp(pulses[idx] + sign * step, 500, 2500);
+        pulses[idx] = next;
+        var readout = document.getElementById('servo-nudge-readout-' + idx);
+        if (readout) readout.textContent = next;
+        sendFn({ type: 'cmd_servo', index: idx, pulse_us: next });
+    }
+
+    minusBtn.addEventListener('click', function () { nudge(-1); });
+    plusBtn.addEventListener('click',  function () { nudge(+1); });
+}

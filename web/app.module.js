@@ -5,7 +5,8 @@ import { setupDpad, setupKeyboard, setupActions, setCanControl, setEngaged } fro
 import { setupBatteryGraph, recordBattery,
          setupOtaPanel, updateOtaStatus,
          initOffsetPanel, updateServoPins,
-         initGaitPanel, initTransformPanel } from './modules/panels.js';
+         initGaitPanel, initTransformPanel,
+         initServoNudgePanel } from './modules/panels.js';
 import { diagInit, diagHandleTelem } from './modules/diag.js';
 
 // --- State ---
@@ -250,6 +251,7 @@ setupOtaPanel();
 initOffsetPanel(send);
 initGaitPanel(send);
 initTransformPanel(send);
+initServoNudgePanel(send);
 
 // Kinematics overlay toggle (button + K key)
 var overlayOn = false;
