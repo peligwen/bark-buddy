@@ -163,11 +163,22 @@ Results arrive as `telem_i2c`.
 
 ### ping
 
-No-op keepalive. Firmware replies with `ack`.
+Keepalive and build-info probe. Firmware replies with `pong`.
 
 ```json
 {"type": "ping"}
 ```
+
+Response:
+
+```json
+{"type": "pong", "arduino_esp32_core": "3.3.8", "pio_platform": "55.03.38-1"}
+```
+
+| Field | Description |
+|-------|-------------|
+| `arduino_esp32_core` | arduino-esp32 core version the firmware was compiled with |
+| `pio_platform` | PlatformIO platform version string (absent in mock builds) |
 
 ---
 

@@ -62,6 +62,15 @@ void broadcast_servo_pins() {
 static void handle_ping(const JsonDocument&) {
     JsonDocument resp;
     resp["type"] = MSG_PONG;
+    char core_ver[16];
+    snprintf(core_ver, sizeof(core_ver), "%d.%d.%d",
+        ESP_ARDUINO_VERSION_MAJOR,
+        ESP_ARDUINO_VERSION_MINOR,
+        ESP_ARDUINO_VERSION_PATCH);
+    resp["arduino_esp32_core"] = core_ver;
+#ifdef PIO_PLATFORM_VER
+    resp["pio_platform"] = PIO_PLATFORM_VER;
+#endif
     send_json(resp);
 }
 

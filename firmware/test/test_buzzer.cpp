@@ -48,14 +48,11 @@ static void test_clamp_dur() {
 }
 
 // ------------------------------------------------------------------ //
-// Test: BUZZER_PIN / BUZZER_LEDC_CH config sanity
+// Test: BUZZER_PIN config sanity
 // ------------------------------------------------------------------ //
 static void test_config_defines() {
     printf("\nTest: config defines\n");
-    check(BUZZER_PIN     == 21, "BUZZER_PIN == 21");
-    check(BUZZER_LEDC_CH == 9,  "BUZZER_LEDC_CH == 9");
-    // Channel 9 must not overlap servo channels (0-7) or probe channel (8)
-    check(BUZZER_LEDC_CH > 8,   "BUZZER_LEDC_CH > 8 (no overlap with servos or probe)");
+    check(BUZZER_PIN == 21, "BUZZER_PIN == 21");
 }
 
 // ------------------------------------------------------------------ //

@@ -105,3 +105,10 @@ inline T constrain(T val, T lo, T hi) { return std::min(std::max(val, lo), hi); 
 // Override PINS_VERIFIED for testing
 #undef PINS_VERIFIED
 #define PINS_VERIFIED 1
+
+// Arduino-ESP32 version macros (real values come from the SDK; stub for host tests)
+#ifndef ESP_ARDUINO_VERSION_MAJOR
+#define ESP_ARDUINO_VERSION_MAJOR 3
+#define ESP_ARDUINO_VERSION_MINOR 3
+#define ESP_ARDUINO_VERSION_PATCH 8
+#endif
