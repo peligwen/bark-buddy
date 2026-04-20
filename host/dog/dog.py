@@ -185,11 +185,25 @@ class Dog:
         await self._send_json_raw({"type": "ping"})
 
     def _on_raw_line(self, line: bytes) -> None:
-        try:
-            msg = json.loads(line.decode(errors="replace").strip())
-            self._handle_telem(msg)
-        except json.JSONDecodeError as e:
-            logger.warning("Dog: bad JSON (ignored): %s", e)
+        text = line.decode(errors="replace").strip()
+        if not text:
+            return
+        decoder = json.JSONDecoder()
+        pos = 0
+        while pos < len(text):
+            brace = text.find('{', pos)
+            if brace == -1:
+                if pos == 0:
+                    logger.debug("Dog: non-JSON line (ignored): %r", text[:80])
+                break
+            pos = brace
+            try:
+                msg, end = decoder.raw_decode(text, pos)
+                self._handle_telem(msg)
+                pos = end
+            except json.JSONDecodeError as e:
+                logger.warning("Dog: bad JSON (ignored): %s | raw=%r", e, text[pos:pos+60])
+                break
 
     def _handle_telem(self, msg: dict) -> None:
         msg_type = msg.get("type", "")

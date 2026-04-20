@@ -99,7 +99,10 @@ class DogIO:
                     logger.warning("DogIO: EOF — connection closed")
                     self._open = False
                     break
-                on_line_cb(line)
+                try:
+                    on_line_cb(line)
+                except Exception as e:
+                    logger.warning("DogIO: on_line_cb error: %s", e)
         except asyncio.CancelledError:
             pass
         except Exception as e:
