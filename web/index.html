@@ -71,7 +71,19 @@
                 <h2>Actions</h2>
                 <div class="action-bar">
                     <button class="action-btn" id="btn-balance" data-action="balance-toggle">Balance: OFF</button>
-                    <button class="action-btn" data-action="wave">Wave</button>
+                    <button class="action-btn" data-action="pose-bow">Bow</button>
+                </div>
+                <div style="margin-top:8px">
+                  <div style="color:#555;font-size:0.6rem;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Poses</div>
+                  <div class="action-bar">
+                    <button class="action-btn" data-action="pose-stand"      style="padding:4px 9px;font-size:0.68rem">Stand</button>
+                    <button class="action-btn" data-action="pose-tall"       style="padding:4px 9px;font-size:0.68rem">Tall</button>
+                    <button class="action-btn" data-action="pose-crouch"     style="padding:4px 9px;font-size:0.68rem">Crouch</button>
+                    <button class="action-btn" data-action="pose-look_up"    style="padding:4px 9px;font-size:0.68rem">Look Up</button>
+                    <button class="action-btn" data-action="pose-look_down"  style="padding:4px 9px;font-size:0.68rem">Look Dn</button>
+                    <button class="action-btn" data-action="pose-lean_left"  style="padding:4px 9px;font-size:0.68rem">Lean L</button>
+                    <button class="action-btn" data-action="pose-lean_right" style="padding:4px 9px;font-size:0.68rem">Lean R</button>
+                  </div>
                 </div>
             </div>
 
@@ -105,6 +117,72 @@
           <button id="pin-set-btn" style="padding:2px 8px">Set Pin</button>
         </div>
         <div id="servo-pins-display" style="color:#666;font-size:0.75rem;margin-top:4px"></div>
+      </div>
+    </details>
+    <details id="gait-panel" style="margin-top:12px">
+      <summary style="cursor:pointer;font-size:0.85rem;color:#aaa;user-select:none">Gait Params</summary>
+      <div style="margin-top:8px;display:flex;flex-direction:column;gap:5px;font-size:0.8rem">
+        <div style="display:flex;align-items:center;gap:6px">
+          <span style="color:#888;width:88px;flex-shrink:0">Stride length</span>
+          <input id="gait-stride-length" type="range" min="0" max="30" value="12" step="1" style="flex:1;min-width:0">
+          <span id="gait-stride-length-val" style="width:26px;text-align:right;font-family:monospace">12</span>
+          <span style="color:#555;width:20px">mm</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px">
+          <span style="color:#888;width:88px;flex-shrink:0">Stride height</span>
+          <input id="gait-stride-height" type="range" min="0" max="20" value="10" step="1" style="flex:1;min-width:0">
+          <span id="gait-stride-height-val" style="width:26px;text-align:right;font-family:monospace">10</span>
+          <span style="color:#555;width:20px">mm</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px">
+          <span style="color:#888;width:88px;flex-shrink:0">Frequency</span>
+          <input id="gait-frequency" type="range" min="0.5" max="3.0" value="1.5" step="0.1" style="flex:1;min-width:0">
+          <span id="gait-frequency-val" style="width:26px;text-align:right;font-family:monospace">1.5</span>
+          <span style="color:#555;width:20px">Hz</span>
+        </div>
+        <button id="gait-reset-btn" style="align-self:flex-start;padding:2px 8px;margin-top:2px;font-size:0.75rem;background:#1a1a2e;color:#888;border:1px solid #444;border-radius:4px;cursor:pointer">Reset defaults</button>
+      </div>
+    </details>
+    <details id="transform-panel" style="margin-top:12px">
+      <summary style="cursor:pointer;font-size:0.85rem;color:#aaa;user-select:none">Body Transform</summary>
+      <div style="margin-top:8px;display:flex;flex-direction:column;gap:5px;font-size:0.8rem">
+        <div style="display:flex;align-items:center;gap:6px">
+          <span style="color:#888;width:42px;flex-shrink:0">Roll</span>
+          <input id="xform-roll" type="range" min="-15" max="15" value="0" step="1" style="flex:1;min-width:0">
+          <span id="xform-roll-val" style="width:34px;text-align:right;font-family:monospace">0.0</span>
+          <span style="color:#555;width:14px">°</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px">
+          <span style="color:#888;width:42px;flex-shrink:0">Pitch</span>
+          <input id="xform-pitch" type="range" min="-15" max="15" value="0" step="1" style="flex:1;min-width:0">
+          <span id="xform-pitch-val" style="width:34px;text-align:right;font-family:monospace">0.0</span>
+          <span style="color:#555;width:14px">°</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px">
+          <span style="color:#888;width:42px;flex-shrink:0">Yaw</span>
+          <input id="xform-yaw" type="range" min="-20" max="20" value="0" step="1" style="flex:1;min-width:0">
+          <span id="xform-yaw-val" style="width:34px;text-align:right;font-family:monospace">0.0</span>
+          <span style="color:#555;width:14px">°</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px">
+          <span style="color:#888;width:42px;flex-shrink:0">X</span>
+          <input id="xform-x" type="range" min="-25" max="25" value="0" step="1" style="flex:1;min-width:0">
+          <span id="xform-x-val" style="width:34px;text-align:right;font-family:monospace">0.0</span>
+          <span style="color:#555;width:14px">mm</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px">
+          <span style="color:#888;width:42px;flex-shrink:0">Y</span>
+          <input id="xform-y" type="range" min="-25" max="25" value="0" step="1" style="flex:1;min-width:0">
+          <span id="xform-y-val" style="width:34px;text-align:right;font-family:monospace">0.0</span>
+          <span style="color:#555;width:14px">mm</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px">
+          <span style="color:#888;width:42px;flex-shrink:0">Z</span>
+          <input id="xform-z" type="range" min="-25" max="25" value="0" step="1" style="flex:1;min-width:0">
+          <span id="xform-z-val" style="width:34px;text-align:right;font-family:monospace">0.0</span>
+          <span style="color:#555;width:14px">mm</span>
+        </div>
+        <button id="xform-reset-btn" style="align-self:flex-start;padding:2px 8px;margin-top:2px;font-size:0.75rem;background:#1a1a2e;color:#888;border:1px solid #444;border-radius:4px;cursor:pointer">Reset</button>
       </div>
     </details>
             </div>

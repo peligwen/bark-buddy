@@ -65,14 +65,6 @@ function drawBattGraph() {
     ctx.fillText(mins > 0 ? mins + "m " + secs + "s" : secs + "s", ox + 2, oy + h - 2);
 }
 
-// --- Sim Noise Panel ---
-var noiseValueIds = {
-    "packet_drop_pct": "val-drop", "latency_base_ms": "val-lat",
-    "latency_jitter_ms": "val-jit", "sonar_noise_mm": "val-snoise",
-    "sonar_outlier_pct": "val-out", "imu_drift_dps": "val-drift",
-};
-
-
 // --- OTA Firmware Update Panel ---
 
 export function setupOtaPanel() {
@@ -183,4 +175,102 @@ export function updateServoPins(msg) {
     const pins = msg.pins || [];
     if (!pins.length) return;
     el.textContent = 'Pins: ' + pins.map((p, i) => `${i}→${p}`).join('  ');
+}
+
+// --- Gait Parameters Panel ---
+
+var GAIT_DEFAULTS = { stride_length: 12, stride_height: 10, frequency: 1.5 };
+
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+export function initGaitPanel(sendFn) {
+    var timer = null;
+
+    function sendGait() {
+        var sl = clamp(parseFloat(document.getElementById('gait-stride-length').value), 0, 30);
+        var sh = clamp(parseFloat(document.getElementById('gait-stride-height').value), 0, 20);
+        var fr = clamp(parseFloat(document.getElementById('gait-frequency').value), 0.5, 3.0);
+        sendFn({ type: 'cmd_gait_params', stride_length: sl, stride_height: sh, frequency: fr });
+    }
+
+    ['gait-stride-length', 'gait-stride-height', 'gait-frequency'].forEach(function (id) {
+        var el = document.getElementById(id);
+        if (!el) return;
+        var valEl = document.getElementById(id + '-val');
+        var decimals = id === 'gait-frequency' ? 1 : 0;
+        el.addEventListener('input', function () {
+            if (valEl) valEl.textContent = parseFloat(el.value).toFixed(decimals);
+            clearTimeout(timer);
+            timer = setTimeout(sendGait, 200);
+        });
+    });
+
+    var resetBtn = document.getElementById('gait-reset-btn');
+    if (resetBtn) {
+        resetBtn.addEventListener('click', function () {
+            document.getElementById('gait-stride-length').value = GAIT_DEFAULTS.stride_length;
+            document.getElementById('gait-stride-height').value = GAIT_DEFAULTS.stride_height;
+            document.getElementById('gait-frequency').value = GAIT_DEFAULTS.frequency;
+            document.getElementById('gait-stride-length-val').textContent = GAIT_DEFAULTS.stride_length;
+            document.getElementById('gait-stride-height-val').textContent = GAIT_DEFAULTS.stride_height;
+            document.getElementById('gait-frequency-val').textContent = GAIT_DEFAULTS.frequency.toFixed(1);
+            sendFn({ type: 'cmd_gait_params',
+                     stride_length: GAIT_DEFAULTS.stride_length,
+                     stride_height: GAIT_DEFAULTS.stride_height,
+                     frequency:     GAIT_DEFAULTS.frequency });
+        });
+    }
+}
+
+// --- Body Transform Panel ---
+
+var XFORM_AXES = [
+    { id: 'roll',  min: -15, max:  15, unit: '\u00b0' },
+    { id: 'pitch', min: -15, max:  15, unit: '\u00b0' },
+    { id: 'yaw',   min: -20, max:  20, unit: '\u00b0' },
+    { id: 'x',     min: -25, max:  25, unit: 'mm' },
+    { id: 'y',     min: -25, max:  25, unit: 'mm' },
+    { id: 'z',     min: -25, max:  25, unit: 'mm' },
+];
+
+export function setTransformSliders(payload) {
+    XFORM_AXES.forEach(function (ax) {
+        var val = (payload[ax.id] !== undefined) ? payload[ax.id] : 0;
+        var slider = document.getElementById('xform-' + ax.id);
+        var display = document.getElementById('xform-' + ax.id + '-val');
+        if (slider) slider.value = val;
+        if (display) display.textContent = parseFloat(val).toFixed(1);
+    });
+}
+
+export function initTransformPanel(sendFn) {
+    var timer = null;
+
+    function sendTransform() {
+        var msg = { type: 'cmd_transform' };
+        XFORM_AXES.forEach(function (ax) {
+            var slider = document.getElementById('xform-' + ax.id);
+            if (slider) msg[ax.id] = clamp(parseFloat(slider.value), ax.min, ax.max);
+        });
+        sendFn(msg);
+    }
+
+    XFORM_AXES.forEach(function (ax) {
+        var slider  = document.getElementById('xform-' + ax.id);
+        var display = document.getElementById('xform-' + ax.id + '-val');
+        if (!slider) return;
+        slider.addEventListener('input', function () {
+            if (display) display.textContent = parseFloat(slider.value).toFixed(1);
+            clearTimeout(timer);
+            timer = setTimeout(sendTransform, 100);
+        });
+    });
+
+    var resetBtn = document.getElementById('xform-reset-btn');
+    if (resetBtn) {
+        resetBtn.addEventListener('click', function () {
+            setTransformSliders({});
+            sendFn({ type: 'cmd_transform' });
+        });
+    }
 }

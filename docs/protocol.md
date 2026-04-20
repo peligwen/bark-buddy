@@ -105,14 +105,49 @@ All fields are optional; omitted fields default to 0.
 Set gait stride parameters. Changes take effect on next gait cycle.
 
 ```json
-{"type": "cmd_gait_params", "stride_length": 20, "stride_height": 10, "speed": 1.0}
+{"type": "cmd_gait_params", "stride_length": 20, "stride_height": 10, "frequency": 1.5}
 ```
 
-| Field | Unit | Description |
-|-------|------|-------------|
-| stride_length | mm | foot swing distance per step |
-| stride_height | mm | foot lift height per step |
-| speed | 0.0–1.0 | scales gait frequency |
+| Field | Unit | Safe range | Default | Description |
+|-------|------|------------|---------|-------------|
+| stride_length | mm | 0–30 | 12 | foot swing distance per step |
+| stride_height | mm | 0–20 | 10 | foot lift height above standing |
+| frequency | Hz | 0.5–3.0 | 1.5 | step frequency; firmware applies no bounds — callers must clamp |
+
+Omitted fields revert to compiled defaults (`config.h`). Firmware does not enforce min/max.
+
+### cmd_balance_config
+
+Read or update active-balance PID gains. Omitted fields are unchanged; response echoes all current values.
+
+```json
+{"type": "cmd_balance_config", "pitch_kp": 0.3, "pitch_ki": 0.0, "pitch_kd": 0.05,
+                                "roll_kp":  0.3, "roll_ki":  0.0, "roll_kd":  0.05}
+```
+
+| Field | Description |
+|-------|-------------|
+| pitch_kp / pitch_ki / pitch_kd | PID gains for pitch axis |
+| roll_kp / roll_ki / roll_kd | PID gains for roll axis |
+
+Response is an `ack` with `ok: true` and all six gain fields echoed.
+Requires engagement. Default gains: kp=0.3, ki=0.0, kd=0.05; max correction 8°, deadband 0.5°.
+
+### cmd_probe_pin
+
+Wiggle a GPIO ±50 µs around a center pulse to identify an unknown servo pin.
+Useful during initial setup or after a wiring change.
+
+```json
+{"type": "cmd_probe_pin", "pin": 14, "pulse_us": 1500}
+```
+
+| Field | Description |
+|-------|-------------|
+| pin | GPIO number to probe (must not be reserved or actively driving an engaged servo) |
+| pulse_us | center pulse (500–2500 µs; default 1500) |
+
+Responds with `ack` echoing `pin` on success. Rejected (`ok: false`) if the pin is reserved, already driving an engaged servo, or `pin` is omitted.
 
 ### cmd_led
 

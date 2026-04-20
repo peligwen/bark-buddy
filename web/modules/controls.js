@@ -1,5 +1,7 @@
 // D-pad, keyboard, and action controls
 import { send } from './ws.js';
+import { TRANSFORM_POSES } from './poses.js';
+import { setTransformSliders } from './panels.js';
 
 var canControlFn = null;
 export function setCanControl(fn) { canControlFn = fn; }
@@ -101,6 +103,13 @@ export function setupActions(Dog3D) {
             var action = btn.dataset.action;
             if (action === "balance-toggle") {
                 send({ type: "cmd_balance", enabled: !balanceEnabled });
+            } else if (action.indexOf("pose-") === 0) {
+                var poseName = action.slice(5);
+                var payload = TRANSFORM_POSES[poseName];
+                if (payload === undefined) return;
+                send(Object.assign({ type: "cmd_transform", ms: 400 }, payload));
+                setTransformSliders(payload);
+                if (Dog3D && Dog3D.setPose) Dog3D.setPose(poseName);
             }
         });
     });
