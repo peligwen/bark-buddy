@@ -42,8 +42,8 @@
 #define SONAR_ADDR      0x77    // Hiwonder I2C ultrasonic
 
 // --- Servo PWM Pins (ALL 8 VERIFIED via MCPWM register diff + IMU) ---
-// MCPWM0: GPIOs 25,26,27,14,16,17 (confirmed via register scan)
-// MCPWM1: GPIOs 4,2 (confirmed via MCPWM1 register diff + IMU)
+// MCPWM0: GPIOs 25,26,16,17,27,14 (confirmed via register scan)
+// MCPWM1: GPIOs 15,2 (confirmed via MCPWM1 register diff + IMU)
 // Hardware LEDC peripheral: servo index i → LEDC channel i, 50Hz, 14-bit.
 // Order: FL_hip, FL_knee, FR_hip, FR_knee, RL_hip, RL_knee, RR_hip, RR_knee
 // Mutable: servos_set_pin() can hot-swap a GPIO at runtime (tuning UI).
@@ -73,7 +73,7 @@ extern uint8_t SERVO_PINS[8];
 // Order: FL_hip, FL_knee, FR_hip, FR_knee, RL_hip, RL_knee, RR_hip, RR_knee
 // Verified from stock firmware read_all_servo() at default pose
 static const uint16_t STANDING_POSE[8] = {
-    2096, 1621, 2170, 1611, 904, 1379, 830, 1389
+    2096, 1621, 904, 1379, 2170, 1611, 830, 1389
 };
 
 // --- Lying-Down Pose (servo pulse widths in μs) ---
@@ -87,7 +87,7 @@ static const uint16_t LYING_DOWN_POSE[8] = {
 // Resting pose: hips back, knees partially tucked. Used for engage/disengage transitions.
 // Order: FL_hip, FL_knee, FR_hip, FR_knee, RL_hip, RL_knee, RR_hip, RR_knee
 static const uint16_t REST_POSE[8] = {
-    1800, 1500, 1870, 1500, 1202, 1500, 1165, 1500
+    1800, 1500, 1202, 1500, 1870, 1500, 1165, 1500
 };
 
 // --- Battery ADC (VERIFIED: Hiwonder.__adcp = ADC(Pin(34), atten=3)) ---
@@ -135,19 +135,16 @@ static const uint16_t REST_POSE[8] = {
 // The IK auto-derives polarity from standing pulse: >1500 → +1, <1500 → -1.
 // If a servo is physically mounted in reverse, override with +1 or -1 here.
 // 0 = use auto-derived polarity.
-// Hypothesis: rear legs (RL/RR, indices 4-7) may need polarity flipped to +1.
-// Test: in test mode, send index 4 pulse 800 — if RL hip swings forward, polarity=-1 is correct.
-//       If it swings backward, set polarity_override[4]=+1.
 // clang-format off
 #ifndef IK_POLARITY_OVERRIDE_DEFINED
 #define IK_POLARITY_OVERRIDE_DEFINED
 static const int8_t SERVO_POLARITY_OVERRIDE[8] = {
     0,   // 0 FL_hip  — auto (+1, standing=2096)
     0,   // 1 FL_knee — auto (+1, standing=1621)
-    0,   // 2 FR_hip  — auto (+1, standing=2170)
-    0,   // 3 FR_knee — auto (+1, standing=1611)
-    0,   // 4 RL_hip  — auto (-1, standing=904)  VERIFIED: pulse↓ → forward swing ✓
-    0,   // 5 RL_knee — auto (-1, standing=1379)
+    0,   // 2 FR_hip  — auto (-1, standing=904)   VERIFIED: pulse↓ → forward swing ✓
+    0,   // 3 FR_knee — auto (-1, standing=1379)
+    0,   // 4 RL_hip  — auto (+1, standing=2170)  UNVERIFIED post-swap
+    0,   // 5 RL_knee — auto (+1, standing=1611)  UNVERIFIED post-swap
    +1,   // 6 RR_hip  — OVERRIDE: pulse↓ → backward (inverted); +1 corrects it
    -1,   // 7 RR_knee — OVERRIDE: physically inverted with RR_hip; -1 corrects it
 };

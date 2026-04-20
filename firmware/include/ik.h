@@ -95,11 +95,11 @@ inline const ServoCalEntry* cal_table() {
     static bool built = false;
     if (built) return table;
 
-    // Front legs: lx=-25.75, lz=-55 (indices 0=FL_hip,1=FL_knee,4=RL_hip,5=RL_knee)
+    // Front geometry group (hip_x=+85): FL+RL — indices 0=FL_hip,1=FL_knee,4=RL_hip,5=RL_knee
     float hip_front, knee_front;
     standing_angles(-25.75f, -55.0f, hip_front, knee_front);
 
-    // Rear legs: lx=+13.75, lz=-55 (indices 2=FR_hip,3=FR_knee,6=RR_hip,7=RR_knee)
+    // Rear geometry group (hip_x=-85): FR+RR  — indices 2=FR_hip,3=FR_knee,6=RR_hip,7=RR_knee
     float hip_rear, knee_rear;
     standing_angles(13.75f, -55.0f, hip_rear, knee_rear);
 
