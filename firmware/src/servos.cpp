@@ -4,8 +4,8 @@
 #include "pin_registry.h"
 #include <Arduino.h>
 
-// Hardware PWM via ESP32 LEDC peripheral (old-style ledcSetup/ledcAttachPin API).
-// Servo index i → LEDC channel i. Writes use ledcWrite(pin, duty) — pin-based.
+// Hardware PWM via ESP32 LEDC peripheral (arduino-esp32 2.x channel-based API).
+// Servo index i → LEDC channel i. Writes use ledcWrite(channel, duty).
 // 50Hz, 14-bit resolution (~1.22us/tick). Zero CPU cost during pulse generation.
 // Engage: attach at REST_POSE -> ramp to STANDING_POSE (non-blocking, millis-based).
 // Disengage: ramp to REST_POSE -> detach.
@@ -50,7 +50,7 @@ bool servos_engage_start() {
         ledcAttachPin(SERVO_PINS[i], i);
         uint16_t pos = clamp_us(REST_POSE[i]);
         current_us[i] = pos;
-        ledcWrite(SERVO_PINS[i], us_to_duty(pos));
+        ledcWrite(i, us_to_duty(pos));
     }
     s_engaged = true;
 #if AUX_SERVOS_ENABLED
@@ -116,11 +116,12 @@ bool servos_engaged() {
     return s_engaged;
 }
 
-void servo_write_us(uint8_t index, uint16_t pulse_us) {
-    if (!s_engaged || index >= 8) return;
+bool servo_write_us(uint8_t index, uint16_t pulse_us) {
+    if (!s_engaged || index >= 8) return false;
     pulse_us = clamp_us(pulse_us);
     current_us[index] = pulse_us;
-    ledcWrite(SERVO_PINS[index], us_to_duty(apply_offset(index, pulse_us)));
+    ledcWrite(index, us_to_duty(apply_offset(index, pulse_us)));
+    return true;
 }
 
 uint16_t servo_read_us(uint8_t index) {
@@ -198,7 +199,7 @@ void aux_servo_init() {
         ledcAttachPin(AUX_SERVO_PINS[i], AUX_SERVO_LEDC_CH[i]);
         uint16_t pos = clamp_us(1500);
         aux_current_us[i] = pos;
-        ledcWrite(AUX_SERVO_PINS[i], us_to_duty(pos));
+        ledcWrite(AUX_SERVO_LEDC_CH[i], us_to_duty(pos));
     }
 }
 
@@ -206,7 +207,7 @@ void aux_servo_write_us(uint8_t idx, uint16_t us) {
     if (!s_engaged || idx >= AUX_SERVO_COUNT) return;
     us = clamp_us(us);
     aux_current_us[idx] = us;
-    ledcWrite(AUX_SERVO_PINS[idx], us_to_duty(us));
+    ledcWrite(AUX_SERVO_LEDC_CH[idx], us_to_duty(us));
 }
 
 uint16_t aux_servo_read_us(uint8_t idx) {

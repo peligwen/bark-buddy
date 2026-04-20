@@ -21,7 +21,7 @@ static uint16_t s_servo_us[8] = {};
 bool         servos_engaged()                  { return s_engaged; }
 bool         servos_is_ramping()               { return s_ramping; }
 uint16_t     servo_read_us(uint8_t idx)        { return (idx < 8) ? s_servo_us[idx] : 0; }
-void         servo_write_us(uint8_t idx, uint16_t us) { if (idx < 8) s_servo_us[idx] = us; }
+bool         servo_write_us(uint8_t idx, uint16_t us) { if (idx < 8) s_servo_us[idx] = us; return true; }
 bool         servos_engage_start()             { return true; }
 void         servos_disengage_start()          {}
 RampResult   servos_ramp_tick(uint32_t)        { return RampResult::NONE; }

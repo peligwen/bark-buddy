@@ -47,7 +47,7 @@ bool servos_battery_cutoff()       { return false; }
 bool servos_is_ramping()           { return false; }
 bool servos_engage_start()         { return true; }
 void servos_disengage_start()      {}
-void servo_write_us(uint8_t, uint16_t) {}
+bool servo_write_us(uint8_t, uint16_t) { return true; }
 uint16_t servo_read_us(uint8_t)    { return 1500; }
 void servos_detach_all()           {}
 void servos_set_battery_cutoff()   {}

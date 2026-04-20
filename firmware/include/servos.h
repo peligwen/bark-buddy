@@ -24,8 +24,8 @@ bool servos_is_ramping();
 // Are servos currently attached (true during ramp AND after)?
 bool servos_engaged();
 
-// Write servo pulse width in microseconds (clamped). No-op if not engaged.
-void servo_write_us(uint8_t index, uint16_t pulse_us);
+// Write servo pulse width in microseconds (clamped). Returns false if not engaged or out of range.
+bool servo_write_us(uint8_t index, uint16_t pulse_us);
 
 // Read current cached pulse width.
 uint16_t servo_read_us(uint8_t index);

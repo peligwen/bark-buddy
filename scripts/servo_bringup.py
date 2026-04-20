@@ -79,7 +79,9 @@ async def sweep_servo(dog: Dog, index: int) -> bool:
             print(f"  [servo {index}] NACK: {ack.get('error')} at {pulse} µs")
             return False
         actual = ack.get("actual_us", "?")
-        print(f"  [servo {index}] {pulse} µs → actual {actual} µs  ok")
+        written = ack.get("written", None)
+        written_str = "" if written is None else f"  written={'YES' if written else 'NO — LEDC dropped!'}"
+        print(f"  [servo {index}] {pulse} µs → actual {actual} µs  ok{written_str}")
         await asyncio.sleep(STEP_SLEEP_S)
     return True
 

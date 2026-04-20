@@ -38,8 +38,6 @@ void buzzer_tone(uint16_t freq_hz, uint32_t duration_ms) {
     freq_hz     = buzzer_clamp_freq(freq_hz);
     duration_ms = buzzer_clamp_dur(duration_ms);
 
-    // ledcSetup changes the timer frequency; ledcAttachPin must follow to re-bind
-    // the GPIO to the reconfigured LEDC channel.
     ledcSetup(BUZZER_LEDC_CH, freq_hz, 8);
     ledcAttachPin(BUZZER_PIN, BUZZER_LEDC_CH);
     ledcWrite(BUZZER_LEDC_CH, 128);  // 50% duty

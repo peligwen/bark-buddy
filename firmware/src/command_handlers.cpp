@@ -204,7 +204,7 @@ static void handle_cmd_servo(const JsonDocument& doc) {
 #endif
 
     gait_pause();  // prevent gait from fighting manual writes
-    servo_write_us(idx, us);
+    bool written = servo_write_us(idx, us);
 
     JsonDocument resp;
     resp["type"]      = MSG_ACK;
@@ -212,6 +212,7 @@ static void handle_cmd_servo(const JsonDocument& doc) {
     resp["ok"]        = true;
     resp["index"]     = idx;
     resp["actual_us"] = servo_read_us(idx);
+    resp["written"]   = written;
     send_json(resp);
 }
 
@@ -535,13 +536,13 @@ static void handle_cmd_probe_pin(const JsonDocument& doc) {
     for (int i = 0; i < PROBE_CYCLES; i++) {
         uint16_t hi = center + PROBE_AMPLITUDE_US;
         uint16_t lo = (center > PROBE_AMPLITUDE_US) ? (center - PROBE_AMPLITUDE_US) : 500u;
-        ledcWrite(pin, probe_us_to_duty(hi));
+        ledcWrite(PROBE_LEDC_CHANNEL, probe_us_to_duty(hi));
         delay(PROBE_HALF_PERIOD_MS);
-        ledcWrite(pin, probe_us_to_duty(lo));
+        ledcWrite(PROBE_LEDC_CHANNEL, probe_us_to_duty(lo));
         delay(PROBE_HALF_PERIOD_MS);
     }
     // Return to center, then detach
-    ledcWrite(pin, probe_us_to_duty(center));
+    ledcWrite(PROBE_LEDC_CHANNEL, probe_us_to_duty(center));
     delay(50);
     ledcDetachPin(pin);
 
