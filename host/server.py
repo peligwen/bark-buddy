@@ -11,6 +11,7 @@ import hashlib
 import json
 import logging
 import os
+import sys
 
 from aiohttp import web
 
@@ -655,6 +656,14 @@ def _restart_server():
 
 
 async def main(args):
+    import socket as _sock
+    try:
+        with _sock.create_connection(('127.0.0.1', args.port), timeout=0.2):
+            print(f"\nbark is already running on port {args.port}. Use 'bark kill' to stop it first.")
+            sys.exit(1)
+    except OSError:
+        pass
+
     fw_tcp = getattr(args, 'fw_tcp', None)
     if fw_tcp:
         # Explicit TCP connection (mock or remote WiFi)
@@ -676,11 +685,9 @@ async def main(args):
                 logger.error("%s", e)
                 print(f"\nNo MechDog detected on {serial_port}.\n"
                       "Plug in a device or run 'bark mock'.")
-                import sys
                 sys.exit(1)
         else:
             print("\nNo MechDog detected. Plug in a device or run 'bark mock'.")
-            import sys
             sys.exit(1)
 
     web_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "web"))
