@@ -21,17 +21,16 @@ def _probe_serial_sync(port: str) -> bool:
     import serial
     import time
     try:
-        ser = serial.Serial(port, 115200, timeout=2)
-        time.sleep(3.0)
-        resp = ""
-        for _ in range(3):
-            ser.write(b'{"type":"ping"}\n')
-            time.sleep(0.5)
-            resp += ser.read(ser.in_waiting).decode(errors="replace")
-            if '"pong"' in resp:
-                break
-        ser.close()
-        return '"pong"' in resp
+        with serial.Serial(port, 115200, timeout=0.25) as ser:
+            deadline = time.monotonic() + 3.0
+            resp = ""
+            while time.monotonic() < deadline:
+                ser.write(b'{"type":"ping"}\n')
+                time.sleep(0.25)
+                resp += ser.read(ser.in_waiting).decode(errors="replace")
+                if '"pong"' in resp:
+                    return True
+            return False
     except Exception as e:
         logger.warning("Serial probe failed on %s: %s", port, e)
         return False
