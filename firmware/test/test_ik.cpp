@@ -28,10 +28,10 @@ int main() {
 
     // Test 2: Stock ground truth — standing foot positions match stock firmware
     const float stock_feet[4][3] = {
-        {59.25f, 46.0f, -80.0f},   // FL
-        {-71.25f, 46.0f, -80.0f},  // FR
-        {59.25f, -46.0f, -80.0f},  // RL
-        {-71.25f, -46.0f, -80.0f}, // RR
+        { 59.25f,  46.0f, -80.0f},  // FL: front-left
+        { 59.25f, -46.0f, -80.0f},  // FR: front-right
+        {-71.25f,  46.0f, -80.0f},  // RL: rear-left
+        {-71.25f, -46.0f, -80.0f},  // RR: rear-right
     };
     for (int leg = 0; leg < 4; leg++) {
         FootPos foot = standing_foot_pos(leg);

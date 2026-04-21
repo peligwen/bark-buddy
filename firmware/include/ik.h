@@ -95,11 +95,11 @@ inline const ServoCalEntry* cal_table() {
     static bool built = false;
     if (built) return table;
 
-    // Front geometry group (hip_x=+85): FL+RL — indices 0=FL_hip,1=FL_knee,4=RL_hip,5=RL_knee
+    // Front geometry group (hip_x=+85): FL+FR — indices 0=FL_hip,1=FL_knee,2=FR_hip,3=FR_knee
     float hip_front, knee_front;
     standing_angles(-25.75f, -55.0f, hip_front, knee_front);
 
-    // Rear geometry group (hip_x=-85): FR+RR  — indices 2=FR_hip,3=FR_knee,6=RR_hip,7=RR_knee
+    // Rear geometry group (hip_x=-85): RL+RR  — indices 4=RL_hip,5=RL_knee,6=RR_hip,7=RR_knee
     float hip_rear, knee_rear;
     standing_angles(13.75f, -55.0f, hip_rear, knee_rear);
 
@@ -123,10 +123,10 @@ inline const ServoCalEntry* cal_table() {
 
     fill(0, hip_front);   // FL_hip
     fill(1, knee_front);  // FL_knee
-    fill(2, hip_rear);    // FR_hip
-    fill(3, knee_rear);   // FR_knee
-    fill(4, hip_front);   // RL_hip
-    fill(5, knee_front);  // RL_knee
+    fill(2, hip_front);   // FR_hip  (front leg, same geometry as FL)
+    fill(3, knee_front);  // FR_knee
+    fill(4, hip_rear);    // RL_hip  (rear leg, same geometry as RR)
+    fill(5, knee_rear);   // RL_knee
     fill(6, hip_rear);    // RR_hip
     fill(7, knee_rear);   // RR_knee
 
@@ -164,8 +164,8 @@ inline uint16_t angle_to_pulse(uint8_t idx, float angle_rad) {
 // Hip joint world position (mm) for leg 0..3
 // Convention: x=forward, y=lateral(+left), z=neg=down
 inline FootPos hip_position(uint8_t leg) {
-    float hx = (leg == 0 || leg == 2) ? +IK_HIP_ABS_X : -IK_HIP_ABS_X;  // FL/RL front, FR/RR rear
-    float hy = (leg == 0 || leg == 1) ? +IK_HIP_ABS_Y : -IK_HIP_ABS_Y;  // FL/FR left, RL/RR right
+    float hx = (leg == 0 || leg == 1) ? +IK_HIP_ABS_X : -IK_HIP_ABS_X;  // FL/FR front, RL/RR rear
+    float hy = (leg == 0 || leg == 2) ? +IK_HIP_ABS_Y : -IK_HIP_ABS_Y;  // FL/RL left, FR/RR right
     return { hx, hy, IK_HIP_Z };
 }
 
