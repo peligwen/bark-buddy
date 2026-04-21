@@ -41,6 +41,7 @@ class Dog:
         self._imu: dict = {"pitch": 0.0, "roll": 0.0, "yaw": 0.0}
         self._sonar_mm: int = 0
         self._battery_mv: int = 7400
+        self._battery_present: bool = True
         self._firmware_info: dict = {}
         self._engaged: bool = False
         self._ramping: bool = False
@@ -97,6 +98,9 @@ class Dog:
 
     def get_battery_mv(self) -> int:
         return self._battery_mv
+
+    def get_battery_present(self) -> bool:
+        return self._battery_present
 
     def get_engaged(self) -> bool:
         return self._engaged
@@ -215,6 +219,7 @@ class Dog:
             self._sonar_mm = msg.get("distance_mm", 0)
         elif msg_type == "telem_battery":
             self._battery_mv = msg.get("voltage_mv", 7400)
+            self._battery_present = msg.get("present", True)
         elif msg_type == "telem_status":
             self._engaged = msg.get("engaged", self._engaged)
             self._ramping = msg.get("ramping", self._ramping)

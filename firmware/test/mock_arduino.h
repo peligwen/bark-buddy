@@ -70,8 +70,10 @@ inline void ledcWrite(uint8_t pin, uint32_t duty) {
 }
 
 
-// ADC stub
-inline int analogRead(uint8_t pin) { (void)pin; return 3200; } // ~7.4V with divider
+// ADC stub — runtime-settable for testing battery cutoff and absent-state paths
+inline int _mock_battery_raw = 3200;  // default: ~7.4V after divider
+inline int analogRead(uint8_t pin) { (void)pin; return _mock_battery_raw; }
+inline void mock_set_battery_raw(int raw) { _mock_battery_raw = raw; }
 
 // Serial stub
 struct MockSerial {

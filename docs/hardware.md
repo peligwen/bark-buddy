@@ -90,10 +90,14 @@ arduino-esp32 3.x pin-based API: servos, buzzer, and probe are attached with `le
 
 | Level | Voltage | Behavior |
 |-------|---------|----------|
+| Absent | < 4500 mV | Battery switch off / USB-only. LED off; cutoff latch suppressed (or cleared if previously set). `telem_battery.present = false`. Detected after 3 consecutive 1 Hz samples. |
 | Low | < 6700 mV | LED blinks 1 Hz |
 | Critical | < 6500 mV | LED blinks 2 Hz |
-| Cutoff | < 6400 mV | Servos detach; state latched until reboot |
-| Hysteresis | 100 mV | Prevents rapid threshold crossing |
+| Cutoff | < 6400 mV | Servos detach; state latched until reboot (or until battery switch is turned off) |
+| Hysteresis | 100 mV | Prevents rapid threshold crossing (voltage-based states) |
+| Absent hysteresis | 500 mV | Must exceed 5000 mV to re-enter Present from Absent |
+
+**Why 4500 mV?** A connected 2S LiPo reads at minimum ~6000 mV (2 × 3.0 V/cell absolute floor). With the battery switch OFF and USB powering the ESP32, regulator leakage holds the ADC rail at ~3500 mV. The 4500 mV threshold sits safely between these ranges.
 
 ## WiFi
 

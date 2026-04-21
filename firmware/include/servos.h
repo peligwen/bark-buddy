@@ -35,6 +35,8 @@ void servos_detach_all();
 
 // Mark that battery cutoff has been latched (prevents future engage).
 void servos_set_battery_cutoff();
+// Clear the battery cutoff latch (only called when battery is confirmed absent/USB-only).
+void servos_clear_battery_cutoff();
 bool servos_battery_cutoff();
 
 // --- Auxiliary servo ports (indices 8-10, GPIOs 15/0/12) ---

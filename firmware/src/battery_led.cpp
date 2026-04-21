@@ -12,7 +12,7 @@ static unsigned int half_period_ms(BatteryLedState st) {
         case BatteryLedState::Low:      return 500;
         case BatteryLedState::Critical: return 250;
         case BatteryLedState::Cutoff:   return 125;
-        default:                        return 0;
+        default:                        return 0;  // Ok, Absent: LED off
     }
 }
 
@@ -27,14 +27,27 @@ void battery_led_init(void) {
     s_ok_pinned = false;
 }
 
-void battery_led_update_voltage(int mv, bool cutoff) {
+void battery_led_update_voltage(int mv, bool cutoff, bool absent) {
+    if (absent) {
+        if (s_state != BatteryLedState::Absent) {
+            s_state     = BatteryLedState::Absent;
+            s_ok_pinned = false;
+        }
+        return;
+    }
     if (cutoff) {
-        // One-way latch — once cutoff, state never recovers
+        // One-way latch — once cutoff, state never recovers (until reboot or absent clears it)
         if (s_state != BatteryLedState::Cutoff) {
             s_state   = BatteryLedState::Cutoff;
             s_last_ms = 0;  // reset phase
         }
         return;
+    }
+
+    // If absent just cleared, reset to Ok so voltage logic can re-evaluate cleanly.
+    if (s_state == BatteryLedState::Absent) {
+        s_state     = BatteryLedState::Ok;
+        s_ok_pinned = false;
     }
 
     BatteryLedState next = s_state;
@@ -71,7 +84,7 @@ void battery_led_update_voltage(int mv, bool cutoff) {
 }
 
 void battery_led_tick(unsigned long now_ms) {
-    if (s_state == BatteryLedState::Ok) {
+    if (s_state == BatteryLedState::Ok || s_state == BatteryLedState::Absent) {
         if (!s_ok_pinned) {
 #ifndef MOCK_FIRMWARE
             digitalWrite(ONBOARD_LED_PIN, HIGH);  // off

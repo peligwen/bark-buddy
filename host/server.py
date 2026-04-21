@@ -302,6 +302,7 @@ class Server:
             "engaged": self._transport.get_engaged() if self._transport else False,
             "ramping": self._transport.get_ramping() if self._transport else False,
             "battery_cutoff": self._transport.get_battery_cutoff() if self._transport else False,
+            "battery_present": self._transport.get_battery_present() if self._transport else True,
             "fw_version": self._transport.get_fw_version() if self._transport else "",
             "available_fw_version": self._ota.available_version,
         }
@@ -482,6 +483,7 @@ class Server:
             "engaged": self._transport.get_engaged() if self._transport else False,
             "ramping": self._transport.get_ramping() if self._transport else False,
             "battery_cutoff": self._transport.get_battery_cutoff() if self._transport else False,
+            "battery_present": self._transport.get_battery_present() if self._transport else True,
             "fw_version": self._transport.get_fw_version() if self._transport else "",
             "available_fw_version": self._ota.available_version,
             "transport": self._transport_label,

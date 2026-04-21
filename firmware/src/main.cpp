@@ -76,6 +76,13 @@ static bool          connected         = false;
 // --- Boot diagnostic ---
 static bool gpio2_at_boot = false;
 
+// --- Battery absent-state machine ---
+// Detects USB-only operation: ADC rail reads ~3.5V via leakage when battery switch is OFF.
+// Any 2S pack in use reads at least 6V; 4500mV is safely between these ranges.
+static bool s_battery_absent   = false;
+static int  s_batt_below_count = 0;
+static int  s_batt_above_count = 0;
+
 // --- Telemetry timers ---
 static unsigned long last_imu     = 0;
 static unsigned long last_sonar   = 0;
@@ -285,9 +292,34 @@ void loop() {
         int   raw     = analogRead(BATTERY_ADC_PIN);
         float voltage = (raw / 4095.0f) * 3.3f * BATTERY_DIVIDER;
         int   mv      = (int)(voltage * 1000);
-        battery_led_update_voltage(mv, servos_battery_cutoff());
-        if (mv < BATTERY_CUTOFF_MV && mv > 1000 && !servos_battery_cutoff()) {
-            servos_set_battery_cutoff();  // latches AND detaches
+
+        // Absent-state debounce: BATTERY_ABSENT_SAMPLES consecutive 1 Hz reads to
+        // enter/exit. Replaces the old `mv > 1000` guard with a principled check.
+        if (mv < BATTERY_ABSENT_MV) {
+            s_batt_above_count = 0;
+            if (++s_batt_below_count >= BATTERY_ABSENT_SAMPLES && !s_battery_absent) {
+                s_battery_absent = true;
+                if (servos_battery_cutoff()) {
+                    servos_clear_battery_cutoff();
+                    JsonDocument abs_evt;
+                    abs_evt["type"]  = MSG_TELEM_EVENT;
+                    abs_evt["event"] = "battery_absent_clear_latch";
+                    abs_evt["t"]     = (uint32_t)now;
+                    abs_evt["mv"]    = mv;
+                    send_json(abs_evt);
+                }
+            }
+        } else if (mv > BATTERY_ABSENT_MV + BATTERY_ABSENT_HYSTERESIS_MV) {
+            s_batt_below_count = 0;
+            if (++s_batt_above_count >= BATTERY_ABSENT_SAMPLES) {
+                s_battery_absent = false;
+            }
+        }
+
+        battery_led_update_voltage(mv, servos_battery_cutoff(), s_battery_absent);
+
+        if (!s_battery_absent && mv < BATTERY_CUTOFF_MV && !servos_battery_cutoff()) {
+            servos_set_battery_cutoff();
             gait_set_state(GaitState::STOP);
             JsonDocument lb_evt;
             lb_evt["type"]  = MSG_TELEM_EVENT;
@@ -301,7 +333,8 @@ void loop() {
             doc["type"]       = MSG_TELEM_BATTERY;
             doc["voltage_mv"] = mv;
             doc["pct"]        = constrain((mv - 6000) * 100 / 2400, 0, 100);
-            doc["low"]        = servos_battery_cutoff();
+            doc["present"]    = !s_battery_absent;
+            doc["low"]        = !s_battery_absent && mv < BATTERY_LOW_MV;
             send_json(doc);
         }
         last_battery = now;

@@ -97,6 +97,11 @@ static const uint16_t REST_POSE[8] = {
 #define BATTERY_CRITICAL_MV 6500    // 2 Hz blink warning
 #define BATTERY_CUTOFF_MV   6400    // 2S LiPo cutoff (~3.2V/cell) — servos detach
 #define BATTERY_HYSTERESIS_MV 100   // prevents rate chatter near thresholds
+// USB-only: battery switch OFF leaves ADC rail at ~3.5V via regulator leakage.
+// Anything below this threshold is physically impossible for a connected 2S pack.
+#define BATTERY_ABSENT_MV            4500  // below any plausible 2S reading
+#define BATTERY_ABSENT_HYSTERESIS_MV 500   // must exceed ABSENT+500 to re-enter present
+#define BATTERY_ABSENT_SAMPLES       3     // consecutive 1 Hz reads to latch state
 
 // --- WiFi ---
 // Credentials come from config_local.h (gitignored).

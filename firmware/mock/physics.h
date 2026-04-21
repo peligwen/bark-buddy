@@ -15,6 +15,5 @@ void tick(float dt_s);
 
 void imu_sample(IMUSample& out);
 uint16_t sonar_mm();
-int battery_raw();
 
 }  // namespace physics

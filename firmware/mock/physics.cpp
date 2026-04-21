@@ -120,8 +120,4 @@ uint16_t sonar_mm() {
     return MOCK_SONAR_MM;
 }
 
-int battery_raw() {
-    return 3200;  // ~7.4V on 12-bit ADC with voltage divider
-}
-
 }  // namespace physics

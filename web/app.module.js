@@ -56,20 +56,26 @@ var actionsCtrl = null;
 
 function updateStatus(msg) {
     if (msg.battery_mv != null) {
-        var pct = batteryPercent(msg.battery_mv);
-        document.getElementById("battery-val").textContent = pct + "%";
-        recordBattery(pct);
+        var present = msg.battery_present !== false;
+        if (present) {
+            var pct = batteryPercent(msg.battery_mv);
+            document.getElementById("battery-val").textContent = pct + "%";
+            recordBattery(pct);
+        } else {
+            document.getElementById("battery-val").textContent = "USB";
+        }
     }
     if (msg.mode != null) {
         document.getElementById("mode-val").textContent = msg.mode;
     }
     if (msg.balance != null && actionsCtrl) actionsCtrl.setBalanceState(msg.balance);
-    if (msg.engaged != null || msg.ramping != null || msg.battery_cutoff != null) {
+    if (msg.engaged != null || msg.ramping != null || msg.battery_cutoff != null || msg.battery_present != null) {
         var engaged = msg.engaged === true;
         var ramping = msg.ramping === true;
         var cutoff = msg.battery_cutoff === true;
+        var absent = msg.battery_present === false;
         setEngaged(engaged, ramping);
-        updateEngageToggle(engaged, ramping, cutoff);
+        updateEngageToggle(engaged, ramping, cutoff, absent);
     }
     if (msg.fallen != null) showFallAlert(msg.fallen);
     if (msg.transport != null) {
@@ -97,27 +103,29 @@ function updateStatus(msg) {
 }
 
 // --- Engage toggle UI ---
-function updateEngageToggle(engaged, ramping, cutoff) {
+function updateEngageToggle(engaged, ramping, cutoff, absent) {
     var btn = document.getElementById("btn-engage");
     if (!btn) return;
-    btn.disabled = ramping || cutoff;
-    if (cutoff) {
+    // cutoff only blocks engagement when battery is physically present
+    var realCutoff = cutoff && !absent;
+    btn.disabled = ramping || realCutoff;
+    if (realCutoff) {
         btn.textContent = "BATTERY CUTOFF \u2014 REBOOT";
         btn.className = "engage-toggle cutoff";
     } else if (ramping) {
-        btn.textContent = "RAMPING\u2026";
+        btn.textContent = absent ? "RAMPING\u2026 (USB)" : "RAMPING\u2026";
         btn.className = "engage-toggle ramping";
     } else if (engaged) {
-        btn.textContent = "SERVOS: ENGAGED";
+        btn.textContent = absent ? "SERVOS: ENGAGED (USB)" : "SERVOS: ENGAGED";
         btn.className = "engage-toggle engaged";
     } else {
-        btn.textContent = "SERVOS: DISENGAGED";
+        btn.textContent = absent ? "SERVOS: DISENGAGED (USB)" : "SERVOS: DISENGAGED";
         btn.className = "engage-toggle disengaged";
     }
     // Disable/enable action buttons
     var motionBtns = document.querySelectorAll(".dpad-btn, .action-btn[data-action]:not([data-action='balance-toggle'])");
     motionBtns.forEach(function(b) {
-        b.disabled = !engaged || ramping || cutoff;
+        b.disabled = !engaged || ramping || realCutoff;
     });
 }
 
@@ -177,8 +185,12 @@ function handleMessage(msg) {
         el.classList.remove("hidden");
         setTimeout(function() { el.classList.add("hidden"); }, 3000);
     } else if (msg.type === "telem_battery") {
-        recordBattery(msg.pct);
-        document.getElementById("battery-val").textContent = msg.pct + "%";
+        if (msg.present !== false) {
+            recordBattery(msg.pct);
+            document.getElementById("battery-val").textContent = msg.pct + "%";
+        } else {
+            document.getElementById("battery-val").textContent = "USB";
+        }
     } else if (msg.type === 'telem_servo_pins') {
         updateServoPins(msg);
     } else if (msg.type === "ack" && msg.ok === false) {
@@ -190,6 +202,10 @@ function handleMessage(msg) {
         var ev = msg.event;
         if (ev === "battery_cutoff_detach") {
             updateEngageToggle(false, false, true);
+            setEngaged(false, false);
+        } else if (ev === "battery_absent_clear_latch") {
+            // USB-only: stale latch cleared; keep engage enabled
+            updateEngageToggle(false, false, false, true);
             setEngaged(false, false);
         } else if (ev === "heartbeat_detach") {
             updateEngageToggle(false, false, false);

@@ -47,7 +47,7 @@ Disengage ramps back to rest pose and then cuts PWM.
 {"type": "cmd_engage", "enabled": true}
 ```
 
-Rejected (ack ok=false) when `battery_cutoff` is latched.
+Rejected (ack ok=false) when `battery_cutoff` is latched **and** the battery is present. USB-only operation (battery switch physically off, `telem_battery.present = false`) is permitted — the cutoff latch never sets in that case, or is cleared automatically within ~3 s if it was set before the battery was switched off.
 
 ### cmd_servo
 
@@ -249,16 +249,17 @@ Response:
 1 Hz.
 
 ```json
-{"type": "telem_battery", "voltage_mv": 7400, "pct": 80, "low": false}
+{"type": "telem_battery", "voltage_mv": 7400, "pct": 80, "present": true, "low": false}
 ```
 
 | Field | Description |
 |-------|-------------|
 | voltage_mv | ADC-derived millivolts (4:1 divider, GPIO 34) |
 | pct | 0–100, mapped from 6000–8400 mV |
-| low | true when below 6700 mV |
+| present | `false` when battery is physically absent (USB-only; ADC reads < 4500 mV for 3+ consecutive seconds) |
+| low | `true` when battery is present and below 6700 mV |
 
-Battery cutoff latches at 6400 mV (3.2 V/cell for 2S LiPo). Requires reboot to clear.
+Battery cutoff latches at 6400 mV (3.2 V/cell for 2S LiPo). Requires reboot to clear **unless** the battery is subsequently detected as absent (physically disconnected), in which case the latch clears automatically and a `battery_absent_clear_latch` event is emitted.
 
 ### telem_status
 
@@ -335,6 +336,7 @@ Asynchronous lifecycle events. Emitted outside the 1 Hz status cadence, immediat
 | `disengage_complete` | Disengage ramp finishes; PWM cut |
 | `heartbeat_detach` | Host went silent for > HEARTBEAT_TIMEOUT_MS; servos detached. Includes `ms_since_last_msg` field. |
 | `battery_cutoff_detach` | Battery voltage dropped below cutoff threshold; servos detached and latch set. Includes `mv` field. |
+| `battery_absent_clear_latch` | Battery absent (USB-only) confirmed; stale cutoff latch cleared. Includes `mv` field. |
 
 `t` is `millis()` at event time (uint32, wraps after ~49 days).
 

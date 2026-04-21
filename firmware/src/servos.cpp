@@ -149,6 +149,10 @@ void servos_set_battery_cutoff() {
     servos_detach_all();
 }
 
+void servos_clear_battery_cutoff() {
+    s_battery_cutoff = false;
+}
+
 bool servos_battery_cutoff() {
     return s_battery_cutoff;
 }
