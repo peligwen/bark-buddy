@@ -49,9 +49,15 @@ static unsigned long s_transform_start = 0;
 static unsigned long s_stand_ramp_start = 0;
 static uint16_t s_stand_ramp_from[8] = {};
 
-// IMU data for balance
+// IMU data for balance and tilt detection
 static float s_pitch = 0.0f;
 static float s_roll  = 0.0f;
+
+// Tilt-over safety: nonzero while in fault (set to now_ms on first trigger)
+static unsigned long s_tilt_fault_ms = 0;
+
+// Yaw trim: persistent drift correction, loaded from NVS via yaw_trim_load()
+static float s_yaw_trim_mul = 0.0f;
 
 void gait_init(unsigned long now_ms) {
     (void)now_ms;
@@ -63,8 +69,10 @@ void gait_init(unsigned long now_ms) {
     s_paused        = false;
     s_last_update   = millis();
     s_last_active   = millis();
-    s_config        = k_default_config;
-    s_target_config = k_default_config;
+    s_config          = k_default_config;
+    s_target_config   = k_default_config;
+    s_tilt_fault_ms   = 0;
+    s_yaw_trim_mul    = yaw_trim_load();
     s_current_transform = {};
     s_target_transform  = {};
 
@@ -204,6 +212,45 @@ void gait_update(unsigned long now_ms) {
               : 1.0f;
     s_current_transform = lerp_pose(s_start_transform, s_target_transform, t);
 
+    // Tilt-over safety cutoff: detect excessive tilt, stop gait, block re-engagement
+    {
+        bool tilt = fabsf(s_pitch) > BALANCE_TILT_CUTOFF_DEG
+                 || fabsf(s_roll)  > BALANCE_TILT_CUTOFF_DEG;
+
+        if (tilt && s_tilt_fault_ms == 0) {
+            s_tilt_fault_ms = now_ms;
+            balance_enable(false);
+            balance_reset();
+            bool was_walking = (s_state == GaitState::WALK_FORWARD  ||
+                                s_state == GaitState::WALK_BACKWARD ||
+                                s_state == GaitState::TURN_LEFT     ||
+                                s_state == GaitState::TURN_RIGHT);
+            if (was_walking) gait_set_state(GaitState::STOP);
+#if defined(MOCK_FIRMWARE) || defined(ARDUINO)
+            JsonDocument fault;
+            fault["type"]  = MSG_TELEM_EVENT;
+            fault["event"] = "tilt_fault";
+            fault["t"]     = (uint32_t)now_ms;
+            fault["pitch"] = s_pitch;
+            fault["roll"]  = s_roll;
+            send_json(fault);
+#endif
+        } else if (!tilt && s_tilt_fault_ms > 0
+                   && (now_ms - s_tilt_fault_ms) >= BALANCE_TILT_HOLD_MS) {
+            s_tilt_fault_ms = 0;  // 1 s elapsed — re-arm
+        }
+
+        // During fault/hold: override any walk command back to STOP
+        bool blocked = (tilt || s_tilt_fault_ms > 0);
+        if (blocked) {
+            bool is_walking = (s_state == GaitState::WALK_FORWARD  ||
+                               s_state == GaitState::WALK_BACKWARD ||
+                               s_state == GaitState::TURN_LEFT     ||
+                               s_state == GaitState::TURN_RIGHT);
+            if (is_walking) gait_set_state(GaitState::STOP);
+        }
+    }
+
     // Balance correction
     BodyPose combined = s_current_transform;
     if (balance_is_enabled()) {
@@ -249,7 +296,7 @@ void gait_update(unsigned long now_ms) {
     else if (s_state == GaitState::TURN_RIGHT) gdir = GaitDir::TURN_RIGHT;
 
     // Get foot offsets from gait
-    GaitFootOffsets gait_feet = gait_tick_ik(s_phase, gdir, s_config, s_speed);
+    GaitFootOffsets gait_feet = gait_tick_ik(s_phase, gdir, s_config, s_speed, s_yaw_trim_mul);
 
     // Apply to each leg
     for (int leg = 0; leg < 4; leg++) {
@@ -270,4 +317,18 @@ void gait_update(unsigned long now_ms) {
         }
         // If unreachable: hold last written value (servo_write_us not called)
     }
+}
+
+float gait_get_yaw_trim() {
+    return s_yaw_trim_mul;
+}
+
+void gait_set_yaw_trim(float mul) {
+    if (mul >  0.7f) mul =  0.7f;
+    if (mul < -0.7f) mul = -0.7f;
+    s_yaw_trim_mul = mul;
+}
+
+void gait_save_yaw_trim() {
+    yaw_trim_save(s_yaw_trim_mul);
 }

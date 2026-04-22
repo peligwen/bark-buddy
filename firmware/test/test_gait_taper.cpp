@@ -45,6 +45,8 @@ void         offsets_save()                    {}
 void         offsets_reset()                   {}
 void         offsets_init()                    {}
 uint16_t     apply_offset(uint8_t, uint16_t us){ return us; }
+float        yaw_trim_load()                   { return 0.0f; }
+void         yaw_trim_save(float)              {}
 
 #include "../include/gait.h"
 #include "../src/gait.cpp"

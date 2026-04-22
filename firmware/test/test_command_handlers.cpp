@@ -70,6 +70,9 @@ void gait_update(unsigned long)       {}
 void gait_init(unsigned long)         {}
 void gait_set_config(const GaitConfig&) {}
 void gait_set_body_transform(const BodyPose&, uint16_t) {}
+float gait_get_yaw_trim()        { return 0.0f; }
+void  gait_set_yaw_trim(float)   {}
+void  gait_save_yaw_trim()       {}
 
 // balance.h stubs
 #include "../include/balance.h"
@@ -92,6 +95,8 @@ void     offset_set(uint8_t, int16_t) {}
 void     offsets_save()               {}
 void     offsets_reset()              {}
 void     offsets_init()               {}
+float    yaw_trim_load()              { return 0.0f; }
+void     yaw_trim_save(float)         {}
 uint16_t apply_offset(uint8_t, uint16_t us) { return us; }
 
 // sensor_task.h stubs

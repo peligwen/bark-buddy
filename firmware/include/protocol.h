@@ -22,6 +22,7 @@ constexpr const char* MSG_TELEM_GPIO     = "telem_gpio";
 constexpr const char* MSG_OTA_STATUS     = "ota_status";
 constexpr const char* MSG_CMD_SERVO_PIN   = "cmd_servo_pin";
 constexpr const char* MSG_TELEM_SERVO_PINS = "telem_servo_pins";
+constexpr const char* MSG_CMD_YAW_TRIM    = "cmd_yaw_trim";    // op: get/set/save
 
 // Firmware -> Host telemetry
 constexpr const char* MSG_TELEM_IMU     = "telem_imu";

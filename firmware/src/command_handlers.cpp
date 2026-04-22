@@ -582,6 +582,23 @@ static void handle_cmd_servo_pin(const JsonDocument& doc) {
     broadcast_servo_pins();
 }
 
+static void handle_cmd_yaw_trim(const JsonDocument& doc) {
+    const char* op = doc["op"] | "get";
+    if (strcmp(op, "set") == 0) {
+        float val = doc["value"] | 0.0f;
+        gait_set_yaw_trim(val);
+    } else if (strcmp(op, "save") == 0) {
+        gait_save_yaw_trim();
+    }
+    // Always reply with current value
+    JsonDocument resp;
+    resp["type"]     = MSG_ACK;
+    resp["ref_type"] = MSG_CMD_YAW_TRIM;
+    resp["ok"]       = true;
+    resp["value"]    = gait_get_yaw_trim();
+    send_json(resp);
+}
+
 static void handle_cmd_buzzer(const JsonDocument& doc) {
     uint16_t freq = doc["freq_hz"]     | 2400;
     uint32_t dur  = doc["duration_ms"] | 200;
@@ -705,6 +722,7 @@ static const Handler k_handlers[] = {
     { MSG_CMD_BUZZER,         handle_cmd_buzzer         },
     { MSG_CMD_GPIO,           handle_cmd_gpio           },
     { MSG_CMD_SERVO_PIN,      handle_cmd_servo_pin      },
+    { MSG_CMD_YAW_TRIM,       handle_cmd_yaw_trim       },
 };
 
 void handlers_init() {

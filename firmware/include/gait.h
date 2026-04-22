@@ -23,3 +23,10 @@ GaitState gait_current_state();
 // Pause gait writes. Cleared by next gait_set_state() call.
 // Used by cmd_servo to prevent gait from fighting manual servo writes.
 void gait_pause();
+
+// Yaw trim: persistent drift correction applied during forward/backward walking.
+// Range [-0.7, 0.7]: positive = bias left, negative = bias right.
+// Loaded at startup via offsets_init(); call gait_save_yaw_trim() to persist.
+float gait_get_yaw_trim();
+void  gait_set_yaw_trim(float mul);
+void  gait_save_yaw_trim();  // persist to NVS (calls yaw_trim_save())

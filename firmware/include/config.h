@@ -144,6 +144,12 @@ static const uint16_t REST_POSE[8] = {
 #define GAIT_SPEED_ACCEL_PER_S  3.0f   // speed units/s — 0→1 ramp in ~330ms
 #define GAIT_PARAM_RAMP_S       0.4f   // gait param change converges in ~400ms
 
+// --- Tilt-over safety ---
+// If |pitch| or |roll| exceeds cutoff, balance disables and gait stops.
+// Re-arms 1 second after tilt resolves; until then walking commands are blocked.
+#define BALANCE_TILT_CUTOFF_DEG 50.0f
+#define BALANCE_TILT_HOLD_MS    1000
+
 // --- Return-to-stand taper ---
 // When gait transitions back to STAND/STOP, servo positions are interpolated
 // from wherever they are to the target standing pose over this duration.

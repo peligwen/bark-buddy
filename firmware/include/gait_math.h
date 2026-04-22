@@ -87,8 +87,13 @@ inline FootPos swing_process(const FootPos& pep, const FootPos& aep,
 // [duty, 1):  swing  — PEP→AEP, foot lifts with sin² profile.
 //
 // Turning: differential stride length — slow side 0.3×.
+// yaw_trim_mul: persistent drift correction applied during FORWARD/BACKWARD.
+//   > 0 = shorter left stride  → turns left (corrects rightward drift)
+//   < 0 = shorter right stride → turns right (corrects leftward drift)
+//   Range: [-0.7, 0.7]; clamped to [0, 1] per side.
 inline GaitFootOffsets gait_tick_ik(float phase_rad, GaitDir dir,
-                                     const GaitConfig& config, float speed)
+                                     const GaitConfig& config, float speed,
+                                     float yaw_trim_mul = 0.0f)
 {
     GaitFootOffsets out = {};
 
@@ -99,6 +104,17 @@ inline GaitFootOffsets gait_tick_ik(float phase_rad, GaitDir dir,
     float dir_sign  = (dir == GaitDir::BACKWARD)   ? -1.0f : 1.0f;
     float left_mul  = (dir == GaitDir::TURN_LEFT)  ?  0.3f : 1.0f;
     float right_mul = (dir == GaitDir::TURN_RIGHT) ?  0.3f : 1.0f;
+
+    // Yaw trim: differential stride during forward/backward only
+    if (yaw_trim_mul != 0.0f &&
+        (dir == GaitDir::FORWARD || dir == GaitDir::BACKWARD)) {
+        left_mul  = 1.0f - (yaw_trim_mul > 0.0f ? yaw_trim_mul : 0.0f);
+        right_mul = 1.0f + (yaw_trim_mul < 0.0f ? yaw_trim_mul : 0.0f);
+        if (left_mul  < 0.0f) left_mul  = 0.0f;
+        if (right_mul < 0.0f) right_mul = 0.0f;
+        if (left_mul  > 1.0f) left_mul  = 1.0f;
+        if (right_mul > 1.0f) right_mul = 1.0f;
+    }
 
     // Duty factor: fraction of period in stance
     uint32_t total_ms = config.swing_time_ms + config.stand_time_ms;
