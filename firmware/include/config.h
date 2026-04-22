@@ -139,6 +139,8 @@ static const uint16_t REST_POSE[8] = {
 #define GAIT_STRIDE_HEIGHT_MM   10.0f   // foot lift height mm (conservative for first hardware tests)
 #define GAIT_STRIDE_LENGTH_MM   12.0f   // forward/back foot swing mm (conservative)
 #define GAIT_FREQUENCY_HZ       1.5f    // steps per second
+#define GAIT_SWING_TIME_MS      150     // ms per swing phase (foot in air) — Hiwonder default
+#define GAIT_STAND_TIME_MS      200     // ms per stance phase (foot on ground) — Hiwonder default
 
 // --- Return-to-stand taper ---
 // When gait transitions back to STAND/STOP, servo positions are interpolated

@@ -24,7 +24,9 @@ static unsigned long s_last_active = 0;
 static GaitConfig s_config = {
     GAIT_STRIDE_LENGTH_MM,
     GAIT_STRIDE_HEIGHT_MM,
-    GAIT_FREQUENCY_HZ
+    GAIT_FREQUENCY_HZ,
+    GAIT_SWING_TIME_MS,
+    GAIT_STAND_TIME_MS,
 };
 
 // Body transform — start, current and target
