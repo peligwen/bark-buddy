@@ -39,7 +39,7 @@ int main() {
         float dy = foot.y - stock_feet[leg][1];
         float dz = foot.z - stock_feet[leg][2];
         float err = sqrtf(dx*dx + dy*dy + dz*dz);
-        bool ok = err < 5.0f;
+        bool ok = err < 2.0f;  // corrected geometry: expect <0.5mm; 2mm is a generous gate
         printf("{\"test\":\"stock_ground_truth\",\"leg\":%d,"
                "\"expected\":[%.1f,%.1f,%.1f],\"got\":[%.1f,%.1f,%.1f],"
                "\"error_mm\":%.2f,\"pass\":%s}\n",
@@ -79,6 +79,50 @@ int main() {
            "\"pass\":%s}\n", sweep_pass, sweep_total,
            (sweep_pass == sweep_total && sweep_total > 0) ? "true" : "false");
     (sweep_pass == sweep_total && sweep_total > 0) ? pass++ : fail++;
+
+    // Test 5: STANDING_POSE values are all within per-joint soft clamp limits
+    {
+        bool all_ok = true;
+        for (int i = 0; i < 8; i++) {
+            bool in_range = STANDING_POSE[i] >= SERVO_JOINT_MIN_US[i] &&
+                            STANDING_POSE[i] <= SERVO_JOINT_MAX_US[i];
+            if (!in_range) {
+                printf("{\"test\":\"standing_clamp_check\",\"idx\":%d,"
+                       "\"pulse\":%d,\"min\":%d,\"max\":%d,\"pass\":false}\n",
+                       i, STANDING_POSE[i], SERVO_JOINT_MIN_US[i], SERVO_JOINT_MAX_US[i]);
+                all_ok = false;
+            }
+        }
+        printf("{\"test\":\"standing_within_joint_clamps\",\"pass\":%s}\n",
+               all_ok ? "true" : "false");
+        all_ok ? pass++ : fail++;
+    }
+
+    // Test 6: FK/IK round-trip at non-standing foot offsets
+    {
+        struct { float dx, dz; } offsets[] = {
+            {10, 0}, {-10, 0}, {0, -10}, {0, 10}, {15, -10}, {-15, 5}
+        };
+        int rt_pass = 0, rt_total = 0;
+        for (int leg = 0; leg < 4; leg++) {
+            FootPos sp = standing_foot_pos(leg);
+            for (auto& off : offsets) {
+                FootPos target = {sp.x + off.dx, sp.y, sp.z + off.dz};
+                float hip_a, knee_a;
+                if (!leg_ik(leg, target, hip_a, knee_a)) continue;
+                FootPos result = leg_fk_mm(leg, hip_a, knee_a);
+                float err = sqrtf((result.x - target.x) * (result.x - target.x) +
+                                  (result.z - target.z) * (result.z - target.z));
+                if (err < 0.5f) rt_pass++;
+                rt_total++;
+            }
+        }
+        bool ok = (rt_pass == rt_total && rt_total > 0);
+        printf("{\"test\":\"offset_roundtrip\","
+               "\"pass_count\":%d,\"total\":%d,\"pass\":%s}\n",
+               rt_pass, rt_total, ok ? "true" : "false");
+        ok ? pass++ : fail++;
+    }
 
     printf("{\"summary\":\"ik_tests\",\"pass\":%d,\"fail\":%d}\n", pass, fail);
     return fail > 0 ? 1 : 0;

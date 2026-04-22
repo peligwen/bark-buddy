@@ -10,28 +10,38 @@
 // Servo indices: 0=FL_hip, 1=FL_knee, 2=FR_hip, 3=FR_knee,
 //                4=RL_hip, 5=RL_knee, 6=RR_hip, 7=RR_knee
 //
-// Physical dimensions (mm), derived from hardware measurements:
-//   Upper leg: 55mm, Lower leg: 60mm
-//   Hip X offset (body center to hip forward/backward): ±85mm
-//   Hip Y offset (effective lateral, from hardware calibration): ±46mm
-//   Hip Z offset (below body center): -25mm
+// Physical dimensions (mm), from Hiwonder quad_kinematics.h (stock_firmware_dump/arduino_library/):
+//   Upper leg (L1): 60.5mm, Lower leg (L2): 65mm
+//   Hip X offset (body centre to hip pivot, forward/backward): ±60.25mm (BD_L/2)
+//   Hip Y offset (lateral, body centre to hip pivot): ±46mm (BD_W/2)
+//   Hip Z offset (below body centre): -25mm (unverified; re-probe when convenient)
 //
-// Standing-pose joint angles are derived from the stock firmware ground-truth
-// foot positions and hip geometry, then used to calibrate servo pulse mapping.
+// Standing-pose joint angles are derived from Hiwonder default_pose foot positions
+// and hip geometry, then used to calibrate servo pulse mapping.
 
 #include <math.h>
 #include <stdint.h>
 #include "config.h"
 
 // ─── Physical dimensions ────────────────────────────────────────────────────
+// Source of truth: Hiwonder quad_kinematics.h (stock_firmware_dump/arduino_library/src/)
+// BD_L=120.5 mm → hip_x = ±60.25; BD_W=92 mm → hip_y = ±46; L1=60.5, L2=65.
 
-static constexpr float IK_UPPER_LEN = 55.0f;  // mm
-static constexpr float IK_LOWER_LEN = 60.0f;  // mm
+static constexpr float IK_UPPER_LEN = 60.5f;  // mm — L1 (大腿, upper leg)
+static constexpr float IK_LOWER_LEN = 65.0f;  // mm — L2 (小腿, lower leg)
 
-// Hip offsets (absolute values; sign applied per leg)
-static constexpr float IK_HIP_ABS_X = 85.0f;  // ±85mm forward/backward
-static constexpr float IK_HIP_ABS_Y = 46.0f;  // ±46mm lateral (from HW calibration)
-static constexpr float IK_HIP_Z     = -25.0f; // -25mm (below body centre)
+// Hip pivot offsets (absolute values; sign applied per leg)
+static constexpr float IK_HIP_ABS_X = 60.25f; // ±60.25mm forward/backward (BD_L/2)
+static constexpr float IK_HIP_ABS_Y = 46.0f;  // ±46mm lateral (BD_W/2)
+static constexpr float IK_HIP_Z     = -25.0f; // -25mm below body centre (unverified; re-probe when convenient)
+
+// 4-bar knee linkage dimensions (Hiwonder: L3=小腿后杠杆, L4=小腿舵臂, L5=舵臂)
+// Servo drives shin through a parallel linkage; servo angle ≠ virtual knee angle.
+// Ground-link length (servo-pivot to knee-pivot on thigh) is not in the header.
+// knee_virtual_to_servo() is identity until that dimension is measured.
+static constexpr float IK_L3 = 14.5f; // rear lever on shin
+static constexpr float IK_L4 = 14.0f; // coupler bar
+static constexpr float IK_L5 = 14.0f; // servo horn
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -46,17 +56,17 @@ struct ServoCalEntry {
 
 // ─── Internal helpers ────────────────────────────────────────────────────────
 
-// IK geometry groups (by hip X offset, not physical front/rear position):
-//   hip_x = +85mm: FL (index 0) and RL (index 2) — "forward-offset" group
-//   hip_x = -85mm: FR (index 1) and RR (index 3) — "rearward-offset" group
+// IK geometry groups (front/rear):
+//   hip_x = +60.25mm: FL (leg 0) and FR (leg 1) — front group
+//   hip_x = -60.25mm: RL (leg 2) and RR (leg 3) — rear group
 //
-// Standing foot positions (stock firmware ground truth, mm):
-//   Front legs: foot at (59.25, ±46, -80) → lx = 59.25-85 = -25.75, lz = -80-(-25) = -55
-//   Rear  legs: foot at (-71.25, ±46, -80) → lx = -71.25-(-85) = 13.75, lz = -55
+// Standing foot positions (Hiwonder default_pose ground truth, mm):
+//   Front legs: foot at (59.25, ±46, -80) → lx = 59.25-60.25 = -1.0,  lz = -80-(-25) = -55
+//   Rear  legs: foot at (-71.25, ±46, -80) → lx = -71.25-(-60.25) = -11.0, lz = -55
 //
-// Derived standing angles (using planar 2-link IK, elbow-forward convention):
-//   d_front = sqrt(25.75² + 55²) ≈ 60.73 mm
-//   d_rear  = sqrt(13.75² + 55²) ≈ 56.69 mm
+// Derived standing angles (L1=60.5, L2=65, 2-link planar IK, elbow-forward convention):
+//   d_front ≈ 55.009 mm  → knee_front ≈ -2.239 rad, hip_front ≈ 1.168 rad
+//   d_rear  ≈ 56.089 mm  → knee_rear  ≈ -2.218 rad, hip_rear  ≈ 0.980 rad
 //
 //   knee = -acos((d²-L1²-L2²)/(2L1L2))   [negative = folded forward]
 //   hip  = atan2(lx, -lz) + asin(L2*sin(|knee|)/d)
@@ -88,20 +98,20 @@ inline void standing_angles(float lx, float lz,
 }
 
 // Build and return the calibration table (lazily initialised).
+// Call ik_init() from setup() before starting FreeRTOS tasks to guarantee
+// single-core construction; the lazy path is a safe fallback for unit tests.
 inline const ServoCalEntry* cal_table() {
     static ServoCalEntry table[8];
-    // NOTE: Not thread-safe. Call servo_cal() once from setup() before
-    // starting FreeRTOS tasks to ensure the table is built on a single core.
     static bool built = false;
     if (built) return table;
 
-    // Front geometry group (hip_x=+85): FL+FR — indices 0=FL_hip,1=FL_knee,2=FR_hip,3=FR_knee
+    // Front geometry group (hip_x=+60.25): FL+FR — indices 0=FL_hip,1=FL_knee,2=FR_hip,3=FR_knee
     float hip_front, knee_front;
-    standing_angles(-25.75f, -55.0f, hip_front, knee_front);
+    standing_angles(-1.0f, -55.0f, hip_front, knee_front);
 
-    // Rear geometry group (hip_x=-85): RL+RR  — indices 4=RL_hip,5=RL_knee,6=RR_hip,7=RR_knee
+    // Rear geometry group (hip_x=-60.25): RL+RR — indices 4=RL_hip,5=RL_knee,6=RR_hip,7=RR_knee
     float hip_rear, knee_rear;
-    standing_angles(13.75f, -55.0f, hip_rear, knee_rear);
+    standing_angles(-11.0f, -55.0f, hip_rear, knee_rear);
 
     // Helper lambda to fill one entry
     auto fill = [&](int idx, float standing_angle) {
@@ -156,8 +166,8 @@ inline uint16_t angle_to_pulse(uint8_t idx, float angle_rad) {
     const ServoCalEntry& c = servo_cal(idx);
     float us_f = (float)c.standing_us
                  + (float)c.polarity * c.us_per_rad * (angle_rad - c.standing_angle);
-    if (us_f < (float)SERVO_MIN_US) us_f = (float)SERVO_MIN_US;
-    if (us_f > (float)SERVO_MAX_US) us_f = (float)SERVO_MAX_US;
+    if (us_f < (float)SERVO_JOINT_MIN_US[idx]) us_f = (float)SERVO_JOINT_MIN_US[idx];
+    if (us_f > (float)SERVO_JOINT_MAX_US[idx]) us_f = (float)SERVO_JOINT_MAX_US[idx];
     return (uint16_t)(us_f + 0.5f);
 }
 
@@ -192,8 +202,8 @@ inline bool leg_ik(uint8_t leg, const FootPos& target,
     float d  = sqrtf(d2);
 
     float L1 = IK_UPPER_LEN, L2 = IK_LOWER_LEN;
-    float L1L2sum = L1 + L2;           // 115 mm — max reach
-    float L1L2dif = fabsf(L1 - L2);   // 5 mm — min reach
+    float L1L2sum = L1 + L2;           // 125.5 mm — max reach
+    float L1L2dif = fabsf(L1 - L2);   // 4.5 mm — min reach
 
     if (d > L1L2sum || d < L1L2dif) return false;
 
@@ -210,12 +220,13 @@ inline bool leg_ik(uint8_t leg, const FootPos& target,
     if (asin_arg < -1.0f) asin_arg = -1.0f;
     hip_out = atan2f(lx, -lz) + asinf(asin_arg);
 
-    // Sanity-check: pulse within servo range
+    // Sanity-check: pulse within per-joint clamp range
     uint8_t hi = leg * 2;
     uint8_t ki = leg * 2 + 1;
     uint16_t hp = angle_to_pulse(hi, hip_out);
     uint16_t kp = angle_to_pulse(ki, knee_out);
-    if (hp < SERVO_MIN_US || hp > SERVO_MAX_US || kp < SERVO_MIN_US || kp > SERVO_MAX_US) return false;
+    if (hp < SERVO_JOINT_MIN_US[hi] || hp > SERVO_JOINT_MAX_US[hi] ||
+        kp < SERVO_JOINT_MIN_US[ki] || kp > SERVO_JOINT_MAX_US[ki]) return false;
 
     return true;
 }
@@ -242,3 +253,7 @@ inline FootPos pulses_to_foot(uint8_t leg, uint16_t hip_us, uint16_t knee_us) {
 inline FootPos standing_foot_pos(uint8_t leg) {
     return pulses_to_foot(leg, STANDING_POSE[leg * 2], STANDING_POSE[leg * 2 + 1]);
 }
+
+// Prime the calibration table on the current core.
+// Call from setup() before any FreeRTOS tasks to prevent a data race on first use.
+inline void ik_init() { ik_detail::cal_table(); }

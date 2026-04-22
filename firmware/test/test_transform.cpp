@@ -68,10 +68,10 @@ int main() {
                 roll_pulses_valid = false;
         }
 
-        // Case B: body raised so high (dz=+65mm) that the leg reach (115mm max)
+        // Case B: body raised so high (dz=+75mm) that the leg reach (125.5mm max)
         // cannot span the distance. Must return false and clamp pulses to standing.
-        // (standing foot ~61mm from hip → raising body 65mm → ~117mm > 115mm max)
-        BodyPose out_of_reach = {0, 0, 65, 0, 0, 0};
+        // (standing foot ~55mm from hip → raising body 75mm → ~130mm > 125.5mm max)
+        BodyPose out_of_reach = {0, 0, 75, 0, 0, 0};
         uint16_t p_oor[8] = {};
         bool must_fail = !body_pose_to_pulses(out_of_reach, p_oor);
         // On failure, body_pose_to_pulses clamps to STANDING_POSE

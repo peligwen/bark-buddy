@@ -10,6 +10,7 @@
 #include "servos.h"
 #include "gait.h"
 #include "balance.h"
+#include "ik.h"
 #include "offsets.h"
 #include "update_led.h"
 #include "buzzer.h"
@@ -190,6 +191,7 @@ void setup() {
     s_update_led_active = false;
 
     // Dog boots disengaged. Servos stay detached until the operator engages.
+    ik_init();   // prime cal table on main core before FreeRTOS tasks start
     offsets_init();
     gait_init(millis());
     handlers_init();

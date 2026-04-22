@@ -55,6 +55,16 @@ extern uint8_t SERVO_PINS[8];
 #define SERVO_MAX_US        2500
 #define SERVO_CENTER_US     1500
 
+// --- Per-joint soft clamp limits (Hiwonder pwm_servo.cpp, asymmetric for mirrored mounts) ---
+// Tighter than SERVO_MIN/MAX. Applied in IK layer to prevent driving joints into mechanical stops.
+// Hardware safety net (SERVO_MIN/MAX) is enforced separately in servo_write_us().
+// Order: FL_hip(0), FL_knee(1), FR_hip(2), FR_knee(3), RL_hip(4), RL_knee(5), RR_hip(6), RR_knee(7)
+#ifndef SERVO_JOINT_CLAMP_DEFINED
+#define SERVO_JOINT_CLAMP_DEFINED
+static const uint16_t SERVO_JOINT_MIN_US[8] = {500, 900, 700, 1100, 500,  900, 700, 1100};
+static const uint16_t SERVO_JOINT_MAX_US[8] = {2300, 1900, 2500, 2100, 2300, 1900, 2500, 2100};
+#endif
+
 // --- LEDC Hardware PWM ---
 #define LEDC_RESOLUTION     14                              // 14-bit: 16384 ticks per 20ms period
 #define LEDC_MAX_DUTY       ((1 << LEDC_RESOLUTION) - 1)  // 16383
