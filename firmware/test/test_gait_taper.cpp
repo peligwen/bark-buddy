@@ -30,11 +30,12 @@ void         servos_set_battery_cutoff()       {}
 bool         servos_battery_cutoff()           { return false; }
 
 #include "../include/balance.h"
-bool         balance_is_enabled()                            { return false; }
+static bool s_balance_enabled = false;
+bool         balance_is_enabled()                            { return s_balance_enabled; }
 BodyPose     balance_update(float, float, float)             { return BodyPose{}; }
 void         balance_init(const BalanceConfig&)              {}
 void         balance_reset()                                 {}
-void         balance_enable(bool)                            {}
+void         balance_enable(bool en)                         { s_balance_enabled = en; }
 void         balance_set_gains(float,float,float,float,float,float) {}
 void         balance_get_gains(float*,float*,float*,float*,float*,float*) {}
 
@@ -63,8 +64,9 @@ static void check(bool cond, const char* name) {
 static void reset_all() {
     mock_reset_clock();
     memset(s_servo_us, 0, sizeof(s_servo_us));
-    s_engaged = true;
-    s_ramping = false;
+    s_engaged         = true;
+    s_ramping         = false;
+    s_balance_enabled = false;
     gait_init(0);
 }
 
@@ -259,12 +261,113 @@ static void test_stop_path() {
     check(exact, "taper_stop_endpoint");
 }
 
+// ============================================================
+// Test 6: C2 — TURN_LEFT→BACKWARD reversal is deferred
+// ============================================================
+static void test_turn_to_backward_deferred() {
+    reset_all();
+    walk_for_ms(200);
+
+    gait_set_state(GaitState::TURN_LEFT, 1.0f);
+    mock_advance_ms(10);
+    gait_update(millis());
+    // Speed ramp may not have fully reached 1.0 yet; set directly via another set_state
+    // Just verify: TURN_LEFT → WALK_BACKWARD triggers the deferred path (state stays TURN_LEFT).
+    gait_set_state(GaitState::WALK_BACKWARD, 1.0f);
+    check(gait_current_state() == GaitState::TURN_LEFT, "reversal_turn_to_backward_deferred");
+
+    // After coasting ~400ms, the pending state should apply
+    for (int ms = 0; ms < 500; ms += 10) {
+        mock_advance_ms(10);
+        gait_update(millis());
+    }
+    check(gait_current_state() == GaitState::WALK_BACKWARD, "reversal_turn_to_backward_applied");
+}
+
+// ============================================================
+// Test 7: C1 — balance re-enabled after tilt fault re-arm
+// ============================================================
+static void test_tilt_rearm_restores_balance() {
+    reset_all();
+    s_balance_enabled = true;
+
+    // Trigger tilt fault
+    gait_update_imu(60.0f, 0.0f);
+    mock_advance_ms(10);
+    gait_update(millis());
+    check(!s_balance_enabled, "tilt_fault_disables_balance");
+
+    // Untilt but hold hasn't elapsed yet
+    gait_update_imu(0.0f, 0.0f);
+    mock_advance_ms(500);
+    gait_update(millis());
+    check(!s_balance_enabled, "tilt_hold_still_blocking_balance");
+
+    // Advance past BALANCE_TILT_HOLD_MS (1000ms)
+    mock_advance_ms(600);
+    gait_update(millis());
+    check(s_balance_enabled, "tilt_rearm_restores_balance");
+}
+
+// ============================================================
+// Test 8: C4 — tilt at boot (now_ms=0) holds for full 1s
+// ============================================================
+static void test_tilt_at_boot_holds() {
+    mock_reset_clock();  // millis() = 0
+    s_balance_enabled = true;
+    s_engaged = true;
+    s_ramping = false;
+    gait_init(0);
+
+    // Trigger tilt at t=0
+    gait_update_imu(60.0f, 0.0f);
+    gait_update(0);
+    check(!s_balance_enabled, "tilt_boot_fault_triggered");
+
+    // Untilt at t=500ms — hold not elapsed
+    gait_update_imu(0.0f, 0.0f);
+    gait_update(500);
+    check(!s_balance_enabled, "tilt_boot_hold_blocks_rearm_at_500ms");
+
+    // t=1001ms — hold elapsed, re-arm
+    gait_update(1001);
+    check(s_balance_enabled, "tilt_boot_rearms_after_hold");
+}
+
+// ============================================================
+// Test 9: Q3 — gait_init uses its now_ms parameter
+// ============================================================
+static void test_gait_init_uses_param() {
+    mock_reset_clock();  // millis() = 0
+    s_engaged = true;
+    s_ramping = false;
+    s_balance_enabled = false;
+    memset(s_servo_us, 0, sizeof(s_servo_us));
+
+    // Init with now_ms=5000 (millis() is still 0)
+    gait_init(5000);
+    gait_set_state(GaitState::WALK_FORWARD, 1.0f);
+
+    // gait_update at 5010 → dt should be 10ms (not 5010ms which would be > 0.5s guard)
+    gait_update(5010);
+    // Phase should have advanced (servos written); if dt was wrong it would be dropped
+    bool phase_advanced = false;
+    for (int i = 0; i < 8; i++) {
+        if (s_servo_us[i] != 0) { phase_advanced = true; break; }
+    }
+    check(phase_advanced, "gait_init_uses_now_ms_param");
+}
+
 int main() {
     test_no_snap();
     test_monotonic();
     test_endpoint();
     test_stand_idempotent();
     test_stop_path();
+    test_turn_to_backward_deferred();
+    test_tilt_rearm_restores_balance();
+    test_tilt_at_boot_holds();
+    test_gait_init_uses_param();
 
     printf("{\"summary\":\"gait_taper_tests\",\"pass\":%d,\"fail\":%d}\n", g_pass, g_fail);
     return g_fail > 0 ? 1 : 0;

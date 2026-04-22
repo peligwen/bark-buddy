@@ -53,25 +53,28 @@ static uint16_t s_stand_ramp_from[8] = {};
 static float s_pitch = 0.0f;
 static float s_roll  = 0.0f;
 
-// Tilt-over safety: nonzero while in fault (set to now_ms on first trigger)
-static unsigned long s_tilt_fault_ms = 0;
+// Tilt-over safety
+static bool          s_in_tilt_fault       = false;  // explicit flag — avoids millis()==0 boot ambiguity
+static unsigned long s_tilt_fault_ms       = 0;
+static bool          s_balance_was_enabled = false;  // pre-fault state, restored on re-arm
 
 // Yaw trim: persistent drift correction, loaded from NVS via yaw_trim_load()
 static float s_yaw_trim_mul = 0.0f;
 
 void gait_init(unsigned long now_ms) {
-    (void)now_ms;
     s_state         = GaitState::STOP;
     s_speed         = 0.0f;
     s_target_speed  = 0.0f;
     s_has_pending   = false;
     s_phase         = 0.0f;
     s_paused        = false;
-    s_last_update   = millis();
-    s_last_active   = millis();
+    s_last_update   = now_ms;
+    s_last_active   = now_ms;
     s_config          = k_default_config;
     s_target_config   = k_default_config;
-    s_tilt_fault_ms   = 0;
+    s_in_tilt_fault      = false;
+    s_tilt_fault_ms      = 0;
+    s_balance_was_enabled = false;
     s_yaw_trim_mul    = yaw_trim_load();
     s_current_transform = {};
     s_target_transform  = {};
@@ -90,6 +93,25 @@ void gait_pause() {
     s_paused = true;
 }
 
+// Immediately enter STOP state: capture ramp, cancel pending, reset balance.
+// Called from both gait_set_state and gait_update to avoid re-entering
+// gait_set_state from inside gait_update.
+static void enter_stop(unsigned long now_ms) {
+    bool walking = (s_state == GaitState::WALK_FORWARD  ||
+                    s_state == GaitState::WALK_BACKWARD ||
+                    s_state == GaitState::TURN_LEFT     ||
+                    s_state == GaitState::TURN_RIGHT);
+    s_has_pending  = false;
+    s_target_speed = 0.0f;
+    s_last_active  = now_ms;
+    if (walking && servos_engaged()) {
+        for (int i = 0; i < 8; i++) s_stand_ramp_from[i] = servo_read_us(i);
+        s_stand_ramp_start = now_ms;
+    }
+    if (s_state != GaitState::STOP) balance_reset();
+    s_state = GaitState::STOP;
+}
+
 void gait_set_state(GaitState new_state, float new_speed) {
     s_paused = false;  // any explicit gait command resumes
 
@@ -104,27 +126,34 @@ void gait_set_state(GaitState new_state, float new_speed) {
     bool going_to_stand = (new_state == GaitState::STAND ||
                            new_state == GaitState::STOP);
 
-    // Detect a linear-direction reversal (FORWARD↔BACKWARD): ramp speed to
-    // zero first so AEP/PEP positions don't jump at full speed.
-    bool is_reversal = was_walking && going_to_walk && (new_state != s_state) &&
-                       ((s_state == GaitState::WALK_FORWARD  && new_state == GaitState::WALK_BACKWARD) ||
-                        (s_state == GaitState::WALK_BACKWARD && new_state == GaitState::WALK_FORWARD));
+    // Detect any sign-flip between forward-biased states and BACKWARD:
+    // TURNs are forward-biased (+1), BACKWARD is -1. Coast to zero first so
+    // AEP/PEP positions don't jump at full speed on reversal.
+    auto dir_sign = [](GaitState s) -> int {
+        if (s == GaitState::WALK_FORWARD || s == GaitState::TURN_LEFT ||
+            s == GaitState::TURN_RIGHT)   return +1;
+        if (s == GaitState::WALK_BACKWARD) return -1;
+        return 0;
+    };
+    bool is_reversal = was_walking && going_to_walk &&
+                       dir_sign(s_state) != 0 && dir_sign(new_state) != 0 &&
+                       dir_sign(s_state) != dir_sign(new_state);
 
     if (going_to_stand) {
-        // STOP / STAND: cancel any pending change and halt immediately
-        s_has_pending  = false;
-        s_target_speed = 0.0f;
-        s_last_active  = millis();
-
-        // Capture current servo positions for return-to-stand taper
-        if (was_walking && servos_engaged()) {
-            for (int i = 0; i < 8; i++) {
-                s_stand_ramp_from[i] = servo_read_us(i);
+        if (new_state == GaitState::STOP) {
+            enter_stop(millis());
+        } else {
+            // STAND: halt gait, capture ramp, but keep new_state as STAND
+            s_has_pending  = false;
+            s_target_speed = 0.0f;
+            s_last_active  = millis();
+            if (was_walking && servos_engaged()) {
+                for (int i = 0; i < 8; i++) s_stand_ramp_from[i] = servo_read_us(i);
+                s_stand_ramp_start = millis();
             }
-            s_stand_ramp_start = millis();
+            if (new_state != s_state) balance_reset();
+            s_state = new_state;
         }
-        if (new_state != s_state) balance_reset();
-        s_state = new_state;
 
     } else if (is_reversal) {
         // Deferred direction flip: coast to zero, then apply the new state.
@@ -174,6 +203,53 @@ void gait_update(unsigned long now_ms) {
 
     float dt = (now_ms - s_last_update) / 1000.0f;
     s_last_update = now_ms;
+
+    // Tilt-over safety cutoff: runs unconditionally — cannot be gated by dt because
+    // the re-arm check depends on wall-clock elapsed time, not per-tick dt. A single
+    // large dt gap (e.g. servo ramp just finished) must not skip re-arm or fault entry.
+    {
+        bool tilt = fabsf(s_pitch) > BALANCE_TILT_CUTOFF_DEG
+                 || fabsf(s_roll)  > BALANCE_TILT_CUTOFF_DEG;
+
+        if (tilt && !s_in_tilt_fault) {
+            s_in_tilt_fault       = true;
+            s_tilt_fault_ms       = now_ms;
+            s_balance_was_enabled = balance_is_enabled();
+            balance_enable(false);
+            balance_reset();
+            bool is_walking = (s_state == GaitState::WALK_FORWARD  ||
+                               s_state == GaitState::WALK_BACKWARD ||
+                               s_state == GaitState::TURN_LEFT     ||
+                               s_state == GaitState::TURN_RIGHT);
+            if (is_walking) enter_stop(now_ms);
+#if defined(MOCK_FIRMWARE) || defined(ARDUINO)
+            JsonDocument fault;
+            fault["type"]  = MSG_TELEM_EVENT;
+            fault["event"] = "tilt_fault";
+            fault["t"]     = (uint32_t)now_ms;
+            fault["pitch"] = s_pitch;
+            fault["roll"]  = s_roll;
+            send_json(fault);
+#endif
+        } else if (!tilt && s_in_tilt_fault
+                   && (now_ms - s_tilt_fault_ms) >= BALANCE_TILT_HOLD_MS) {
+            s_in_tilt_fault = false;
+            if (s_balance_was_enabled) balance_enable(true);
+            s_balance_was_enabled = false;
+        }
+
+        // During fault/hold: override any walk command back to STOP
+        bool blocked = (tilt || s_in_tilt_fault);
+        if (blocked) {
+            bool is_walking = (s_state == GaitState::WALK_FORWARD  ||
+                               s_state == GaitState::WALK_BACKWARD ||
+                               s_state == GaitState::TURN_LEFT     ||
+                               s_state == GaitState::TURN_RIGHT);
+            if (is_walking) enter_stop(now_ms);
+        }
+    }
+
+    // Skip motion physics on stale dt (clock wrap, initial tick, or long gap after ramp)
     if (dt <= 0.0f || dt > 0.5f) return;
 
     // Ramp applied speed toward target
@@ -211,45 +287,6 @@ void gait_update(unsigned long now_ms) {
               ? fminf((float)elapsed / s_transform_duration_ms, 1.0f)
               : 1.0f;
     s_current_transform = lerp_pose(s_start_transform, s_target_transform, t);
-
-    // Tilt-over safety cutoff: detect excessive tilt, stop gait, block re-engagement
-    {
-        bool tilt = fabsf(s_pitch) > BALANCE_TILT_CUTOFF_DEG
-                 || fabsf(s_roll)  > BALANCE_TILT_CUTOFF_DEG;
-
-        if (tilt && s_tilt_fault_ms == 0) {
-            s_tilt_fault_ms = now_ms;
-            balance_enable(false);
-            balance_reset();
-            bool was_walking = (s_state == GaitState::WALK_FORWARD  ||
-                                s_state == GaitState::WALK_BACKWARD ||
-                                s_state == GaitState::TURN_LEFT     ||
-                                s_state == GaitState::TURN_RIGHT);
-            if (was_walking) gait_set_state(GaitState::STOP);
-#if defined(MOCK_FIRMWARE) || defined(ARDUINO)
-            JsonDocument fault;
-            fault["type"]  = MSG_TELEM_EVENT;
-            fault["event"] = "tilt_fault";
-            fault["t"]     = (uint32_t)now_ms;
-            fault["pitch"] = s_pitch;
-            fault["roll"]  = s_roll;
-            send_json(fault);
-#endif
-        } else if (!tilt && s_tilt_fault_ms > 0
-                   && (now_ms - s_tilt_fault_ms) >= BALANCE_TILT_HOLD_MS) {
-            s_tilt_fault_ms = 0;  // 1 s elapsed — re-arm
-        }
-
-        // During fault/hold: override any walk command back to STOP
-        bool blocked = (tilt || s_tilt_fault_ms > 0);
-        if (blocked) {
-            bool is_walking = (s_state == GaitState::WALK_FORWARD  ||
-                               s_state == GaitState::WALK_BACKWARD ||
-                               s_state == GaitState::TURN_LEFT     ||
-                               s_state == GaitState::TURN_RIGHT);
-            if (is_walking) gait_set_state(GaitState::STOP);
-        }
-    }
 
     // Balance correction
     BodyPose combined = s_current_transform;
