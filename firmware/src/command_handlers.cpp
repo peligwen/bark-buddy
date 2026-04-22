@@ -287,17 +287,20 @@ static void handle_cmd_i2c(const JsonDocument& doc) {
 }
 
 static void handle_cmd_offset(const JsonDocument& doc) {
-    // No engagement required — offsets are NVS I/O only
+    // No engagement required — offsets are NVS I/O only.
+    // op="set"  (default): update RAM only — safe for rapid slider updates.
+    // op="save": also flush to NVS — call explicitly when the user commits.
+    // Keeping set/save separate avoids wearing flash during calibration scrubbing.
+    const char* op = doc["op"] | "set";
     if (!doc["offset_us"].isNull()) {
         uint8_t idx = doc["index"] | 255;
         if (idx >= 8) {
             send_ack(MSG_CMD_OFFSET, false, "bad_index");
             return;
         }
-        int16_t val = doc["offset_us"] | 0;
-        offset_set(idx, val);
-        offsets_save();
+        offset_set(idx, doc["offset_us"] | 0);
     }
+    if (strcmp(op, "save") == 0) offsets_save();
     // Always reply with all 8 offsets
     JsonDocument resp;
     resp["type"]     = MSG_ACK;

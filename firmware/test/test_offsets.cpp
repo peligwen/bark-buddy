@@ -46,6 +46,71 @@ int main() {
     printf("{\"test\":\"save_reload\",\"pass\":%s}\n", reloaded ? "true" : "false");
     reloaded ? pass++ : fail++;
 
+    // Test 6: namespace isolation — write in "ns_a", must not be visible in "ns_b"
+    {
+        mock_prefs_reset();
+        Preferences pa, pb;
+        pa.begin("ns_a");
+        pa.putInt("x", 42);
+        pa.end();
+
+        pb.begin("ns_b");
+        bool isolated = !pb.isKey("x");
+        pb.end();
+
+        printf("{\"test\":\"ns_isolation\",\"pass\":%s}\n", isolated ? "true" : "false");
+        isolated ? pass++ : fail++;
+    }
+
+    // Test 7: NVS migration — old "servo_cal"/"off0..off7" keys migrate to "mechdog"
+    {
+        mock_prefs_reset();
+
+        // Pre-populate old namespace (as legacy code would have written)
+        Preferences old;
+        old.begin("servo_cal");
+        for (int i = 0; i < 8; i++) {
+            char key[8];
+            snprintf(key, sizeof(key), "off%d", i);
+            old.putShort(key, (int16_t)(10 * (i + 1)));
+        }
+        old.end();
+
+        offsets_init();  // should migrate
+
+        // Values should be readable via offset_get
+        bool migrated = true;
+        for (int i = 0; i < 8; i++) {
+            if (offset_get(i) != (int16_t)(10 * (i + 1))) { migrated = false; break; }
+        }
+        // Old keys should be gone
+        Preferences check_old;
+        check_old.begin("servo_cal");
+        bool old_cleared = !check_old.isKey("off0");
+        check_old.end();
+
+        printf("{\"test\":\"nvs_migration\",\"migrated\":%s,\"old_cleared\":%s,\"pass\":%s}\n",
+               migrated ? "true" : "false", old_cleared ? "true" : "false",
+               (migrated && old_cleared) ? "true" : "false");
+        (migrated && old_cleared) ? pass++ : fail++;
+    }
+
+    // Test 8: read_offset probes int16 (C3 — stock firmware may use SHORT type)
+    {
+        mock_prefs_reset();
+
+        // Write a SHORT type value directly into the new namespace
+        Preferences p;
+        p.begin("mechdog");
+        p.putShort("offset_s1", 33);
+        p.end();
+
+        offsets_init();
+        bool read_short = (offset_get(0) == 33);
+        printf("{\"test\":\"read_offset_int16\",\"pass\":%s}\n", read_short ? "true" : "false");
+        read_short ? pass++ : fail++;
+    }
+
     printf("{\"summary\":\"offsets_tests\",\"pass\":%d,\"fail\":%d}\n", pass, fail);
     return fail > 0 ? 1 : 0;
 }

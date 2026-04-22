@@ -27,7 +27,7 @@ static uint16_t s_ramp_from[8] = {};
 static uint16_t s_ramp_to_pose[8] = {};
 static bool s_ramp_is_engage = false;  // true=engage, false=disengage
 
-static uint16_t clamp_us(uint16_t us) {
+static uint16_t clamp_us(uint16_t us) {  // layer 3 — see config.h "Servo clamp contract"
     if (us < SERVO_MIN_US) return SERVO_MIN_US;
     if (us > SERVO_MAX_US) return SERVO_MAX_US;
     return us;

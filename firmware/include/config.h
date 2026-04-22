@@ -55,9 +55,18 @@ extern uint8_t SERVO_PINS[8];
 #define SERVO_MAX_US        2500
 #define SERVO_CENTER_US     1500
 
-// --- Per-joint soft clamp limits (Hiwonder pwm_servo.cpp, asymmetric for mirrored mounts) ---
-// Tighter than SERVO_MIN/MAX. Applied in IK layer to prevent driving joints into mechanical stops.
-// Hardware safety net (SERVO_MIN/MAX) is enforced separately in servo_write_us().
+// --- Servo clamp contract ---
+// Three independent layers protect servos from mechanical damage:
+//   Layer 1 — IK per-joint table (SERVO_JOINT_MIN/MAX_US below): physical range per joint,
+//             derived from Hiwonder pwm_servo.cpp. Asymmetric for mirrored mounts. AUTHORITATIVE —
+//             never relax without measuring the hardware travel range.
+//   Layer 2 — apply_offset() (offsets.cpp): clamps offset-adjusted pulses to [SERVO_MIN_US,
+//             SERVO_MAX_US]. Prevents a large persistent offset from escaping the broad USB range.
+//   Layer 3 — servo_write_us() (servos.cpp): last-line sanity check applied to all raw writes,
+//             including cmd_servo paths that bypass IK entirely.
+// Do not add a fourth clamp layer — unnecessary layers hide misconfiguration rather than catching it.
+
+// --- Per-joint soft clamp limits (see "Servo clamp contract" above) ---
 // Order: FL_hip(0), FL_knee(1), FR_hip(2), FR_knee(3), RL_hip(4), RL_knee(5), RR_hip(6), RR_knee(7)
 #ifndef SERVO_JOINT_CLAMP_DEFINED
 #define SERVO_JOINT_CLAMP_DEFINED

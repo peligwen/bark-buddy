@@ -1,5 +1,6 @@
 #include "offsets.h"
 #include "config.h"
+#include <climits>
 
 #if defined(ESP_PLATFORM) && !defined(UNIT_TEST)
 #include <Preferences.h>
@@ -12,7 +13,9 @@ static inline int constrain_i(int v, int lo, int hi) {
 #endif
 
 static const int  NUM_SERVOS    = 8;
-static const char NVS_NS[]      = "mechdog";   // matches Hiwonder stock NVS namespace
+// Namespace aligns with Hiwonder stock firmware; key types not yet verified from a real NVS dump.
+// TODO: once a stock-NVS dump is available, confirm types and simplify read_offset below.
+static const char NVS_NS[]      = "mechdog";
 static const char NVS_NS_OLD[]  = "servo_cal"; // legacy namespace — migrated at boot
 
 static int16_t offsets[NUM_SERVOS] = {};
@@ -28,6 +31,18 @@ static void servo_key_old(int i, char* buf, size_t len) {
     snprintf(buf, len, "off%d", i);
 }
 
+// Read an offset value whose NVS storage type is not yet confirmed (stock dump TODO above).
+// Probes int32 then int16; each type uses a sentinel default that cannot be a valid offset,
+// so a wrong-type miss is distinguishable from a stored zero.
+static int16_t read_offset(Preferences& p, const char* key) {
+    if (!p.isKey(key)) return 0;
+    int32_t i32 = p.getInt(key, INT32_MIN);
+    if (i32 != INT32_MIN) return (int16_t)i32;
+    int16_t i16 = p.getShort(key, INT16_MIN);
+    if (i16 != INT16_MIN) return i16;
+    return 0;
+}
+
 void offsets_init() {
     // Try new namespace first
     prefs.begin(NVS_NS, /*readOnly=*/false);
@@ -40,7 +55,7 @@ void offsets_init() {
     if (new_ns_has_data) {
         for (int i = 0; i < NUM_SERVOS; i++) {
             servo_key(i, key, sizeof(key));
-            offsets[i] = (int16_t)prefs.getInt(key, 0);
+            offsets[i] = read_offset(prefs, key);
         }
         prefs.end();
         return;
@@ -116,6 +131,7 @@ void offsets_reset() {
 
 uint16_t apply_offset(uint8_t servo_idx, uint16_t raw_us) {
     int val = (int)raw_us + (int)offset_get(servo_idx);
+    // layer 2 — see config.h "Servo clamp contract"
 #if defined(ESP_PLATFORM) && !defined(UNIT_TEST)
     return (uint16_t)constrain(val, SERVO_MIN_US, SERVO_MAX_US);
 #else

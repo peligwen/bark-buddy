@@ -166,7 +166,7 @@ inline uint16_t angle_to_pulse(uint8_t idx, float angle_rad) {
     const ServoCalEntry& c = servo_cal(idx);
     float us_f = (float)c.standing_us
                  + (float)c.polarity * c.us_per_rad * (angle_rad - c.standing_angle);
-    if (us_f < (float)SERVO_JOINT_MIN_US[idx]) us_f = (float)SERVO_JOINT_MIN_US[idx];
+    if (us_f < (float)SERVO_JOINT_MIN_US[idx]) us_f = (float)SERVO_JOINT_MIN_US[idx];  // layer 1 — see config.h "Servo clamp contract"
     if (us_f > (float)SERVO_JOINT_MAX_US[idx]) us_f = (float)SERVO_JOINT_MAX_US[idx];
     return (uint16_t)(us_f + 0.5f);
 }
