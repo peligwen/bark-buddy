@@ -13,21 +13,30 @@
 #include <math.h>
 
 static GaitState s_state = GaitState::STOP;
-static float s_speed = 1.0f;
-static bool s_paused = false;
+static float s_speed        = 0.0f;  // smoothed applied speed [0,1]
+static float s_target_speed = 0.0f;  // commanded speed magnitude
+static bool  s_paused       = false;
+
+// Deferred direction change: when FORWARD↔BACKWARD reverses, coast to zero
+// first so the AEP/PEP positions don't jump at full speed.
+static GaitState s_pending_state        = GaitState::STOP;
+static float     s_pending_target_speed = 0.0f;
+static bool      s_has_pending          = false;
 
 static float s_phase = 0.0f;
 static unsigned long s_last_update = 0;
 static unsigned long s_last_active = 0;
 
-// Gait configuration
-static GaitConfig s_config = {
+// Gait configuration — applied blends toward target for mid-walk param changes
+static const GaitConfig k_default_config = {
     GAIT_STRIDE_LENGTH_MM,
     GAIT_STRIDE_HEIGHT_MM,
     GAIT_FREQUENCY_HZ,
     GAIT_SWING_TIME_MS,
     GAIT_STAND_TIME_MS,
 };
+static GaitConfig s_config        = k_default_config;  // applied (smoothed)
+static GaitConfig s_target_config = k_default_config;  // commanded
 
 // Body transform — start, current and target
 static BodyPose s_start_transform   = {};
@@ -46,12 +55,16 @@ static float s_roll  = 0.0f;
 
 void gait_init(unsigned long now_ms) {
     (void)now_ms;
-    s_state = GaitState::STOP;
-    s_speed = 0.0f;
-    s_phase = 0.0f;
-    s_paused = false;
-    s_last_update = millis();
-    s_last_active = millis();
+    s_state         = GaitState::STOP;
+    s_speed         = 0.0f;
+    s_target_speed  = 0.0f;
+    s_has_pending   = false;
+    s_phase         = 0.0f;
+    s_paused        = false;
+    s_last_update   = millis();
+    s_last_active   = millis();
+    s_config        = k_default_config;
+    s_target_config = k_default_config;
     s_current_transform = {};
     s_target_transform  = {};
 
@@ -76,34 +89,58 @@ void gait_set_state(GaitState new_state, float new_speed) {
                         s_state == GaitState::WALK_BACKWARD ||
                         s_state == GaitState::TURN_LEFT ||
                         s_state == GaitState::TURN_RIGHT);
+    bool going_to_walk = (new_state == GaitState::WALK_FORWARD ||
+                          new_state == GaitState::WALK_BACKWARD ||
+                          new_state == GaitState::TURN_LEFT ||
+                          new_state == GaitState::TURN_RIGHT);
     bool going_to_stand = (new_state == GaitState::STAND ||
                            new_state == GaitState::STOP);
 
-    if (new_state != GaitState::STOP && new_state != GaitState::STAND) {
-        s_last_active = millis();
-        s_stand_ramp_start = 0;  // clear taper when resuming gait
-    } else if (new_state == GaitState::STAND) {
-        s_last_active = millis();
-    }
+    // Detect a linear-direction reversal (FORWARD↔BACKWARD): ramp speed to
+    // zero first so AEP/PEP positions don't jump at full speed.
+    bool is_reversal = was_walking && going_to_walk && (new_state != s_state) &&
+                       ((s_state == GaitState::WALK_FORWARD  && new_state == GaitState::WALK_BACKWARD) ||
+                        (s_state == GaitState::WALK_BACKWARD && new_state == GaitState::WALK_FORWARD));
 
-    // Capture current servo positions for return-to-stand taper
-    if (was_walking && going_to_stand && servos_engaged()) {
-        for (int i = 0; i < 8; i++) {
-            s_stand_ramp_from[i] = servo_read_us(i);
+    if (going_to_stand) {
+        // STOP / STAND: cancel any pending change and halt immediately
+        s_has_pending  = false;
+        s_target_speed = 0.0f;
+        s_last_active  = millis();
+
+        // Capture current servo positions for return-to-stand taper
+        if (was_walking && servos_engaged()) {
+            for (int i = 0; i < 8; i++) {
+                s_stand_ramp_from[i] = servo_read_us(i);
+            }
+            s_stand_ramp_start = millis();
         }
-        s_stand_ramp_start = millis();
-    }
+        if (new_state != s_state) balance_reset();
+        s_state = new_state;
 
-    // Reset balance integrators on direction change to avoid jerk
-    if (new_state != s_state) {
-        balance_reset();
+    } else if (is_reversal) {
+        // Deferred direction flip: coast to zero, then apply the new state.
+        // Update pending even if already coasting (most-recent command wins).
+        s_pending_state        = new_state;
+        s_pending_target_speed = new_speed;
+        s_has_pending          = true;
+        s_target_speed         = 0.0f;
+        // s_state stays as current walking direction until speed hits ~0
+
+    } else {
+        // Normal walk command (same direction, new speed, or turn change)
+        s_has_pending  = false;
+        s_target_speed = new_speed;
+        s_stand_ramp_start = 0;  // clear taper when (re)starting gait
+        s_last_active  = millis();
+        if (new_state == GaitState::STAND) s_last_active = millis();
+        if (new_state != s_state) balance_reset();
+        s_state = new_state;
     }
-    s_state = new_state;
-    s_speed = (new_state == GaitState::STOP || new_state == GaitState::STAND) ? 0.0f : new_speed;
 }
 
 void gait_set_config(const GaitConfig& config) {
-    s_config = config;
+    s_target_config = config;
 }
 
 void gait_set_body_transform(const BodyPose& pose, uint16_t duration_ms) {
@@ -130,6 +167,35 @@ void gait_update(unsigned long now_ms) {
     float dt = (now_ms - s_last_update) / 1000.0f;
     s_last_update = now_ms;
     if (dt <= 0.0f || dt > 0.5f) return;
+
+    // Ramp applied speed toward target
+    float accel = GAIT_SPEED_ACCEL_PER_S * dt;
+    float speed_diff = s_target_speed - s_speed;
+    if (speed_diff > accel) speed_diff = accel;
+    if (speed_diff < -accel) speed_diff = -accel;
+    s_speed += speed_diff;
+    if (s_speed < 0.0f) s_speed = 0.0f;
+    if (s_speed > 1.0f) s_speed = 1.0f;
+
+    // Apply deferred direction change once speed coasts to near-zero
+    if (s_has_pending && s_speed < 0.02f) {
+        balance_reset();
+        s_state        = s_pending_state;
+        s_target_speed = s_pending_target_speed;
+        s_has_pending  = false;
+        s_stand_ramp_start = 0;
+        s_last_active  = now_ms;
+    }
+
+    // Blend applied gait config toward target (prevents mid-walk param glitch)
+    float blend = fminf(dt / GAIT_PARAM_RAMP_S, 1.0f);
+    s_config.stride_length_mm += (s_target_config.stride_length_mm - s_config.stride_length_mm) * blend;
+    s_config.stride_height_mm += (s_target_config.stride_height_mm - s_config.stride_height_mm) * blend;
+    s_config.frequency_hz     += (s_target_config.frequency_hz     - s_config.frequency_hz)     * blend;
+    float st = (float)s_config.swing_time_ms + ((float)s_target_config.swing_time_ms - (float)s_config.swing_time_ms) * blend;
+    float sd = (float)s_config.stand_time_ms + ((float)s_target_config.stand_time_ms - (float)s_config.stand_time_ms) * blend;
+    s_config.swing_time_ms = (uint32_t)(st + 0.5f);
+    s_config.stand_time_ms = (uint32_t)(sd + 0.5f);
 
     // Interpolate body transform toward target
     unsigned long elapsed = now_ms - s_transform_start;

@@ -164,9 +164,11 @@ static void handle_cmd_transform(const JsonDocument& doc) {
 static void handle_cmd_gait_params(const JsonDocument& doc) {
     if (!require_engaged(MSG_CMD_GAIT_PARAMS)) return;
     GaitConfig cfg;
-    cfg.stride_height_mm = doc["stride_height"] | GAIT_STRIDE_HEIGHT_MM;
-    cfg.stride_length_mm = doc["stride_length"] | GAIT_STRIDE_LENGTH_MM;
-    cfg.frequency_hz     = doc["frequency"]     | GAIT_FREQUENCY_HZ;
+    cfg.stride_height_mm = doc["stride_height"]  | GAIT_STRIDE_HEIGHT_MM;
+    cfg.stride_length_mm = doc["stride_length"]  | GAIT_STRIDE_LENGTH_MM;
+    cfg.frequency_hz     = doc["frequency"]      | GAIT_FREQUENCY_HZ;
+    cfg.swing_time_ms    = doc["swing_time_ms"]  | (uint32_t)GAIT_SWING_TIME_MS;
+    cfg.stand_time_ms    = doc["stand_time_ms"]  | (uint32_t)GAIT_STAND_TIME_MS;
     gait_set_config(cfg);
     send_ack(MSG_CMD_GAIT_PARAMS, true);
 }

@@ -141,6 +141,8 @@ static const uint16_t REST_POSE[8] = {
 #define GAIT_FREQUENCY_HZ       1.5f    // steps per second
 #define GAIT_SWING_TIME_MS      150     // ms per swing phase (foot in air) — Hiwonder default
 #define GAIT_STAND_TIME_MS      200     // ms per stance phase (foot on ground) — Hiwonder default
+#define GAIT_SPEED_ACCEL_PER_S  3.0f   // speed units/s — 0→1 ramp in ~330ms
+#define GAIT_PARAM_RAMP_S       0.4f   // gait param change converges in ~400ms
 
 // --- Return-to-stand taper ---
 // When gait transitions back to STAND/STOP, servo positions are interpolated
