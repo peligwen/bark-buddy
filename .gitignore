@@ -30,3 +30,4 @@ firmware/test/bark-mock-dbg.dSYM/
 bark_buddy.egg-info/
 firmware/.pio
 firmware/stock_source/
+firmware/src/owner_pubkey.generated.cpp
