@@ -28,6 +28,8 @@ static unsigned long _mock_millis = 0;
 inline unsigned long millis() { return _mock_millis; }
 inline void delay(unsigned long ms) { _mock_millis += ms; }
 #endif
+#include <cstdlib>
+inline uint32_t esp_random() { return (uint32_t)rand(); }
 #ifndef MOCK_REAL_TIME
 inline void mock_advance_ms(unsigned long ms) { _mock_millis += ms; }
 inline void mock_reset_clock() { _mock_millis = 0; }

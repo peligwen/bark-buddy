@@ -7,3 +7,5 @@ struct ESPClass {
     uint32_t getFreeHeap() { return 200000; }
 };
 extern ESPClass ESP;
+#include <cstdlib>
+inline uint32_t esp_random() { return (uint32_t)rand(); }

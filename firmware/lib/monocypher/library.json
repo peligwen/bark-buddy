@@ -1,0 +1,8 @@
+{
+  "name": "monocypher",
+  "version": "4.0.2",
+  "description": "Verify-only Ed25519 (RFC 8032) for OTA signature checking",
+  "build": {
+    "srcDirs": ["."]
+  }
+}
