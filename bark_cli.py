@@ -108,6 +108,9 @@ def _do_stock_flash(args):
 
 
 def _do_usb_flash():
+    _ensure_host_importable()
+    from owner_key import ensure_owner_key
+    ensure_owner_key()
     result = subprocess.run(
         ["pio", "run", "-t", "upload"],
         cwd=FIRMWARE_DIR,
