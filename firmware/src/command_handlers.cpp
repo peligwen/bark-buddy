@@ -23,6 +23,14 @@
 #include <Update.h>
 #include <mbedtls/sha256.h>
 #endif
+#include "ota_auth.h"
+#include <monocypher-ed25519.h>
+
+static bool s_from_serial = false;
+
+void set_msg_source_serial(bool is_serial) {
+    s_from_serial = is_serial;
+}
 
 // --- Direction helpers ---
 Direction direction_from_string(const char* str) {
@@ -311,6 +319,44 @@ static void handle_cmd_offset(const JsonDocument& doc) {
     send_json(resp);
 }
 
+static bool hex_decode32(const char* hex, uint8_t out[32]) {
+    if (!hex || strlen(hex) != 64) return false;
+    for (int i = 0; i < 32; i++) {
+        char b[3] = { hex[i*2], hex[i*2+1], 0 };
+        char* end = nullptr;
+        out[i] = (uint8_t)strtoul(b, &end, 16);
+        if (end != b + 2) return false;
+    }
+    return true;
+}
+
+static bool hex_decode64(const char* hex, uint8_t out[64]) {
+    if (!hex || strlen(hex) != 128) return false;
+    for (int i = 0; i < 64; i++) {
+        char b[3] = { hex[i*2], hex[i*2+1], 0 };
+        char* end = nullptr;
+        out[i] = (uint8_t)strtoul(b, &end, 16);
+        if (end != b + 2) return false;
+    }
+    return true;
+}
+
+static void handle_cmd_ota_request_nonce(const JsonDocument&) {
+#if !WIFI_ENABLED
+    send_ack(MSG_CMD_OTA_REQUEST_NONCE, false, "wifi_disabled");
+#else
+    uint8_t nonce[32];
+    ota_nonce_issue(nonce);
+    char hex[65];
+    for (int i = 0; i < 32; i++) snprintf(hex + i * 2, 3, "%02x", nonce[i]);
+    hex[64] = '\0';
+    JsonDocument resp;
+    resp["type"]  = MSG_TELEM_OTA_NONCE;
+    resp["nonce"] = hex;
+    send_json(resp);
+#endif
+}
+
 static void handle_cmd_ota_update(const JsonDocument& doc) {
 #if !WIFI_ENABLED
     send_ack(MSG_CMD_OTA_UPDATE, false, "wifi_disabled");
@@ -322,6 +368,28 @@ static void handle_cmd_ota_update(const JsonDocument& doc) {
         send_ack(MSG_CMD_OTA_UPDATE, false, "missing_url");
         return;
     }
+
+    // --- Signature check (WiFi only — serial is trusted via physical access) ---
+    if (!s_from_serial) {
+        const char* nonce_hex = doc["nonce"] | "";
+        const char* sig_hex   = doc["sig"]   | "";
+        if (!nonce_hex[0] || !sig_hex[0]) {
+            send_ack(MSG_CMD_OTA_UPDATE, false, "missing_auth");
+            return;
+        }
+        uint8_t nonce_bytes[32], sha256_bytes[32], sig_bytes[64];
+        if (!hex_decode32(nonce_hex, nonce_bytes) ||
+            !hex_decode32(expected_sha256, sha256_bytes) ||
+            !hex_decode64(sig_hex, sig_bytes)) {
+            send_ack(MSG_CMD_OTA_UPDATE, false, "bad_auth_encoding");
+            return;
+        }
+        if (!ota_nonce_verify(nonce_bytes, sha256_bytes, sig_bytes)) {
+            send_ack(MSG_CMD_OTA_UPDATE, false, "sig");
+            return;
+        }
+    }
+
     // Only allow OTA downloads from the connected TCP client.
     // Note: IPv6 bracket notation (e.g. http://[::1]/path) is not supported.
     {
@@ -719,7 +787,8 @@ static const Handler k_handlers[] = {
     { MSG_CMD_GAIT_PARAMS,  handle_cmd_gait_params  },
     { MSG_CMD_OFFSET,       handle_cmd_offset       },
     { MSG_CMD_I2C,          handle_cmd_i2c          },
-    { MSG_CMD_OTA_UPDATE,     handle_cmd_ota_update     },
+    { MSG_CMD_OTA_UPDATE,          handle_cmd_ota_update          },
+    { MSG_CMD_OTA_REQUEST_NONCE,  handle_cmd_ota_request_nonce  },
     { MSG_CMD_PROBE_PIN,      handle_cmd_probe_pin      },
     { MSG_CMD_BALANCE_CONFIG, handle_cmd_balance_config },
     { MSG_CMD_BUZZER,         handle_cmd_buzzer         },

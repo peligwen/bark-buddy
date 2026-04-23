@@ -252,6 +252,7 @@ void loop() {
 #endif
 
     // Read serial
+    set_msg_source_serial(true);
     while (Serial.available()) {
         process_rx(serial_rx, serial_rx_pos, Serial.read(), now);
     }
@@ -264,6 +265,7 @@ void loop() {
             if (c) { tcp_client = c; tcp_client.setNoDelay(true); tcp_rx_pos = 0; broadcast_servo_pins(); }
         }
         if (tcp_client && tcp_client.connected()) {
+            set_msg_source_serial(false);
             while (tcp_client.available()) {
                 process_rx(tcp_rx, tcp_rx_pos, tcp_client.read(), now);
             }

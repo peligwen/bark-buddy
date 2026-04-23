@@ -13,3 +13,7 @@ void handle_message(const JsonDocument& doc);
 // Call from setup() / send_boot_to_new_client() so the host always
 // receives the current mapping on (re-)connect.
 void broadcast_servo_pins();
+
+// Set before processing each transport's input so handle_cmd_ota_update
+// knows whether to enforce signature verification.
+void set_msg_source_serial(bool is_serial);
