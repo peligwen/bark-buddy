@@ -37,9 +37,9 @@ def generate_owner_pubkey(source, target, env):  # noqa: ANN001
     generated_path = Path(env["PROJECT_SRC_DIR"]) / "owner_pubkey.generated.cpp"
     generated_path.write_text(
         '#include <stdint.h>\n'
-        f'const uint8_t OWNER_PUBKEY[32] = {{{byte_list}}};\n'
+        f'extern const uint8_t OWNER_PUBKEY[32] = {{{byte_list}}};\n'
     )
     print(f"[pre_build] Written {generated_path}")
 
 
-env.AddPreAction("buildprog", generate_owner_pubkey)  # noqa: F821
+generate_owner_pubkey(None, None, env)  # noqa: F821
