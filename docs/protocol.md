@@ -196,6 +196,33 @@ I2C bus operations. `bus: 1` = primary (SDA GPIO 22, SCL GPIO 23); `bus: 2` = se
 
 Results arrive as `telem_i2c`.
 
+### cmd_ota_request_nonce
+
+Request a one-time nonce before a WiFi OTA update. WiFi only; rejected with `wifi_disabled` on serial.
+
+```json
+{"type": "cmd_ota_request_nonce"}
+```
+
+Firmware responds with `telem_ota_nonce`.
+
+### cmd_ota_update
+
+Trigger a WiFi OTA firmware update. On the WiFi path, `nonce` and `sig` are required (obtained via `cmd_ota_request_nonce` + Ed25519 signing). On the serial path, authentication is omitted (physical access is trusted).
+
+```json
+{"type": "cmd_ota_update", "url": "http://192.168.1.2:PORT/firmware.bin", "sha256": "<64-hex>", "nonce": "<64-hex>", "sig": "<128-hex>"}
+```
+
+| Field | Required on WiFi | Description |
+|-------|-----------------|-------------|
+| url | yes | HTTP URL to fetch firmware binary from. Host component must match TCP client IP. |
+| sha256 | yes | Expected SHA-256 of firmware binary (hex). |
+| nonce | yes | 32-byte nonce issued by `cmd_ota_request_nonce` (hex). |
+| sig | yes | Ed25519 signature over `nonce_bytes ‖ sha256_bytes` (128-hex). |
+
+Auth failure error codes: `missing_auth`, `bad_auth_encoding`, `sig` (wrong owner key — device is owned by a different host).
+
 ### ping
 
 Keepalive and build-info probe. Firmware replies with `pong`.
@@ -317,6 +344,18 @@ Current servo-index → GPIO mapping. Sent on client connect and after `cmd_serv
 ```
 
 Array index matches servo index (0 = FL_hip … 7 = RR_knee).
+
+### telem_ota_nonce
+
+One-time nonce for signing a WiFi OTA command. Sent in response to `cmd_ota_request_nonce`.
+
+```json
+{"type": "telem_ota_nonce", "nonce": "<64-hex>"}
+```
+
+| Field | Description |
+|-------|-------------|
+| nonce | 32-byte random nonce encoded as 64 lowercase hex characters. Valid for `OTA_NONCE_TTL_MS` (30 s). Single use — consumed on first verify attempt. |
 
 ### telem_event
 
