@@ -39,7 +39,7 @@ int main() {
         float dy = foot.y - stock_feet[leg][1];
         float dz = foot.z - stock_feet[leg][2];
         float err = sqrtf(dx*dx + dy*dy + dz*dz);
-        bool ok = err < 2.0f;  // corrected geometry: expect <0.5mm; 2mm is a generous gate
+        bool ok = err < 0.5f;
         printf("{\"test\":\"stock_ground_truth\",\"leg\":%d,"
                "\"expected\":[%.1f,%.1f,%.1f],\"got\":[%.1f,%.1f,%.1f],"
                "\"error_mm\":%.2f,\"pass\":%s}\n",

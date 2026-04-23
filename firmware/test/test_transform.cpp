@@ -4,6 +4,29 @@
 #include <cstdio>
 #include <cmath>
 
+// ─── FK round-trip test helpers ──────────────────────────────────────────────
+//
+// Round-trip gate: 1.0 mm (not 0.5 mm).
+// The knee us_per_rad ≈ 54 us/rad — a 1 μs pulse rounding maps to ~0.57 mm at the foot.
+// 1.0 mm tolerates this inherent quantization while still catching real bugs
+// (polarity errors → 10–50 mm, magnitude errors → 5–20 mm).
+
+// Match the translate-then-rotate order of body_pose_to_pulses (body_transform.h:78-83)
+static FootPos expected_foot(uint8_t leg, const BodyPose& p) {
+    FootPos f = standing_foot_pos(leg);
+    f.x -= p.dx; f.y -= p.dy; f.z -= p.dz;
+    f = rotate_foot(f, -p.roll, -p.pitch, -p.yaw);
+    return f;
+}
+
+static float dist_mm(const FootPos& a, const FootPos& b) {
+    return sqrtf((a.x-b.x)*(a.x-b.x) + (a.y-b.y)*(a.y-b.y) + (a.z-b.z)*(a.z-b.z));
+}
+
+static FootPos actual_foot(uint8_t leg, const uint16_t pulses[8]) {
+    return pulses_to_foot(leg, pulses[leg*2], pulses[leg*2+1]);
+}
+
 int main() {
     int pass = 0, fail = 0;
 
@@ -167,6 +190,187 @@ int main() {
         printf("{\"test\":\"dy_hip_knee_unchanged\",\"pass\":%s}\n",
                pass7 ? "true" : "false");
         pass7 ? pass++ : fail++;
+    }
+
+    // Test 8: rotate_foot basis-vector sanity — independent of expected_foot
+    {
+        float tol = 0.01f;
+        bool pass8 = true;
+        // roll +90°: +y → +z
+        FootPos r1 = rotate_foot({0,1,0}, 90,0,0);
+        if (fabsf(r1.x) > tol || fabsf(r1.y) > tol || fabsf(r1.z - 1.0f) > tol) {
+            pass8 = false;
+            printf("{\"diag\":\"rotate_foot_basis\",\"case\":\"roll90_y_to_z\","
+                   "\"got\":[%.3f,%.3f,%.3f]}\n", r1.x, r1.y, r1.z);
+        }
+        // pitch +90°: +z → +x
+        FootPos r2 = rotate_foot({0,0,1}, 0,90,0);
+        if (fabsf(r2.x - 1.0f) > tol || fabsf(r2.y) > tol || fabsf(r2.z) > tol) {
+            pass8 = false;
+            printf("{\"diag\":\"rotate_foot_basis\",\"case\":\"pitch90_z_to_x\","
+                   "\"got\":[%.3f,%.3f,%.3f]}\n", r2.x, r2.y, r2.z);
+        }
+        // yaw +90°: +x → +y
+        FootPos r3 = rotate_foot({1,0,0}, 0,0,90);
+        if (fabsf(r3.x) > tol || fabsf(r3.y - 1.0f) > tol || fabsf(r3.z) > tol) {
+            pass8 = false;
+            printf("{\"diag\":\"rotate_foot_basis\",\"case\":\"yaw90_x_to_y\","
+                   "\"got\":[%.3f,%.3f,%.3f]}\n", r3.x, r3.y, r3.z);
+        }
+        printf("{\"test\":\"rotate_foot_basis\",\"pass\":%s}\n",
+               pass8 ? "true" : "false");
+        pass8 ? pass++ : fail++;
+    }
+
+    // Test 9: dx FK round-trip — body translates forward/back
+    {
+        bool pass9 = true;
+        for (float dx : {5.0f, -5.0f}) {
+            BodyPose pose = {dx, 0, 0, 0, 0, 0};
+            uint16_t pulses[8] = {};
+            body_pose_to_pulses(pose, pulses);
+            for (int leg = 0; leg < 4; leg++) {
+                FootPos exp = expected_foot(leg, pose);
+                FootPos act = actual_foot(leg, pulses);
+                float err = dist_mm(act, exp);
+                printf("{\"diag\":\"dx_roundtrip\",\"leg\":%d,\"dx\":%.0f,"
+                       "\"exp\":[%.2f,%.2f,%.2f],\"act\":[%.2f,%.2f,%.2f],"
+                       "\"err\":%.3f}\n",
+                       leg, dx, exp.x, exp.y, exp.z, act.x, act.y, act.z, err);
+                if (err > 1.0f) pass9 = false;
+            }
+        }
+        printf("{\"test\":\"dx_fk_roundtrip\",\"pass\":%s}\n",
+               pass9 ? "true" : "false");
+        pass9 ? pass++ : fail++;
+    }
+
+    // Test 10: dz FK round-trip — body rises/falls
+    {
+        bool pass10 = true;
+        for (float dz : {10.0f, -10.0f}) {
+            BodyPose pose = {0, 0, dz, 0, 0, 0};
+            uint16_t pulses[8] = {};
+            body_pose_to_pulses(pose, pulses);
+            for (int leg = 0; leg < 4; leg++) {
+                FootPos exp = expected_foot(leg, pose);
+                FootPos act = actual_foot(leg, pulses);
+                float err = dist_mm(act, exp);
+                printf("{\"diag\":\"dz_roundtrip\",\"leg\":%d,\"dz\":%.0f,"
+                       "\"exp\":[%.2f,%.2f,%.2f],\"act\":[%.2f,%.2f,%.2f],"
+                       "\"err\":%.3f}\n",
+                       leg, dz, exp.x, exp.y, exp.z, act.x, act.y, act.z, err);
+                if (err > 1.0f) pass10 = false;
+            }
+        }
+        printf("{\"test\":\"dz_fk_roundtrip\",\"pass\":%s}\n",
+               pass10 ? "true" : "false");
+        pass10 ? pass++ : fail++;
+    }
+
+    // Test 11: dy silent loss — lateral translation silently discarded (L2-F06)
+    // Asserts pulses unchanged and FK y-readback stays at standing hip.y (loss = |dy|).
+    {
+        BodyPose pose = {0, 10, 0, 0, 0, 0};
+        uint16_t pulses[8] = {};
+        body_pose_to_pulses(pose, pulses);
+        bool pulses_unchanged = true;
+        for (int i = 0; i < 8; i++) {
+            if (abs((int)pulses[i] - (int)STANDING_POSE[i]) > 1) {
+                pulses_unchanged = false;
+                printf("{\"diag\":\"dy_silent_loss\",\"idx\":%d,"
+                       "\"expected\":%d,\"got\":%d}\n",
+                       i, STANDING_POSE[i], pulses[i]);
+            }
+        }
+        float max_y_err = 0;
+        for (int leg = 0; leg < 4; leg++) {
+            FootPos exp = expected_foot(leg, pose);
+            FootPos act = actual_foot(leg, pulses);
+            float y_err = fabsf(act.y - exp.y);
+            if (y_err > max_y_err) max_y_err = y_err;
+            printf("{\"diag\":\"dy_silent_loss\",\"leg\":%d,"
+                   "\"exp_y\":%.2f,\"act_y\":%.2f,\"y_err\":%.2f}\n",
+                   leg, exp.y, act.y, y_err);
+        }
+        bool pass11 = pulses_unchanged && fabsf(max_y_err - 10.0f) < 0.5f;
+        printf("{\"test\":\"dy_silent_loss\",\"pulses_unchanged\":%s,"
+               "\"max_y_err\":%.2f,\"pass\":%s}\n",
+               pulses_unchanged ? "true" : "false", max_y_err,
+               pass11 ? "true" : "false");
+        pass11 ? pass++ : fail++;
+    }
+
+    // Test 12: roll FK round-trip — x/z gated at 0.5 mm; y-loss reported (roll → foot y change)
+    {
+        bool pass12 = true;
+        for (float roll : {5.0f, -5.0f}) {
+            BodyPose pose = {0, 0, 0, roll, 0, 0};
+            uint16_t pulses[8] = {};
+            body_pose_to_pulses(pose, pulses);
+            for (int leg = 0; leg < 4; leg++) {
+                FootPos exp = expected_foot(leg, pose);
+                FootPos act = actual_foot(leg, pulses);
+                float xz_err = sqrtf((act.x-exp.x)*(act.x-exp.x) +
+                                     (act.z-exp.z)*(act.z-exp.z));
+                float y_err  = fabsf(act.y - exp.y);
+                printf("{\"diag\":\"roll_roundtrip\",\"leg\":%d,\"roll\":%.0f,"
+                       "\"xz_err\":%.3f,\"y_err\":%.3f}\n",
+                       leg, roll, xz_err, y_err);
+                if (xz_err > 1.0f) pass12 = false;
+            }
+        }
+        printf("{\"test\":\"roll_fk_roundtrip\",\"pass\":%s}\n",
+               pass12 ? "true" : "false");
+        pass12 ? pass++ : fail++;
+    }
+
+    // Test 13: pitch FK round-trip — pitch (Ry) leaves y unchanged; full 3D gate
+    {
+        bool pass13 = true;
+        for (float pitch : {5.0f, -5.0f}) {
+            BodyPose pose = {0, 0, 0, 0, pitch, 0};
+            uint16_t pulses[8] = {};
+            body_pose_to_pulses(pose, pulses);
+            for (int leg = 0; leg < 4; leg++) {
+                FootPos exp = expected_foot(leg, pose);
+                FootPos act = actual_foot(leg, pulses);
+                float err = dist_mm(act, exp);
+                printf("{\"diag\":\"pitch_roundtrip\",\"leg\":%d,\"pitch\":%.0f,"
+                       "\"exp\":[%.2f,%.2f,%.2f],\"act\":[%.2f,%.2f,%.2f],"
+                       "\"err\":%.3f}\n",
+                       leg, pitch, exp.x, exp.y, exp.z, act.x, act.y, act.z, err);
+                if (err > 1.0f) pass13 = false;
+            }
+        }
+        printf("{\"test\":\"pitch_fk_roundtrip\",\"pass\":%s}\n",
+               pass13 ? "true" : "false");
+        pass13 ? pass++ : fail++;
+    }
+
+    // Test 14: yaw FK partial — x/z gated at 0.5 mm; y-loss matches predicted (Rz → y slew)
+    {
+        bool pass14 = true;
+        BodyPose pose = {0, 0, 0, 0, 0, 5};
+        uint16_t pulses[8] = {};
+        body_pose_to_pulses(pose, pulses);
+        for (int leg = 0; leg < 4; leg++) {
+            FootPos sf  = standing_foot_pos(leg);
+            FootPos exp = expected_foot(leg, pose);
+            FootPos act = actual_foot(leg, pulses);
+            float xz_err = sqrtf((act.x-exp.x)*(act.x-exp.x) +
+                                  (act.z-exp.z)*(act.z-exp.z));
+            float y_err            = fabsf(act.y - exp.y);
+            float predicted_y_loss = fabsf(exp.y - sf.y);
+            printf("{\"diag\":\"yaw_partial\",\"leg\":%d,"
+                   "\"xz_err\":%.3f,\"y_err\":%.3f,\"predicted_y_loss\":%.3f}\n",
+                   leg, xz_err, y_err, predicted_y_loss);
+            if (xz_err > 1.0f) pass14 = false;
+            if (fabsf(y_err - predicted_y_loss) > 0.5f) pass14 = false;
+        }
+        printf("{\"test\":\"yaw_fk_partial\",\"pass\":%s}\n",
+               pass14 ? "true" : "false");
+        pass14 ? pass++ : fail++;
     }
 
     printf("{\"summary\":\"transform_tests\",\"pass\":%d,\"fail\":%d}\n", pass, fail);
