@@ -107,6 +107,68 @@ int main() {
         ok ? pass++ : fail++;
     }
 
+    // Test 6: Hip polarity parity under body dx
+    // Left-mounted hips (FL=idx 0, RL=idx 4) must have the same raw Δpulse sign.
+    // Right-mounted hips (FR=idx 2, RR=idx 6) must have the same raw Δpulse sign.
+    // Left and right groups must have opposite signs.
+    //
+    // Why raw Δpulse, not normalized: pol×Δpulse = pol²×upr×Δangle = upr×Δangle,
+    // which cancels the polarity and would miss a wrong-polarity override.
+    {
+        BodyPose dx_fwd = {5, 0, 0, 0, 0, 0};
+        uint16_t p[8] = {};
+        body_pose_to_pulses(dx_fwd, p);
+
+        // raw[L] = Δpulse for hip of leg L (L=0=FL, 1=FR, 2=RL, 3=RR)
+        int raw[4];
+        for (int L = 0; L < 4; L++) {
+            int hi = L * 2;
+            raw[L] = (int)p[hi] - (int)STANDING_POSE[hi];
+            printf("{\"diag\":\"dx+5_hip\",\"leg\":%d,\"servo_idx\":%d,"
+                   "\"delta\":%d,\"pol\":%d}\n",
+                   L, hi, raw[L], (int)servo_cal(hi).polarity);
+        }
+
+        // Left group (L=0 FL, L=2 RL): same raw direction
+        bool fl_rl_same = (raw[0] > 0) == (raw[2] > 0) && raw[0] != 0 && raw[2] != 0;
+        // Right group (L=1 FR, L=3 RR): same raw direction
+        bool fr_rr_same = (raw[1] > 0) == (raw[3] > 0) && raw[1] != 0 && raw[3] != 0;
+        // Left vs right: opposite (mirror mounting)
+        bool lr_opp = (raw[0] > 0) != (raw[1] > 0);
+
+        bool pass6 = fl_rl_same && fr_rr_same && lr_opp;
+        printf("{\"test\":\"dx_hip_polarity_parity\","
+               "\"fl_rl_same\":%s,\"fr_rr_same\":%s,\"lr_opp\":%s,\"pass\":%s}\n",
+               fl_rl_same ? "true" : "false",
+               fr_rr_same ? "true" : "false",
+               lr_opp ? "true" : "false",
+               pass6 ? "true" : "false");
+        pass6 ? pass++ : fail++;
+    }
+
+    // Test 7: Pure lateral translation (dy) must not change hip or knee pulses.
+    // The 2-DOF IK is planar in x-z; the y component of the foot target is never
+    // consumed by leg_ik(). Translating the body sideways shifts foot.y but not
+    // foot.x/z, so all eight servo pulses must remain at the standing pose.
+    {
+        bool pass7 = true;
+        for (float dy : {10.0f, -10.0f}) {
+            BodyPose lat = {0, dy, 0, 0, 0, 0};
+            uint16_t p[8] = {};
+            body_pose_to_pulses(lat, p);
+            for (int i = 0; i < 8; i++) {
+                if (abs((int)p[i] - (int)STANDING_POSE[i]) > 1) {
+                    pass7 = false;
+                    printf("{\"diag\":\"dy_not_isolated\",\"dy\":%.0f,\"idx\":%d,"
+                           "\"delta\":%d}\n", dy, i, (int)p[i] - (int)STANDING_POSE[i]);
+                }
+            }
+        }
+        printf("{\"test\":\"dy_hip_knee_unchanged\",\"pass\":%s}\n",
+               pass7 ? "true" : "false");
+        pass7 ? pass++ : fail++;
+    }
+
     printf("{\"summary\":\"transform_tests\",\"pass\":%d,\"fail\":%d}\n", pass, fail);
     return fail > 0 ? 1 : 0;
 }

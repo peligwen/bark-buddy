@@ -179,8 +179,11 @@ static const int8_t SERVO_POLARITY_OVERRIDE[8] = {
     0,   // 3 FR_knee — auto (-1, standing=1379)
     0,   // 4 RL_hip  — auto (+1, standing=2170)  UNVERIFIED post-swap
     0,   // 5 RL_knee — auto (+1, standing=1611)  UNVERIFIED post-swap
-   +1,   // 6 RR_hip  — OVERRIDE: pulse↓ → backward (inverted); +1 corrects it
-   -1,   // 7 RR_knee — OVERRIDE: physically inverted with RR_hip; -1 corrects it
+    0,   // 6 RR_hip  — auto (-1, standing=830), mirror of FR; +1 override removed — it
+         //            predated the ff0e025/4c452ee IK rewrites and caused RR to move
+         //            opposite the other legs under body dx.
+   -1,   // 7 RR_knee — OVERRIDE: physically inverted; -1 corrects it (redundant with
+         //             auto -1 since standing=1389 < 1500, but kept for clarity)
 };
 #endif
 // clang-format on

@@ -48,7 +48,7 @@ clean:
 test_ik: test_ik.cpp mock_arduino.h ../include/ik.h
 	$(CXX) $(CXXFLAGS) -o $@ test_ik.cpp
 
-test_transform: test_transform.cpp mock_arduino.h ../include/ik.h ../include/body_transform.h
+test_transform: test_transform.cpp mock_arduino.h ../include/ik.h ../include/body_transform.h ../include/config.h
 	$(CXX) $(CXXFLAGS) -o $@ test_transform.cpp
 
 test_balance: test_balance.cpp mock_arduino.h ../include/ik.h ../include/body_transform.h ../include/balance.h ../src/balance.cpp
