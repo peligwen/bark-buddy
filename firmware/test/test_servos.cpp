@@ -44,10 +44,10 @@ static RampResult run_ramp_to_completion() {
 }
 
 // ------------------------------------------------------------------ //
-// Test: servos_engage_start() attaches at REST_POSE and kicks off ramp
+// Test: servos_engage_start() attaches at LYING_DOWN_POSE and kicks off ramp
 // ------------------------------------------------------------------ //
 static void test_engage_attaches_at_rest() {
-    printf("\nTest: servos_engage_start attaches at REST_POSE\n");
+    printf("\nTest: servos_engage_start attaches at LYING_DOWN_POSE\n");
     servo_log_reset();
     mock_reset_clock();
     servos_detach_all();
@@ -57,17 +57,17 @@ static void test_engage_attaches_at_rest() {
     check(servos_engaged(), "servos_engaged() true after engage_start");
     check(servos_is_ramping(), "servos_is_ramping() true after engage_start");
 
-    // All servos should be at REST_POSE on the initial write
+    // All servos should be at LYING_DOWN_POSE on the initial write
     bool all_correct = true;
     for (int i = 0; i < 8; i++) {
-        uint32_t expected = expected_duty(REST_POSE[i]);
+        uint32_t expected = expected_duty(LYING_DOWN_POSE[i]);
         uint32_t actual   = _servo_duty[SERVO_PINS[i]];
         if (actual != expected) {
             printf("  servo %d: expected %u got %u\n", i, expected, actual);
             all_correct = false;
         }
     }
-    check(all_correct, "all servos at REST_POSE duty after engage_start");
+    check(all_correct, "all servos at LYING_DOWN_POSE duty after engage_start");
 
     // Second call while ramping returns false
     check(!servos_engage_start(), "second engage_start returns false while ramping");
@@ -126,8 +126,8 @@ static void test_engage_ramp_monotonic() {
             prev = c.duty;
             continue;
         }
-        // REST_POSE[0]=1800 → STANDING_POSE[0]=2096, so duty should be non-decreasing
-        bool going_up = STANDING_POSE[0] >= REST_POSE[0];
+        // LYING_DOWN_POSE[0]=1500 → STANDING_POSE[0]=2096, so duty should be non-decreasing
+        bool going_up = STANDING_POSE[0] >= LYING_DOWN_POSE[0];
         if (going_up && c.duty < prev) { monotonic = false; break; }
         if (!going_up && c.duty > prev) { monotonic = false; break; }
         prev = c.duty;
@@ -203,10 +203,10 @@ static void test_detach() {
 }
 
 // ------------------------------------------------------------------ //
-// Test: disengage ramp reaches REST_POSE and detaches
+// Test: disengage ramp reaches LYING_DOWN_POSE and detaches
 // ------------------------------------------------------------------ //
 static void test_disengage_ramp() {
-    printf("\nTest: disengage ramp reaches REST_POSE then detaches\n");
+    printf("\nTest: disengage ramp reaches LYING_DOWN_POSE then detaches\n");
     servo_log_reset();
     mock_reset_clock();
     servos_detach_all();
@@ -295,8 +295,8 @@ static void test_disengage_mid_engage() {
 
     // Capture current position before disengage
     uint16_t mid_pos_0 = servo_read_us(0);
-    check(mid_pos_0 != REST_POSE[0] && mid_pos_0 != STANDING_POSE[0],
-          "servo 0 in-between rest and standing mid-ramp");
+    check(mid_pos_0 != LYING_DOWN_POSE[0] && mid_pos_0 != STANDING_POSE[0],
+          "servo 0 in-between lying-down and standing mid-ramp");
 
     // Kick off disengage — should use current position as ramp start
     servos_disengage_start();

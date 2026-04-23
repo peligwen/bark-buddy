@@ -7,8 +7,8 @@
 // Hardware PWM via ESP32 LEDC peripheral (3.x pin-based API).
 // All LEDC calls use GPIO pin numbers directly — no channel bookkeeping.
 // 50Hz, 14-bit resolution (~1.22us/tick). Zero CPU cost during pulse generation.
-// Engage: attach at REST_POSE -> ramp to STANDING_POSE (non-blocking, millis-based).
-// Disengage: ramp to REST_POSE -> detach.
+// Engage: attach at LYING_DOWN_POSE -> ramp to STANDING_POSE (non-blocking, millis-based).
+// Disengage: ramp to LYING_DOWN_POSE -> detach.
 
 uint8_t SERVO_PINS[8] = {25, 26, 16, 17, 27, 14, 15, 2};
 static uint16_t current_us[8] = {0};
@@ -47,7 +47,7 @@ bool servos_engage_start() {
     if (s_engaged || s_ramping || s_battery_cutoff) return false;
     for (int i = 0; i < 8; i++) {
         ledcAttach(SERVO_PINS[i], SERVO_FREQ_HZ, LEDC_RESOLUTION);
-        uint16_t pos = clamp_us(REST_POSE[i]);
+        uint16_t pos = clamp_us(LYING_DOWN_POSE[i]);
         current_us[i] = pos;
         ledcWrite(SERVO_PINS[i], us_to_duty(pos));
     }
@@ -56,7 +56,7 @@ bool servos_engage_start() {
     aux_servo_init();
 #endif
     for (int i = 0; i < 8; i++) {
-        s_ramp_from[i] = REST_POSE[i];
+        s_ramp_from[i] = LYING_DOWN_POSE[i];
         s_ramp_to_pose[i] = STANDING_POSE[i];
     }
     s_ramp_start_ms = millis();
@@ -73,7 +73,7 @@ void servos_disengage_start() {
     // If mid-engage-ramp, freeze current position as start of disengage ramp
     for (int i = 0; i < 8; i++) {
         s_ramp_from[i] = (current_us[i] > 0) ? current_us[i] : STANDING_POSE[i];
-        s_ramp_to_pose[i] = REST_POSE[i];
+        s_ramp_to_pose[i] = LYING_DOWN_POSE[i];
     }
     s_ramp_start_ms = millis();
     s_ramp_duration_ms = SHUTDOWN_RAMP_MS;
