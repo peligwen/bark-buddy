@@ -16,6 +16,8 @@ import os
 import sys
 from pathlib import Path
 
+from owner_key import sign_ota
+
 # Ensure host/ is importable (same pattern as bark_cli.py _ensure_host_importable)
 _HOST_DIR = str(Path(__file__).resolve().parent)
 if _HOST_DIR not in sys.path:
@@ -176,7 +178,11 @@ async def flash_wifi(host: str | None, tcp_port: int = 9000) -> int:
         elif msg_type == "ack" and msg.get("ref_type") == "cmd_ota_update":
             if not msg.get("ok"):
                 error = msg.get("error", "unknown")
-                print(f"[ota] ERROR: firmware rejected cmd_ota_update: {error}")
+                if error == "sig":
+                    print("[ota] ERROR: firmware rejected OTA — this device is owned by a different host.")
+                    print("[ota]        Re-flash via USB to take ownership:  bark flash --usb")
+                else:
+                    print(f"[ota] ERROR: firmware rejected cmd_ota_update: {error}")
                 ota_result["ok"] = False
                 done_event.set()
 
@@ -224,13 +230,44 @@ async def flash_wifi(host: str | None, tcp_port: int = 9000) -> int:
         print(f"[ota] HTTP server ready at {firmware_url}")
 
         # ------------------------------------------------------------------
-        # 7. Send OTA command
+        # 7. Request nonce, sign, send authenticated OTA command
         # ------------------------------------------------------------------
+        print("[ota] Requesting OTA nonce ...")
+        nonce_event: asyncio.Event = asyncio.Event()
+        nonce_holder: dict = {}
+
+        def _nonce_cb(msg: dict) -> None:
+            if msg.get("type") == "telem_ota_nonce":
+                nonce_holder["nonce"] = msg.get("nonce", "")
+                nonce_event.set()
+            else:
+                _telem_cb(msg)
+
+        transport.set_telem_callback(_nonce_cb)
+        await transport.send_json({"type": "cmd_ota_request_nonce"})
+        try:
+            await asyncio.wait_for(nonce_event.wait(), timeout=10.0)
+        except asyncio.TimeoutError:
+            print("[ota] ERROR: timed out waiting for nonce from device.")
+            return 1
+        finally:
+            transport.set_telem_callback(_telem_cb)
+
+        nonce_hex = nonce_holder.get("nonce", "")
+        if len(nonce_hex) != 64:
+            print(f"[ota] ERROR: invalid nonce from device: {nonce_hex!r}")
+            return 1
+
+        print("[ota] Signing OTA command ...")
+        sig_hex = sign_ota(nonce_hex, sha256_hex)
+
         print("[ota] Sending cmd_ota_update ...")
         await transport.send_json({
-            "type": "cmd_ota_update",
-            "url": firmware_url,
+            "type":   "cmd_ota_update",
+            "url":    firmware_url,
             "sha256": sha256_hex,
+            "nonce":  nonce_hex,
+            "sig":    sig_hex,
         })
 
         # ------------------------------------------------------------------
