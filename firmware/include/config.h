@@ -177,8 +177,8 @@ static const int8_t SERVO_POLARITY_OVERRIDE[8] = {
     0,   // 1 FL_knee — auto (+1, standing=1621)
     0,   // 2 FR_hip  — auto (-1, standing=904)   VERIFIED: pulse↓ → forward swing ✓
     0,   // 3 FR_knee — auto (-1, standing=1379)
-    0,   // 4 RL_hip  — auto (+1, standing=2170)  UNVERIFIED post-swap
-    0,   // 5 RL_knee — auto (+1, standing=1611)  UNVERIFIED post-swap
+    0,   // 4 RL_hip  — auto (+1, standing=2170)  verified 2026-04-23 via FK round-trip tests
+    0,   // 5 RL_knee — auto (+1, standing=1611)  verified 2026-04-23 via FK round-trip tests
     0,   // 6 RR_hip  — auto (-1, standing=830), mirror of FR; +1 override removed — it
          //            predated the ff0e025/4c452ee IK rewrites and caused RR to move
          //            opposite the other legs under body dx.
