@@ -74,7 +74,6 @@ class Server:
             get_transport_label_fn=lambda: self._transport_label,
         )
         self._device_monitor: "DeviceMonitor | None" = None
-        self._user_override_transport: bool = False  # True when user manually selected transport
         self._switch_lock = asyncio.Lock()
         self._mdns_browser: "MdnsBrowser | None" = None
         self._open_browser = open_browser
@@ -231,36 +230,6 @@ class Server:
             self._reconnect_task = asyncio.create_task(self._reconnect_loop())
             await self._broadcast_status()
 
-    async def _switch_transport(self, mode: str) -> dict:
-        """Switch between transport modes: 'fw-usb', 'fw-wifi'. Returns status dict."""
-        self._user_override_transport = True
-
-        try:
-            if mode == "fw-usb":
-                port = find_serial_port()
-                if not port:
-                    return {"ok": False, "error": "No USB serial device found"}
-                transport = Dog(port=port)
-                label = f"fw:{port.split('/')[-1]}"
-            elif mode == "fw-wifi":
-                wifi = self._detected_wifi
-                if not wifi or not wifi.get("ip"):
-                    return {"ok": False, "error": "No WiFi firmware detected"}
-                ip = wifi["ip"]
-                tcp_port = wifi.get("port", 9000)
-                transport = Dog(host=ip, tcp_port=tcp_port)
-                label = f"fw:{ip}"
-            else:
-                return {"ok": False, "error": f"Unknown mode: {mode}"}
-
-            await self._replace_transport(transport, label)
-            logger.info("Switched transport to %s", label)
-            return {"ok": True, "transport": label}
-
-        except Exception as e:
-            logger.exception("Failed to switch transport to %s", mode)
-            return {"ok": False, "error": str(e)}
-
     @staticmethod
     def _compute_web_hash(web_dir: str) -> str:
         """Hash web files to detect when clients need to reload."""
@@ -313,10 +282,6 @@ class Server:
             status["lifecycle"] = "ramping" if _r else ("active" if _e else "disengaged")
         else:
             status["lifecycle"] = "unknown"
-        wifi_info = self._detected_wifi
-        if wifi_info and wifi_info.get("connected"):
-            status["wifi_available"] = True
-            status["wifi_ip"] = wifi_info.get("ip", "")
         await ws.send_str(json.dumps(status))
 
         # Send version hash for stale client detection
@@ -584,7 +549,7 @@ class Server:
                                "fw_version": props.get("fw_version", "")}
         current_priority = _transport_priority(self._transport_label)
         wifi_priority = _TRANSPORT_PRIORITY["fw-wifi"]
-        if not self._user_override_transport and wifi_priority > current_priority:
+        if wifi_priority > current_priority:
             logger.info("mDNS: auto-connecting to %s:%d", ip, port)
             try:
                 transport = Dog(host=ip, tcp_port=port)
@@ -607,9 +572,6 @@ class Server:
 
     async def _on_device_added(self, port: str):
         """Called when a USB serial device is plugged in."""
-        if self._user_override_transport:
-            logger.info("Hot-plug: ignoring %s (user override active)", port)
-            return
         current_priority = _transport_priority(self._transport_label)
         # Probe what's on the port
         try:
@@ -631,7 +593,6 @@ class Server:
         if port not in self._transport_label:
             return
         logger.warning("Hot-plug: active device removed: %s", port)
-        self._user_override_transport = False
         # Fall back to WiFi firmware if available
         if self._detected_wifi and self._detected_wifi.get("ip"):
             ip = self._detected_wifi["ip"]
