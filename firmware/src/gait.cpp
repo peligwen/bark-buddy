@@ -4,9 +4,10 @@
 #include "servos.h"
 #include "balance.h"
 #include "offsets.h"
-// comms.h and protocol.h need ArduinoJson — skip in bare unit-test builds.
+// comms.h, comms_out.h, and protocol.h need ArduinoJson — skip in bare unit-test builds.
 #if defined(MOCK_FIRMWARE) || defined(ARDUINO)
 #include "comms.h"
+#include "comms_out.h"
 #include "protocol.h"
 #endif
 #include <Arduino.h>
@@ -319,6 +320,26 @@ void gait_update(unsigned long now_ms) {
                 }
             }
         }
+#if defined(MOCK_FIRMWARE) || defined(ARDUINO)
+        {
+            static unsigned long last_emit_stand = 0;
+            if (now_ms - last_emit_stand >= 50) {  // ≤20 Hz
+                last_emit_stand = now_ms;
+                const char* leg_keys[4] = {"fl", "fr", "rl", "rr"};
+                JsonDocument jdoc;
+                jdoc["type"] = MSG_TELEM_JOINTS;
+                for (int leg = 0; leg < 4; leg++) {
+                    uint16_t h_us = servo_read_us(leg * 2);
+                    uint16_t k_us = servo_read_us(leg * 2 + 1);
+                    float h = roundf(pulse_to_angle(leg * 2,     h_us) * 10000.0f) / 10000.0f;
+                    float k = roundf(pulse_to_angle(leg * 2 + 1, k_us) * 10000.0f) / 10000.0f;
+                    jdoc[leg_keys[leg]]["h"] = h;
+                    jdoc[leg_keys[leg]]["k"] = k;
+                }
+                comms_emit_json_from_task(jdoc);
+            }
+        }
+#endif
         return;
     }
 
@@ -354,6 +375,27 @@ void gait_update(unsigned long now_ms) {
         }
         // If unreachable: hold last written value (servo_write_us not called)
     }
+
+#if defined(MOCK_FIRMWARE) || defined(ARDUINO)
+    {
+        static unsigned long last_emit_walk = 0;
+        if (now_ms - last_emit_walk >= 50) {  // ≤20 Hz
+            last_emit_walk = now_ms;
+            const char* leg_keys[4] = {"fl", "fr", "rl", "rr"};
+            JsonDocument jdoc;
+            jdoc["type"] = MSG_TELEM_JOINTS;
+            for (int leg = 0; leg < 4; leg++) {
+                uint16_t h_us = servo_read_us(leg * 2);
+                uint16_t k_us = servo_read_us(leg * 2 + 1);
+                float h = roundf(pulse_to_angle(leg * 2,     h_us) * 10000.0f) / 10000.0f;
+                float k = roundf(pulse_to_angle(leg * 2 + 1, k_us) * 10000.0f) / 10000.0f;
+                jdoc[leg_keys[leg]]["h"] = h;
+                jdoc[leg_keys[leg]]["k"] = k;
+            }
+            comms_emit_json_from_task(jdoc);
+        }
+    }
+#endif
 }
 
 float gait_get_yaw_trim() {

@@ -246,6 +246,25 @@ Response:
 
 ## Telemetry (firmware → host)
 
+### telem_joints
+
+Per-leg IK joint angles in radians, emitted once per gait tick (~20–50 Hz)
+while the dog is engaged. The 3D visualization uses these to drive the model
+in real time; host/browser clients that don't care can ignore the message.
+
+```json
+{"type": "telem_joints",
+ "fl": {"h": 0.30, "k": -0.60},
+ "fr": {"h": 0.30, "k": -0.60},
+ "rl": {"h": 0.30, "k": -0.60},
+ "rr": {"h": 0.30, "k": -0.60}}
+```
+
+Legs: `fl` front-left, `fr` front-right, `rl` rear-left, `rr` rear-right.
+Fields: `h` hip angle (radians), `k` knee angle (radians). Sign convention
+matches `firmware/include/ik.h`: positive hip swings the leg forward,
+negative knee folds inward.
+
 ### telem_imu
 
 50 Hz. Complementary-filter fused orientation.

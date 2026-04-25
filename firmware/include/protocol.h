@@ -27,6 +27,7 @@ constexpr const char* MSG_TELEM_SERVO_PINS = "telem_servo_pins";
 constexpr const char* MSG_CMD_YAW_TRIM    = "cmd_yaw_trim";    // op: get/set/save
 
 // Firmware -> Host telemetry
+constexpr const char* MSG_TELEM_JOINTS  = "telem_joints";
 constexpr const char* MSG_TELEM_IMU     = "telem_imu";
 constexpr const char* MSG_TELEM_SONAR   = "telem_sonar";
 constexpr const char* MSG_TELEM_BATTERY = "telem_battery";

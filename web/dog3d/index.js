@@ -108,11 +108,13 @@ function animate(time) {
         state.dogGroup.rotation.z = state.currentPitch * (Math.PI / 180);
         state.dogGroup.rotation.x = state.currentRoll * (Math.PI / 180);
 
-        // Leg animation: use sim joints if available, otherwise gait from motion state
-        if (state.simJoints) {
+        // Leg animation: use sim joints if fresh, otherwise gait from motion state
+        var fresh = state.lastJointTelem && (Date.now() - state.lastJointTelem) < 500;
+        if (state.simJoints && fresh) {
             applySimJoints();
             state.bodyBounce = 0;
         } else {
+            if (!fresh) state.simJoints = null;
             animateGait(dt);
         }
 
@@ -137,7 +139,16 @@ var Dog3D = {
     updateIMU: function (msg) {
         state.targetPitch = msg.pitch;
         state.targetRoll = msg.roll;
-        if (msg.joints) state.simJoints = msg.joints;
+    },
+
+    updateJoints: function (msg) {
+        var joints = {};
+        ["fl", "fr", "rl", "rr"].forEach(function (name) {
+            var leg = msg[name];
+            if (leg) joints[name] = { hip: leg.h, knee: leg.k };
+        });
+        state.simJoints = joints;
+        state.lastJointTelem = Date.now();
     },
 
     updateOdometry: function (msg) {
@@ -172,6 +183,7 @@ var Dog3D = {
         state.currentMotion = "stop";
         state.walkPhase = 0;
         state.simJoints = null;
+        state.lastJointTelem = 0;
         if (state.dogGroup) {
             state.dogGroup.position.set(0, standingHeight(), 0);
             state.dogGroup.rotation.set(0, 0, 0);

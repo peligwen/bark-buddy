@@ -56,6 +56,7 @@ export const state = {
 
     // Sim joints
     simJoints: null,
+    lastJointTelem: 0,
 
     // Ultrasonic
     ultraBeam: null,

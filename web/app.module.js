@@ -154,6 +154,8 @@ function handleMessage(msg) {
         updateGauge("pitch", msg.pitch);
         updateGauge("roll", msg.roll);
         Dog3D.updateIMU(msg);
+    } else if (msg.type === "telem_joints") {
+        Dog3D.updateJoints(msg);
     } else if (msg.type === "telem_odometry") {
         Dog3D.updateOdometry(msg);
         updateMotionIndicator(msg.motion);
