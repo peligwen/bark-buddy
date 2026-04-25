@@ -64,17 +64,26 @@ struct ServoCalEntry {
 //   Front legs: foot at (59.25, ±46, -80) → lx = 59.25-60.25 = -1.0,  lz = -80-(-25) = -55
 //   Rear  legs: foot at (-71.25, ±46, -80) → lx = -71.25-(-60.25) = -11.0, lz = -55
 //
-// Derived standing angles (L1=60.5, L2=65, 2-link planar IK, elbow-forward convention):
-//   d_front ≈ 55.009 mm  → knee_front ≈ -2.239 rad, hip_front ≈ 1.168 rad
-//   d_rear  ≈ 56.089 mm  → knee_rear  ≈ -2.218 rad, hip_rear  ≈ 0.980 rad
+// Derived standing angles (L1=60.5, L2=65, 2-link planar IK, elbow-BACK convention):
+//   d_front ≈ 55.009 mm  → knee_front ≈ +2.239 rad, hip_front ≈ -1.211 rad
+//   d_rear  ≈ 56.089 mm  → knee_rear  ≈ +2.218 rad, hip_rear  ≈ -1.237 rad
 //
-//   knee = -acos((d²-L1²-L2²)/(2L1L2))   [negative = folded forward]
-//   hip  = atan2(lx, -lz) + asin(L2*sin(|knee|)/d)
+//   knee = +acos((d²-L1²-L2²)/(2L1L2))   [positive = knee bulges rearward,
+//                                          dog-elbow-back / chicken-leg pose]
+//   hip  = atan2(lx, -lz) - asin(L2*sin(knee)/d)
+//
+// Branch rationale: the physical MechDog stands with the knee joint rearward
+// of the hip (dog-elbow-back, not cat-crouch). The elbow-forward branch used
+// previously produced geometrically-valid but physically-wrong standing angles —
+// the FK round-trip tests passed because both branches satisfy the same foot
+// constraint, but gait commands produced backward motion because the servo
+// pulse deltas for elbow-forward perturbations are opposite-signed from what
+// the physical robot needs.
 
 namespace ik_detail {
 
 // Compute standing hip/knee angles for a given (lx, lz) foot offset from hip.
-// knee is always negative (elbow-down convention used here).
+// Elbow-back convention: knee ≥ 0, lower leg rotates forward relative to upper.
 inline void standing_angles(float lx, float lz,
                              float& hip_out, float& knee_out) {
     float d2 = lx * lx + lz * lz;
@@ -87,14 +96,14 @@ inline void standing_angles(float lx, float lz,
     if (cos_k < -1.0f) cos_k = -1.0f;
 
     float knee_mag = acosf(cos_k);   // magnitude of knee bend (0=straight)
-    knee_out = -knee_mag;            // negative: knee folded forward
+    knee_out = +knee_mag;            // positive: knee bulges rearward (dog-elbow-back)
 
     float sin_k = sinf(knee_mag);    // sin of unsigned knee angle, always ≥ 0
     float asin_arg = L2 * sin_k / d;
     if (asin_arg > 1.0f) asin_arg = 1.0f;
     if (asin_arg < -1.0f) asin_arg = -1.0f;
     float correction = asinf(asin_arg);
-    hip_out = atan2f(lx, -lz) + correction;
+    hip_out = atan2f(lx, -lz) - correction;
 }
 
 // Build and return the calibration table (lazily initialised).
@@ -192,7 +201,8 @@ inline FootPos leg_fk_mm(uint8_t leg, float hip_angle, float knee_angle) {
 
 // Inverse kinematics: foot world position → joint angles
 // Returns false if the target is unreachable.
-// Convention: knee_out ≤ 0 (leg folds forward/inward), hip_out is unconstrained.
+// Convention: knee_out ≥ 0 (dog-elbow-back, knee bulges rearward). hip_out is
+// unconstrained. Branch selection matches standing_angles() above.
 inline bool leg_ik(uint8_t leg, const FootPos& target,
                    float& hip_out, float& knee_out) {
     FootPos hip = hip_position(leg);
@@ -212,13 +222,13 @@ inline bool leg_ik(uint8_t leg, const FootPos& target,
     if (cos_k < -1.0f) cos_k = -1.0f;
 
     float knee_mag = acosf(cos_k);    // always in [0, π]
-    knee_out = -knee_mag;             // negative: knee folds forward
+    knee_out = +knee_mag;             // positive: knee bulges rearward (dog-elbow-back)
 
     float sin_k = sinf(knee_mag);
     float asin_arg = L2 * sin_k / d;
     if (asin_arg > 1.0f) asin_arg = 1.0f;
     if (asin_arg < -1.0f) asin_arg = -1.0f;
-    hip_out = atan2f(lx, -lz) + asinf(asin_arg);
+    hip_out = atan2f(lx, -lz) - asinf(asin_arg);
 
     // Sanity-check: pulse within per-joint clamp range
     uint8_t hi = leg * 2;

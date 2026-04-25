@@ -169,21 +169,27 @@ static const uint16_t REST_POSE[8] = {
 // The IK auto-derives polarity from standing pulse: >1500 → +1, <1500 → -1.
 // If a servo is physically mounted in reverse, override with +1 or -1 here.
 // 0 = use auto-derived polarity.
+//
+// Note: under the elbow-back IK branch (knee_out > 0), the auto-derived polarity
+// is correct for all four knees as verified by cmd_servo pokes:
+//   FL_knee (1621 > 1500, auto +1): pulse↑ tucks → angle↑ — consistent
+//   FR_knee (1379 < 1500, auto -1): pulse↑ extends → angle↓ — consistent
+//   RL_knee (1611 > 1500, auto +1): pulse↑ tucks → angle↑ — consistent
+//   RR_knee (1389 < 1500, auto -1): pulse↑ extends → angle↓ — consistent
+// (Under the old elbow-forward branch, these all needed override — see git log
+//  if reintroducing. The branch choice is in ik.h::leg_ik / standing_angles.)
 // clang-format off
 #ifndef IK_POLARITY_OVERRIDE_DEFINED
 #define IK_POLARITY_OVERRIDE_DEFINED
 static const int8_t SERVO_POLARITY_OVERRIDE[8] = {
-    0,   // 0 FL_hip  — auto (+1, standing=2096)
-    0,   // 1 FL_knee — auto (+1, standing=1621)
+    0,   // 0 FL_hip  — auto (+1, standing=2096), verified via cmd_servo poke
+    0,   // 1 FL_knee — auto (+1, standing=1621), verified under elbow-back branch
     0,   // 2 FR_hip  — auto (-1, standing=904)   VERIFIED: pulse↓ → forward swing ✓
-    0,   // 3 FR_knee — auto (-1, standing=1379)
-    0,   // 4 RL_hip  — auto (+1, standing=2170)  verified 2026-04-23 via FK round-trip tests
-    0,   // 5 RL_knee — auto (+1, standing=1611)  verified 2026-04-23 via FK round-trip tests
-    0,   // 6 RR_hip  — auto (-1, standing=830), mirror of FR; +1 override removed — it
-         //            predated the ff0e025/4c452ee IK rewrites and caused RR to move
-         //            opposite the other legs under body dx.
-   -1,   // 7 RR_knee — OVERRIDE: physically inverted; -1 corrects it (redundant with
-         //             auto -1 since standing=1389 < 1500, but kept for clarity)
+    0,   // 3 FR_knee — auto (-1, standing=1379), verified under elbow-back branch
+    0,   // 4 RL_hip  — auto (+1, standing=2170), verified via cmd_servo poke
+    0,   // 5 RL_knee — auto (+1, standing=1611), verified under elbow-back branch
+    0,   // 6 RR_hip  — auto (-1, standing=830),  verified via cmd_servo poke; mirror of FR
+    0,   // 7 RR_knee — auto (-1, standing=1389), verified under elbow-back branch
 };
 #endif
 // clang-format on
