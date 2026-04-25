@@ -134,9 +134,17 @@ inline const ServoCalEntry* cal_table() {
         } else {
             pol = (su >= 1500) ? +1 : -1;
         }
+        // us_per_rad: auto-derivation assumes 1500μs = 0 rad; this breaks for servos
+        // driving the joint through a linkage (e.g. the MechDog knee's 4-bar). Use
+        // SERVO_US_PER_RAD_OVERRIDE to provide a measured rate when auto is wrong.
         float    dev = (float)((int)su - 1500);
         float    ang_abs = fabsf(standing_angle);
-        float    upr = (ang_abs > 1e-4f) ? fabsf(dev) / ang_abs : 0.0f;
+        float    upr;
+        if (SERVO_US_PER_RAD_OVERRIDE[idx] > 0.0f) {
+            upr = SERVO_US_PER_RAD_OVERRIDE[idx];
+        } else {
+            upr = (ang_abs > 1e-4f) ? fabsf(dev) / ang_abs : 0.0f;
+        }
         table[idx] = { su, standing_angle, upr, pol };
     };
 

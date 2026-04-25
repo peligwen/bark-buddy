@@ -192,6 +192,29 @@ static const int8_t SERVO_POLARITY_OVERRIDE[8] = {
     0,   // 7 RR_knee — auto (-1, standing=1389), verified under elbow-back branch
 };
 #endif
+
+// --- Servo us_per_rad overrides ---
+// The IK auto-derives us_per_rad from |standing_us − 1500| / |standing_angle|.
+// This assumes pulse 1500µs corresponds to joint angle 0 — true for direct-drive
+// servos (hips), false for the knees. The knee servo drives the shin through a
+// 4-bar linkage (see IK_L3/L4/L5 in ik.h), and the linkage ratio makes the rate
+// non-standard. Measured value: ~318 us/rad from cmd_servo pokes (pulse 1500 →
+// ~90° bend, pulse 1000 → near extension limit = ~0° bend, delta 500us ≈ π/2 rad).
+// Hips match the standard ~510 us/rad derived from standing, leave at 0 (auto).
+// 0 = use auto-derived rate.
+#ifndef IK_US_PER_RAD_OVERRIDE_DEFINED
+#define IK_US_PER_RAD_OVERRIDE_DEFINED
+static const float SERVO_US_PER_RAD_OVERRIDE[8] = {
+    0.0f,    // 0 FL_hip  — auto
+    318.0f,  // 1 FL_knee — MEASURED: 4-bar linkage gives ~318 us/rad
+    0.0f,    // 2 FR_hip  — auto
+    318.0f,  // 3 FR_knee — same linkage as FL
+    0.0f,    // 4 RL_hip  — auto
+    318.0f,  // 5 RL_knee — same linkage as FL
+    0.0f,    // 6 RR_hip  — auto
+    318.0f,  // 7 RR_knee — same linkage as FL
+};
+#endif
 // clang-format on
 
 // --- User Button ---
