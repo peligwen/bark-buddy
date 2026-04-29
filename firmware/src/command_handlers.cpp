@@ -370,11 +370,18 @@ static void handle_cmd_ota_update(const JsonDocument& doc) {
     }
 
     // --- Signature check (WiFi only — serial is trusted via physical access) ---
+    // sha256 is required on the WiFi path: the Ed25519 signature covers the
+    // sha256 bytes, so an empty sha256 would let an attacker substitute any
+    // binary even with a valid signature over an empty hash.
     if (!s_from_serial) {
         const char* nonce_hex = doc["nonce"] | "";
         const char* sig_hex   = doc["sig"]   | "";
         if (!nonce_hex[0] || !sig_hex[0]) {
             send_ack(MSG_CMD_OTA_UPDATE, false, "missing_auth");
+            return;
+        }
+        if (!expected_sha256 || expected_sha256[0] == '\0') {
+            send_ack(MSG_CMD_OTA_UPDATE, false, "missing_sha256");
             return;
         }
         uint8_t nonce_bytes[32], sha256_bytes[32], sig_bytes[64];

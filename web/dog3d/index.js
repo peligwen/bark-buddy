@@ -8,6 +8,7 @@ import { updateCameraPosition, setupControls } from './camera.js';
 var lastTime = 0;
 
 function init(containerId) {
+    if (state.scene) return;  // already initialised — protect against double init
     state.container = document.getElementById(containerId);
     if (!state.container) return;
 

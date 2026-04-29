@@ -13,6 +13,7 @@ import { diagInit, diagHandleTelem } from './modules/diag.js';
 var hasLock = false;
 var lockHolder = null;
 var operatorName = new URLSearchParams(location.search).get("name") || "Operator";
+var lastStatus = {};  // most recent telem_status — read by event branch for accurate engage UI
 
 function canControl() {
     return lockHolder === null || hasLock;
@@ -37,6 +38,25 @@ function showFallAlert(fallen) {
     if (fallen) { el.textContent = "FALL DETECTED"; el.classList.remove("hidden"); } else el.classList.add("hidden");
 }
 
+// --- Banner helper ---
+// Single shared banner element with a single timer — guards against rapid
+// successive transient messages stomping each other and leaving the banner
+// hung visible after the last message's timer fires.
+var bannerTimer = null;
+function flashBanner(text, ms) {
+    var el = document.getElementById("fall-alert");
+    if (!el) return;
+    if (bannerTimer) { clearTimeout(bannerTimer); bannerTimer = null; }
+    el.textContent = text;
+    el.classList.remove("hidden");
+    if (ms > 0) {
+        bannerTimer = setTimeout(function () {
+            el.classList.add("hidden");
+            bannerTimer = null;
+        }, ms);
+    }
+}
+
 function updateUltrasonic(mm) {
     var el = document.getElementById("ultra-val");
     el.textContent = mm + "mm";
@@ -55,6 +75,8 @@ function updateGauge(name, value) {
 var actionsCtrl = null;
 
 function updateStatus(msg) {
+    // Cache for event handlers that need to read absent/cutoff state.
+    Object.assign(lastStatus, msg);
     if (msg.battery_mv != null) {
         var present = msg.battery_present !== false;
         if (present) {
@@ -182,10 +204,7 @@ function handleMessage(msg) {
             send({ type: "cmd_lock_yield" });
         }
     } else if (msg.type === "lock_denied") {
-        var el = document.getElementById("fall-alert");
-        el.textContent = msg.holder ? "Control held by " + msg.holder : "Control request denied";
-        el.classList.remove("hidden");
-        setTimeout(function() { el.classList.add("hidden"); }, 3000);
+        flashBanner(msg.holder ? "Control held by " + msg.holder : "Control request denied", 3000);
     } else if (msg.type === "telem_battery") {
         if (msg.present !== false) {
             recordBattery(msg.pct);
@@ -196,28 +215,30 @@ function handleMessage(msg) {
     } else if (msg.type === 'telem_servo_pins') {
         updateServoPins(msg);
     } else if (msg.type === "ack" && msg.ok === false) {
-        var el = document.getElementById("fall-alert");
-        el.textContent = (msg.ref_type || "command") + " rejected";
-        el.classList.remove("hidden");
-        setTimeout(function() { el.classList.add("hidden"); }, 3000);
+        flashBanner((msg.ref_type || "command") + " rejected", 3000);
     } else if (msg.type === "telem_event") {
+        // Event-driven engage updates: read absent from cached telem_status so
+        // we don't lock "BATTERY CUTOFF — REBOOT" on a USB-only board with a
+        // transient ADC dip. The 1 Hz telem_status will then confirm.
         var ev = msg.event;
+        var absent = lastStatus.battery_present === false;
         if (ev === "battery_cutoff_detach") {
-            updateEngageToggle(false, false, true);
+            updateEngageToggle(false, false, true, absent);
             setEngaged(false, false);
         } else if (ev === "battery_absent_clear_latch") {
-            // USB-only: stale latch cleared; keep engage enabled
             updateEngageToggle(false, false, false, true);
             setEngaged(false, false);
         } else if (ev === "heartbeat_detach") {
-            updateEngageToggle(false, false, false);
+            updateEngageToggle(false, false, false, absent);
             setEngaged(false, false);
         } else if (ev === "engage_complete") {
-            updateEngageToggle(true, false, false);
+            updateEngageToggle(true, false, false, absent);
             setEngaged(true, false);
         } else if (ev === "disengage_complete") {
-            updateEngageToggle(false, false, false);
+            updateEngageToggle(false, false, false, absent);
             setEngaged(false, false);
+        } else if (ev === "tilt_fault") {
+            flashBanner("TILT FAULT — gait halted", 4000);
         }
     } else if (msg.type === "reset") {
         Dog3D.reset();
@@ -284,6 +305,23 @@ document.getElementById("btn-overlay").addEventListener("click", function (e) {
 document.addEventListener("keydown", function (e) {
     if (e.key === "k" || e.key === "K") toggleKinematics();
 });
+
+// Stale-telemetry indication: when WS drops, dim live readouts so the
+// operator does not mistake a frozen value for current state.
+var STALE_NODE_IDS = [
+    "pitch-val", "roll-val", "battery-val", "ultra-val",
+    "heading-val", "motion-state", "fw-badge", "transport-badge",
+];
+function setStale(stale) {
+    STALE_NODE_IDS.forEach(function (id) {
+        var el = document.getElementById(id);
+        if (el) el.classList.toggle("stale", stale);
+    });
+    var container = document.getElementById("dog-3d-container");
+    if (container) container.classList.toggle("stale", stale);
+}
+window.addEventListener("connection-lost", function () { setStale(true); });
+window.addEventListener("connection-restored", function () { setStale(false); });
 
 connect(function () {
     send({ type: "cmd_identify", name: operatorName });

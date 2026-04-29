@@ -13,8 +13,12 @@ from .io import DogIO
 
 logger = logging.getLogger(__name__)
 
-# Valid direction strings accepted by cmd_move
-DIRECTIONS = frozenset({"forward", "backward", "left", "right", "stop"})
+# Valid direction strings accepted by cmd_move (see docs/protocol.md §1.1 cmd_move)
+DIRECTIONS = frozenset({
+    "forward", "backward", "left", "right",
+    "rotate_left", "rotate_right",
+    "stop",
+})
 
 
 class Dog:

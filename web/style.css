@@ -632,3 +632,14 @@ header h1 {
     overflow-y: auto;
     white-space: pre;
 }
+
+/* ===== Stale telemetry (WS disconnected) ===== */
+.stale {
+    opacity: 0.4;
+    filter: grayscale(0.6);
+}
+.stale.transport-badge,
+.stale.fw-badge,
+.stale.motion-indicator {
+    text-decoration: line-through;
+}
