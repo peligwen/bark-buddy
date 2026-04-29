@@ -27,11 +27,14 @@ MOCK_SRC = \
 	../src/balance.cpp \
 	../src/battery_led.cpp \
 	../src/command_handlers.cpp \
+	../src/command_handlers_ota.cpp \
+	../src/command_handlers_probe.cpp \
 	../src/comms_out.cpp \
 	../src/gait.cpp \
 	../src/offsets.cpp \
 	../src/pin_registry.cpp \
 	../src/servos.cpp \
+	../src/update_led.cpp \
 	../src/ota_auth.cpp \
 	../lib/monocypher/monocypher.c \
 	../lib/monocypher/monocypher-ed25519.c \
@@ -93,6 +96,7 @@ test_pin_registry_aux: test_pin_registry.cpp mock_arduino.h ../include/pin_regis
 	$(CXX) $(CXXFLAGS) -DMOCK_FIRMWARE=1 -DAUX_SERVOS_ENABLED=1 -DTEST_AUX_ENABLED -o $@ test_pin_registry.cpp
 
 test_command_handlers: test_command_handlers.cpp mock_arduino.h ../include/config.h ../src/command_handlers.cpp \
+    ../src/command_handlers_ota.cpp ../src/command_handlers_probe.cpp ../src/update_led.cpp \
     ../include/ota_auth.h ../src/ota_auth.cpp \
     ../lib/monocypher/monocypher.h ../lib/monocypher/monocypher.c \
     ../lib/monocypher/monocypher-ed25519.h ../lib/monocypher/monocypher-ed25519.c \
@@ -106,6 +110,7 @@ test_command_handlers: test_command_handlers.cpp mock_arduino.h ../include/confi
 		test_owner_pubkey.cpp
 
 test_command_handlers_aux: test_command_handlers.cpp mock_arduino.h ../include/config.h ../src/command_handlers.cpp \
+    ../src/command_handlers_ota.cpp ../src/command_handlers_probe.cpp ../src/update_led.cpp \
     ../include/ota_auth.h ../src/ota_auth.cpp \
     ../lib/monocypher/monocypher.h ../lib/monocypher/monocypher.c \
     ../lib/monocypher/monocypher-ed25519.h ../lib/monocypher/monocypher-ed25519.c \

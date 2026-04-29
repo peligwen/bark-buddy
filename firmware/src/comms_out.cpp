@@ -6,6 +6,7 @@
 
 #include "comms_out.h"
 #include "comms.h"
+#include "config.h"
 
 #ifndef MOCK_FIRMWARE
 #include <freertos/FreeRTOS.h>
@@ -15,7 +16,7 @@
 #endif
 
 struct OutboundJson {
-    char buf[192];
+    char buf[COMMS_OUT_LINE_BYTES];
 };
 
 static QueueHandle_t s_out_queue = nullptr;

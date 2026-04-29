@@ -1,5 +1,16 @@
 // firmware/src/command_handlers.cpp
+//
+// Dispatch table + motion / IO / config command handlers.
+//
+// OTA-related handlers live in command_handlers_ota.cpp.
+// Pin-probe lives in command_handlers_probe.cpp.
+// All three translation units share `command_handlers_internal.h`.
+//
+// All handlers take `(const JsonDocument&, MsgSource)`. Most ignore the
+// source argument; only OTA gates auth on it.
+
 #include "command_handlers.h"
+#include "command_handlers_internal.h"
 #include "comms.h"
 #include "protocol.h"
 #include "sensor_task.h"
@@ -8,40 +19,17 @@
 #include "servos.h"
 #include "balance.h"
 #include "offsets.h"
-#include "update_led.h"
 #include "buzzer.h"
 #include "gpio_aux.h"
 #include "pin_registry.h"
+
 #include <Arduino.h>
-#ifdef WIFI_ENABLED
-#include <WiFi.h>  // WiFiClient; implicit in 2.x, explicit in 3.x
-#endif
 #include <ArduinoJson.h>
 #include <string.h>
-#if WIFI_ENABLED
-#include <HTTPClient.h>
-#include <Update.h>
-#include <mbedtls/sha256.h>
-#endif
-#include "ota_auth.h"
-#include <monocypher-ed25519.h>
 
-static bool s_from_serial = false;
+// --- Helpers ---
 
-void set_msg_source_serial(bool is_serial) {
-    s_from_serial = is_serial;
-}
-
-// --- Direction helpers ---
-Direction direction_from_string(const char* str) {
-    if (strcmp(str, "forward")  == 0) return Direction::FORWARD;
-    if (strcmp(str, "backward") == 0) return Direction::BACKWARD;
-    if (strcmp(str, "left")     == 0) return Direction::LEFT;
-    if (strcmp(str, "right")    == 0) return Direction::RIGHT;
-    return Direction::STOP;
-}
-
-// --- Gate helper: motion commands require engaged servos ---
+// Motion commands require engaged + non-ramping + battery present.
 static bool require_engaged(const char* cmd_type) {
     if (servos_battery_cutoff()) {
         send_ack(cmd_type, false, "battery_cutoff");
@@ -58,7 +46,15 @@ static bool require_engaged(const char* cmd_type) {
     return true;
 }
 
-// --- Broadcast helpers ---
+// "input_floating" | "input_pullup" | "input_pulldown" | "output" → GpioMode.
+// Unknown strings fall back to FLOATING.
+static GpioMode parse_gpio_mode(const char* mode_str) {
+    if (!mode_str) return GpioMode::FLOATING;
+    if (strcmp(mode_str, "input_pullup")   == 0) return GpioMode::GPIO_PULLUP;
+    if (strcmp(mode_str, "input_pulldown") == 0) return GpioMode::GPIO_PULLDOWN;
+    if (strcmp(mode_str, "output")         == 0) return GpioMode::GPIO_OUTPUT;
+    return GpioMode::FLOATING;
+}
 
 void broadcast_servo_pins() {
     JsonDocument resp;
@@ -70,7 +66,7 @@ void broadcast_servo_pins() {
 
 // --- Handlers ---
 
-static void handle_ping(const JsonDocument&) {
+static void handle_ping(const JsonDocument&, MsgSource) {
     JsonDocument resp;
     resp["type"] = MSG_PONG;
     char core_ver[16];
@@ -85,7 +81,7 @@ static void handle_ping(const JsonDocument&) {
     send_json(resp);
 }
 
-static void handle_cmd_engage(const JsonDocument& doc) {
+static void handle_cmd_engage(const JsonDocument& doc, MsgSource) {
     bool enable = doc["enabled"] | false;
     if (enable) {
         if (servos_battery_cutoff()) {
@@ -97,7 +93,7 @@ static void handle_cmd_engage(const JsonDocument& doc) {
             return;
         }
         if (servos_engaged()) {
-            send_ack(MSG_CMD_ENGAGE, true);  // already engaged, no-op
+            send_ack(MSG_CMD_ENGAGE, true);
             return;
         }
         if (!servos_engage_start()) {
@@ -112,7 +108,7 @@ static void handle_cmd_engage(const JsonDocument& doc) {
         send_ack(MSG_CMD_ENGAGE, true);
     } else {
         if (!servos_engaged() && !servos_is_ramping()) {
-            send_ack(MSG_CMD_ENGAGE, true);  // already disengaged, no-op
+            send_ack(MSG_CMD_ENGAGE, true);
             return;
         }
         gait_set_state(GaitState::STOP);
@@ -126,28 +122,29 @@ static void handle_cmd_engage(const JsonDocument& doc) {
     }
 }
 
-static void handle_cmd_move(const JsonDocument& doc) {
+static void handle_cmd_move(const JsonDocument& doc, MsgSource) {
     if (!require_engaged(MSG_CMD_MOVE)) return;
     const char* dir_str = doc["direction"] | "stop";
     float spd = doc["speed"] | 1.0f;
-    Direction dir = direction_from_string(dir_str);
-    switch (dir) {
-        case Direction::FORWARD:  gait_set_state(GaitState::WALK_FORWARD,  spd); break;
-        case Direction::BACKWARD: gait_set_state(GaitState::WALK_BACKWARD, spd); break;
-        case Direction::LEFT:     gait_set_state(GaitState::TURN_LEFT,     spd); break;
-        case Direction::RIGHT:    gait_set_state(GaitState::TURN_RIGHT,    spd); break;
-        case Direction::STOP:     gait_set_state(GaitState::STOP);               break;
-    }
+    GaitState target;
+    if      (strcmp(dir_str, "forward")      == 0) target = GaitState::WALK_FORWARD;
+    else if (strcmp(dir_str, "backward")     == 0) target = GaitState::WALK_BACKWARD;
+    else if (strcmp(dir_str, "left")         == 0 ||
+             strcmp(dir_str, "rotate_left")  == 0) target = GaitState::TURN_LEFT;
+    else if (strcmp(dir_str, "right")        == 0 ||
+             strcmp(dir_str, "rotate_right") == 0) target = GaitState::TURN_RIGHT;
+    else                                            target = GaitState::STOP;
+    gait_set_state(target, spd);
     send_ack(MSG_CMD_MOVE, true);
 }
 
-static void handle_cmd_stand(const JsonDocument&) {
+static void handle_cmd_stand(const JsonDocument&, MsgSource) {
     if (!require_engaged(MSG_CMD_STAND)) return;
     gait_set_state(GaitState::STAND);
     send_ack(MSG_CMD_STAND, true);
 }
 
-static void handle_cmd_balance(const JsonDocument& doc) {
+static void handle_cmd_balance(const JsonDocument& doc, MsgSource) {
     if (!require_engaged(MSG_CMD_BALANCE)) return;
     bool enabled = doc["enabled"] | true;
     balance_enable(enabled);
@@ -155,7 +152,7 @@ static void handle_cmd_balance(const JsonDocument& doc) {
     send_ack(MSG_CMD_BALANCE, true);
 }
 
-static void handle_cmd_transform(const JsonDocument& doc) {
+static void handle_cmd_transform(const JsonDocument& doc, MsgSource) {
     if (!require_engaged(MSG_CMD_TRANSFORM)) return;
     BodyPose pose;
     pose.dx    = doc["x"]     | 0.0f;
@@ -169,7 +166,7 @@ static void handle_cmd_transform(const JsonDocument& doc) {
     send_ack(MSG_CMD_TRANSFORM, true);
 }
 
-static void handle_cmd_gait_params(const JsonDocument& doc) {
+static void handle_cmd_gait_params(const JsonDocument& doc, MsgSource) {
     if (!require_engaged(MSG_CMD_GAIT_PARAMS)) return;
     GaitConfig cfg;
     cfg.stride_height_mm = doc["stride_height"]  | GAIT_STRIDE_HEIGHT_MM;
@@ -181,7 +178,7 @@ static void handle_cmd_gait_params(const JsonDocument& doc) {
     send_ack(MSG_CMD_GAIT_PARAMS, true);
 }
 
-static void handle_cmd_led(const JsonDocument& doc) {
+static void handle_cmd_led(const JsonDocument& doc, MsgSource) {
     uint8_t led = doc["led"] | 1;
     if (led == 0) {
         send_ack(MSG_CMD_LED, false);
@@ -194,7 +191,7 @@ static void handle_cmd_led(const JsonDocument& doc) {
     send_ack(MSG_CMD_LED, true);
 }
 
-static void handle_cmd_servo(const JsonDocument& doc) {
+static void handle_cmd_servo(const JsonDocument& doc, MsgSource) {
     if (!require_engaged(MSG_CMD_SERVO)) return;
 
     uint8_t  idx = doc["index"]    | 0;
@@ -238,7 +235,7 @@ static void handle_cmd_servo(const JsonDocument& doc) {
     send_json(resp);
 }
 
-static void handle_cmd_i2c(const JsonDocument& doc) {
+static void handle_cmd_i2c(const JsonDocument& doc, MsgSource) {
     const char* op_str = doc["op"] | "";
     if (op_str[0] == '\0') {
         send_ack(MSG_CMD_I2C, false, "missing op");
@@ -246,7 +243,6 @@ static void handle_cmd_i2c(const JsonDocument& doc) {
     }
     uint8_t bus = doc["bus"] | 1;
 
-    // SCAN stalls the sensor task ~130ms — avoid during active balance/gait.
     I2cOp op;
     if      (strcmp(op_str, "scan")  == 0) op = I2cOp::SCAN;
     else if (strcmp(op_str, "read")  == 0) op = I2cOp::READ;
@@ -256,6 +252,7 @@ static void handle_cmd_i2c(const JsonDocument& doc) {
         return;
     }
 
+    // SCAN stalls the sensor task ~130 ms — refuse during active motion.
     if (op == I2cOp::SCAN && (balance_is_enabled() || gait_current_state() != GaitState::STOP)) {
         send_ack(MSG_CMD_I2C, false, "scan_blocked_during_motion");
         return;
@@ -294,11 +291,11 @@ static void handle_cmd_i2c(const JsonDocument& doc) {
     send_json(resp);
 }
 
-static void handle_cmd_offset(const JsonDocument& doc) {
+static void handle_cmd_offset(const JsonDocument& doc, MsgSource) {
     // No engagement required — offsets are NVS I/O only.
-    // op="set"  (default): update RAM only — safe for rapid slider updates.
-    // op="save": also flush to NVS — call explicitly when the user commits.
-    // Keeping set/save separate avoids wearing flash during calibration scrubbing.
+    // op="set"  (default): update RAM only — safe for rapid slider scrubbing.
+    // op="save": flush RAM to NVS. Keeping set/save separate avoids wearing
+    // flash during calibration.
     const char* op = doc["op"] | "set";
     if (!doc["offset_us"].isNull()) {
         uint8_t idx = doc["index"] | 255;
@@ -309,7 +306,7 @@ static void handle_cmd_offset(const JsonDocument& doc) {
         offset_set(idx, doc["offset_us"] | 0);
     }
     if (strcmp(op, "save") == 0) offsets_save();
-    // Always reply with all 8 offsets
+
     JsonDocument resp;
     resp["type"]     = MSG_ACK;
     resp["ref_type"] = MSG_CMD_OFFSET;
@@ -319,332 +316,7 @@ static void handle_cmd_offset(const JsonDocument& doc) {
     send_json(resp);
 }
 
-static bool hex_decode32(const char* hex, uint8_t out[32]) {
-    if (!hex || strlen(hex) != 64) return false;
-    for (int i = 0; i < 32; i++) {
-        char b[3] = { hex[i*2], hex[i*2+1], 0 };
-        char* end = nullptr;
-        out[i] = (uint8_t)strtoul(b, &end, 16);
-        if (end != b + 2) return false;
-    }
-    return true;
-}
-
-static bool hex_decode64(const char* hex, uint8_t out[64]) {
-    if (!hex || strlen(hex) != 128) return false;
-    for (int i = 0; i < 64; i++) {
-        char b[3] = { hex[i*2], hex[i*2+1], 0 };
-        char* end = nullptr;
-        out[i] = (uint8_t)strtoul(b, &end, 16);
-        if (end != b + 2) return false;
-    }
-    return true;
-}
-
-static void handle_cmd_ota_request_nonce(const JsonDocument&) {
-#if !WIFI_ENABLED
-    send_ack(MSG_CMD_OTA_REQUEST_NONCE, false, "wifi_disabled");
-#else
-    uint8_t nonce[32];
-    ota_nonce_issue(nonce);
-    char hex[65];
-    for (int i = 0; i < 32; i++) snprintf(hex + i * 2, 3, "%02x", nonce[i]);
-    hex[64] = '\0';
-    JsonDocument resp;
-    resp["type"]  = MSG_TELEM_OTA_NONCE;
-    resp["nonce"] = hex;
-    send_json(resp);
-#endif
-}
-
-static void handle_cmd_ota_update(const JsonDocument& doc) {
-#if !WIFI_ENABLED
-    send_ack(MSG_CMD_OTA_UPDATE, false, "wifi_disabled");
-    return;
-#else
-    const char* url      = doc["url"]    | "";
-    const char* expected_sha256 = doc["sha256"] | "";
-    if (!url || url[0] == '\0') {
-        send_ack(MSG_CMD_OTA_UPDATE, false, "missing_url");
-        return;
-    }
-
-    // --- Signature check (WiFi only — serial is trusted via physical access) ---
-    // sha256 is required on the WiFi path: the Ed25519 signature covers the
-    // sha256 bytes, so an empty sha256 would let an attacker substitute any
-    // binary even with a valid signature over an empty hash.
-    if (!s_from_serial) {
-        const char* nonce_hex = doc["nonce"] | "";
-        const char* sig_hex   = doc["sig"]   | "";
-        if (!nonce_hex[0] || !sig_hex[0]) {
-            send_ack(MSG_CMD_OTA_UPDATE, false, "missing_auth");
-            return;
-        }
-        if (!expected_sha256 || expected_sha256[0] == '\0') {
-            send_ack(MSG_CMD_OTA_UPDATE, false, "missing_sha256");
-            return;
-        }
-        uint8_t nonce_bytes[32], sha256_bytes[32], sig_bytes[64];
-        if (!hex_decode32(nonce_hex, nonce_bytes) ||
-            !hex_decode32(expected_sha256, sha256_bytes) ||
-            !hex_decode64(sig_hex, sig_bytes)) {
-            send_ack(MSG_CMD_OTA_UPDATE, false, "bad_auth_encoding");
-            return;
-        }
-        if (!ota_nonce_verify(nonce_bytes, sha256_bytes, sig_bytes)) {
-            send_ack(MSG_CMD_OTA_UPDATE, false, "sig");
-            return;
-        }
-    }
-
-    // Only allow OTA downloads from the connected TCP client.
-    // Note: IPv6 bracket notation (e.g. http://[::1]/path) is not supported.
-    {
-        String client_ip = get_tcp_client_ip();
-        if (client_ip.isEmpty()) {
-            send_ack(MSG_CMD_OTA_UPDATE, false, "url_not_allowed");
-            return;
-        }
-        const char* after_scheme = strstr(url, "://");
-        if (!after_scheme) {
-            send_ack(MSG_CMD_OTA_UPDATE, false, "url_not_allowed");
-            return;
-        }
-        after_scheme += 3; // skip past "://"
-        // Reject URLs containing '@' in the authority (userinfo bypass prevention)
-        const char* auth_end = strchr(after_scheme, '/');
-        size_t auth_len = auth_end ? (size_t)(auth_end - after_scheme) : strlen(after_scheme);
-        if (memchr(after_scheme, '@', auth_len) != nullptr) {
-            send_ack(MSG_CMD_OTA_UPDATE, false, "url_not_allowed");
-            return;
-        }
-        const char* end = after_scheme;
-        while (*end && *end != ':' && *end != '/') end++;
-        String url_host(after_scheme, (size_t)(end - after_scheme));
-        if (url_host != client_ip) {
-            send_ack(MSG_CMD_OTA_UPDATE, false, "url_not_allowed");
-            return;
-        }
-    }
-    send_ack(MSG_CMD_OTA_UPDATE, true);
-
-    // Enable rainbow LEDs
-    s_update_led_active = true;
-
-    // Detach servos immediately — loop() can't drive ramps while this handler blocks.
-    servos_detach_all();
-
-    auto ota_cleanup = []() {
-        s_update_led_active = false;
-        sensor_led_set(1, 0, LED_BRIGHTNESS, 0);
-        sensor_led_set(2, 0, LED_BRIGHTNESS, 0);
-    };
-
-    auto send_status = [](const char* status, const char* error = nullptr) {
-        JsonDocument s;
-        s["type"] = MSG_OTA_STATUS;
-        s["status"] = status;
-        if (error) s["error"] = error;
-        send_json(s);
-    };
-
-    send_status("downloading");
-
-    HTTPClient http;
-    http.begin(url);
-    int code = http.GET();
-    if (code != HTTP_CODE_OK) {
-        send_status("failed", "http_error");
-        http.end();
-        ota_cleanup();
-        return;
-    }
-
-    int len = http.getSize();
-    WiFiClient* stream = http.getStreamPtr();
-    if (!Update.begin(len > 0 ? len : UPDATE_SIZE_UNKNOWN)) {
-        send_status("failed", "update_begin_failed");
-        http.end();
-        ota_cleanup();
-        return;
-    }
-
-    send_status("flashing");
-
-    // Chunk loop: feed Update and SHA-256 simultaneously
-    uint8_t buf[4096];
-    mbedtls_sha256_context sha_ctx;
-    mbedtls_sha256_init(&sha_ctx);
-    mbedtls_sha256_starts(&sha_ctx, 0);  // 0 = SHA-256 (not SHA-224)
-
-    bool write_error = false;
-    bool timeout_error = false;
-    size_t total_received = 0;
-    unsigned long last_data = millis();
-    while (http.connected()) {
-        int avail = stream->available();
-        if (avail <= 0) {
-            // No data yet — check idle timeout then yield briefly and retry
-            if (millis() - last_data > 10000UL) {
-                timeout_error = true;
-                break;
-            }
-            delay(1);
-            continue;
-        }
-        int n = stream->readBytes(buf, sizeof(buf));
-        if (n <= 0) {
-            delay(1);
-            continue;
-        }
-        last_data = millis();
-        total_received += n;
-        size_t written = Update.write(buf, n);
-        if (written != (size_t)n) {
-            write_error = true;
-            break;
-        }
-        mbedtls_sha256_update(&sha_ctx, buf, n);
-    }
-
-    uint8_t hash[32];
-    int mret = mbedtls_sha256_finish(&sha_ctx, hash);
-    mbedtls_sha256_free(&sha_ctx);
-
-    http.end();
-
-    if (write_error) {
-        Update.abort();
-        send_status("failed", "flash_error");
-        ota_cleanup();
-        return;
-    }
-
-    if (timeout_error) {
-        Update.abort();
-        send_status("failed", "download_timeout");
-        ota_cleanup();
-        return;
-    }
-
-    if (len > 0 && total_received != (size_t)len) {
-        Update.abort();
-        send_status("failed", "incomplete_download");
-        ota_cleanup();
-        return;
-    }
-
-    if (mret != 0) {
-        Update.abort();
-        send_status("failed", "hash_compute_error");
-        ota_cleanup();
-        return;
-    }
-
-    // Optional SHA-256 verification — skip if field was absent
-    if (expected_sha256 && expected_sha256[0] != '\0') {
-        char actual_hex[65];
-        for (int i = 0; i < 32; i++) {
-            snprintf(actual_hex + i * 2, 3, "%02x", hash[i]);
-        }
-        actual_hex[64] = '\0';
-        if (strncmp(actual_hex, expected_sha256, 64) != 0) {
-            Update.abort();
-            send_status("failed", "hash_mismatch");
-            ota_cleanup();
-            return;
-        }
-    }
-
-    if (Update.end() && Update.isFinished()) {
-        send_status("complete");
-        s_update_led_active = false;
-        delay(1000);
-        ESP.restart();
-    } else {
-        send_status("failed", "flash_error");
-        ota_cleanup();
-    }
-#endif
-}
-
-// --- Pin probe (servo identification tool) ---
-// Uses LEDC pin-based API (3.x) to wiggle an arbitrary GPIO.
-// Lets the user identify which physical servo is on which pin.
-#define PROBE_FREQ_HZ        50
-#define PROBE_RESOLUTION     14
-#define PROBE_AMPLITUDE_US   30
-#define PROBE_HALF_PERIOD_MS 250
-#define PROBE_CYCLES         4
-
-static uint32_t probe_us_to_duty(uint16_t pulse_us) {
-    // period = 20000us (50Hz); 14-bit = 16383 ticks max
-    return (uint32_t)((uint64_t)pulse_us * 16383UL / 20000UL);
-}
-
-static void handle_cmd_probe_pin(const JsonDocument& doc) {
-    uint8_t  pin    = doc["pin"]      | 255;
-    uint16_t center = doc["pulse_us"] | 1500;
-
-    // Reject sentinel / missing pin
-    if (pin == 255) {
-        send_ack(MSG_CMD_PROBE_PIN, false, "invalid_pin");
-        return;
-    }
-    // Reject pins owned by firmware subsystems
-    const char* reserved_reason = nullptr;
-    if (pin_is_reserved(pin, &reserved_reason)) {
-        char err_buf[32];
-        snprintf(err_buf, sizeof(err_buf), "pin_reserved:%s",
-                 reserved_reason ? reserved_reason : "unknown");
-        send_ack(MSG_CMD_PROBE_PIN, false, err_buf);
-        return;
-    }
-    // Reject if this pin is currently driving a live servo
-    if (servos_engaged()) {
-        for (int i = 0; i < 8; i++) {
-            if (SERVO_PINS[i] == pin) {
-                send_ack(MSG_CMD_PROBE_PIN, false, "servo_pin_engaged");
-                return;
-            }
-        }
-#if AUX_SERVOS_ENABLED
-        for (int i = 0; i < AUX_SERVO_COUNT; i++) {
-            if (AUX_SERVO_PINS[i] == pin) {
-                send_ack(MSG_CMD_PROBE_PIN, false, "servo_pin_engaged");
-                return;
-            }
-        }
-#endif
-    }
-    if (center < 500)  center = 500;
-    if (center > 2500) center = 2500;
-
-    ledcAttach(pin, PROBE_FREQ_HZ, PROBE_RESOLUTION);
-
-    // Wiggle ±PROBE_AMPLITUDE_US around center, PROBE_CYCLES times
-    for (int i = 0; i < PROBE_CYCLES; i++) {
-        uint16_t hi = center + PROBE_AMPLITUDE_US;
-        uint16_t lo = (center > PROBE_AMPLITUDE_US) ? (center - PROBE_AMPLITUDE_US) : 500u;
-        ledcWrite(pin, probe_us_to_duty(hi));
-        delay(PROBE_HALF_PERIOD_MS);
-        ledcWrite(pin, probe_us_to_duty(lo));
-        delay(PROBE_HALF_PERIOD_MS);
-    }
-    // Return to center, then detach
-    ledcWrite(pin, probe_us_to_duty(center));
-    delay(50);
-    ledcDetach(pin);
-
-    JsonDocument resp;
-    resp["type"]     = MSG_ACK;
-    resp["ref_type"] = MSG_CMD_PROBE_PIN;
-    resp["ok"]       = true;
-    resp["pin"]      = pin;
-    send_json(resp);
-}
-
-static void handle_cmd_servo_pin(const JsonDocument& doc) {
+static void handle_cmd_servo_pin(const JsonDocument& doc, MsgSource) {
     uint8_t idx = doc["index"] | 255;
     uint8_t pin = doc["pin"]   | 255;
     if (idx == 255 || pin == 255) {
@@ -660,15 +332,13 @@ static void handle_cmd_servo_pin(const JsonDocument& doc) {
     broadcast_servo_pins();
 }
 
-static void handle_cmd_yaw_trim(const JsonDocument& doc) {
+static void handle_cmd_yaw_trim(const JsonDocument& doc, MsgSource) {
     const char* op = doc["op"] | "get";
     if (strcmp(op, "set") == 0) {
-        float val = doc["value"] | 0.0f;
-        gait_set_yaw_trim(val);
+        gait_set_yaw_trim(doc["value"] | 0.0f);
     } else if (strcmp(op, "save") == 0) {
         gait_save_yaw_trim();
     }
-    // Always reply with current value
     JsonDocument resp;
     resp["type"]     = MSG_ACK;
     resp["ref_type"] = MSG_CMD_YAW_TRIM;
@@ -677,14 +347,14 @@ static void handle_cmd_yaw_trim(const JsonDocument& doc) {
     send_json(resp);
 }
 
-static void handle_cmd_buzzer(const JsonDocument& doc) {
+static void handle_cmd_buzzer(const JsonDocument& doc, MsgSource) {
     uint16_t freq = doc["freq_hz"]     | 2400;
     uint32_t dur  = doc["duration_ms"] | 200;
     buzzer_tone(freq, dur);
     send_ack(MSG_CMD_BUZZER, true);
 }
 
-static void handle_cmd_balance_config(const JsonDocument& doc) {
+static void handle_cmd_balance_config(const JsonDocument& doc, MsgSource) {
     float pitch_kp, pitch_ki, pitch_kd, roll_kp, roll_ki, roll_kd;
     balance_get_gains(&pitch_kp, &pitch_ki, &pitch_kd, &roll_kp, &roll_ki, &roll_kd);
 
@@ -710,7 +380,7 @@ static void handle_cmd_balance_config(const JsonDocument& doc) {
     send_json(resp);
 }
 
-static void handle_cmd_gpio(const JsonDocument& doc) {
+static void handle_cmd_gpio(const JsonDocument& doc, MsgSource) {
     const char* op_str = doc["op"] | "";
     if (op_str[0] == '\0') {
         send_ack(MSG_CMD_GPIO, false, "missing op");
@@ -723,46 +393,24 @@ static void handle_cmd_gpio(const JsonDocument& doc) {
     }
 
     if (strcmp(op_str, "mode") == 0) {
-        const char* mode_str = doc["mode"] | "input_floating";
-        GpioMode mode = GpioMode::FLOATING;
-        if      (strcmp(mode_str, "input_pullup")   == 0) mode = GpioMode::GPIO_PULLUP;
-        else if (strcmp(mode_str, "input_pulldown") == 0) mode = GpioMode::GPIO_PULLDOWN;
-        else if (strcmp(mode_str, "output")         == 0) mode = GpioMode::GPIO_OUTPUT;
-        gpio_aux_set_mode(pin, mode);
+        gpio_aux_set_mode(pin, parse_gpio_mode(doc["mode"] | "input_floating"));
         send_ack(MSG_CMD_GPIO, true);
 
     } else if (strcmp(op_str, "write") == 0) {
-        uint8_t val = doc["value"] | 0;
-        gpio_aux_write(pin, val);
+        gpio_aux_write(pin, doc["value"] | 0);
         send_ack(MSG_CMD_GPIO, true);
 
-    } else if (strcmp(op_str, "read") == 0) {
-        int digital_val = gpio_aux_read_digital(pin);
-        int analog_val  = gpio_aux_read_analog(pin);
+    } else if (strcmp(op_str, "read") == 0 || strcmp(op_str, "analog") == 0) {
+        // read/analog are aliases — both return digital + analog in telem_gpio.
         JsonDocument resp;
         resp["type"]    = MSG_TELEM_GPIO;
         resp["pin"]     = pin;
-        resp["digital"] = digital_val;
-        resp["analog"]  = analog_val;
-        send_json(resp);
-
-    } else if (strcmp(op_str, "analog") == 0) {
-        int analog_val  = gpio_aux_read_analog(pin);
-        int digital_val = gpio_aux_read_digital(pin);
-        JsonDocument resp;
-        resp["type"]    = MSG_TELEM_GPIO;
-        resp["pin"]     = pin;
-        resp["digital"] = digital_val;
-        resp["analog"]  = analog_val;
+        resp["digital"] = gpio_aux_read_digital(pin);
+        resp["analog"]  = gpio_aux_read_analog(pin);
         send_json(resp);
 
     } else if (strcmp(op_str, "subscribe") == 0) {
-        const char* mode_str = doc["mode"] | "input_floating";
-        GpioMode mode = GpioMode::FLOATING;
-        if      (strcmp(mode_str, "input_pullup")   == 0) mode = GpioMode::GPIO_PULLUP;
-        else if (strcmp(mode_str, "input_pulldown") == 0) mode = GpioMode::GPIO_PULLDOWN;
-        else if (strcmp(mode_str, "output")         == 0) mode = GpioMode::GPIO_OUTPUT;
-        if (!sensor_gpio_subscribe(pin, mode)) {
+        if (!sensor_gpio_subscribe(pin, parse_gpio_mode(doc["mode"] | "input_floating"))) {
             send_ack(MSG_CMD_GPIO, false, "subscribe_failed");
             return;
         }
@@ -779,41 +427,41 @@ static void handle_cmd_gpio(const JsonDocument& doc) {
 
 // --- Dispatch table ---
 
-typedef void (*HandlerFn)(const JsonDocument&);
+typedef void (*HandlerFn)(const JsonDocument&, MsgSource);
 struct Handler { const char* type; HandlerFn fn; };
 
 static const Handler k_handlers[] = {
-    { MSG_PING,             handle_ping             },
-    { MSG_CMD_ENGAGE,       handle_cmd_engage       },
-    { MSG_CMD_MOVE,         handle_cmd_move         },
-    { MSG_CMD_STAND,        handle_cmd_stand        },
-    { MSG_CMD_BALANCE,      handle_cmd_balance      },
-    { MSG_CMD_SERVO,        handle_cmd_servo        },
-    { MSG_CMD_LED,          handle_cmd_led          },
-    { MSG_CMD_TRANSFORM,    handle_cmd_transform    },
-    { MSG_CMD_GAIT_PARAMS,  handle_cmd_gait_params  },
-    { MSG_CMD_OFFSET,       handle_cmd_offset       },
-    { MSG_CMD_I2C,          handle_cmd_i2c          },
-    { MSG_CMD_OTA_UPDATE,          handle_cmd_ota_update          },
-    { MSG_CMD_OTA_REQUEST_NONCE,  handle_cmd_ota_request_nonce  },
-    { MSG_CMD_PROBE_PIN,      handle_cmd_probe_pin      },
-    { MSG_CMD_BALANCE_CONFIG, handle_cmd_balance_config },
-    { MSG_CMD_BUZZER,         handle_cmd_buzzer         },
-    { MSG_CMD_GPIO,           handle_cmd_gpio           },
-    { MSG_CMD_SERVO_PIN,      handle_cmd_servo_pin      },
-    { MSG_CMD_YAW_TRIM,       handle_cmd_yaw_trim       },
+    { MSG_PING,                  handle_ping                  },
+    { MSG_CMD_ENGAGE,            handle_cmd_engage            },
+    { MSG_CMD_MOVE,              handle_cmd_move              },
+    { MSG_CMD_STAND,             handle_cmd_stand             },
+    { MSG_CMD_BALANCE,           handle_cmd_balance           },
+    { MSG_CMD_SERVO,             handle_cmd_servo             },
+    { MSG_CMD_LED,               handle_cmd_led               },
+    { MSG_CMD_TRANSFORM,         handle_cmd_transform         },
+    { MSG_CMD_GAIT_PARAMS,       handle_cmd_gait_params       },
+    { MSG_CMD_OFFSET,            handle_cmd_offset            },
+    { MSG_CMD_I2C,               handle_cmd_i2c               },
+    { MSG_CMD_OTA_UPDATE,        handle_cmd_ota_update        },  // ota.cpp
+    { MSG_CMD_OTA_REQUEST_NONCE, handle_cmd_ota_request_nonce },  // ota.cpp
+    { MSG_CMD_PROBE_PIN,         [](const JsonDocument& d, MsgSource){ handle_cmd_probe_pin(d); } },
+    { MSG_CMD_BALANCE_CONFIG,    handle_cmd_balance_config    },
+    { MSG_CMD_BUZZER,            handle_cmd_buzzer            },
+    { MSG_CMD_GPIO,              handle_cmd_gpio              },
+    { MSG_CMD_SERVO_PIN,         handle_cmd_servo_pin         },
+    { MSG_CMD_YAW_TRIM,          handle_cmd_yaw_trim          },
 };
 
 void handlers_init() {
-    // All state is owned by servos.cpp / gait.cpp / balance.cpp now — nothing to init here.
+    // No handler-owned state — kept as a hook for future setup work.
 }
 
-void handle_message(const JsonDocument& doc) {
+void handle_message(const JsonDocument& doc, MsgSource source) {
     const char* type = doc["type"];
     if (!type) return;
     for (const auto& h : k_handlers) {
         if (strcmp(type, h.type) == 0) {
-            h.fn(doc);
+            h.fn(doc, source);
             return;
         }
     }

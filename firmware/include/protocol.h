@@ -41,13 +41,6 @@ constexpr const char* MSG_PONG          = "pong";
 constexpr unsigned long SERIAL_BAUD = 115200;
 constexpr size_t MAX_MESSAGE_SIZE   = 512;
 
-// Movement directions
-enum class Direction {
-    FORWARD,
-    BACKWARD,
-    LEFT,
-    RIGHT,
-    STOP
-};
-
-Direction direction_from_string(const char* str);    // defined in command_handlers.cpp
+// Where an inbound JSON message arrived from. Used by handle_cmd_ota_update
+// to gate signature verification — serial is trusted via physical access.
+enum class MsgSource { SERIAL, TCP };

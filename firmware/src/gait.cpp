@@ -62,6 +62,32 @@ static bool          s_balance_was_enabled = false;  // pre-fault state, restore
 // Yaw trim: persistent drift correction, loaded from NVS via yaw_trim_load()
 static float s_yaw_trim_mul = 0.0f;
 
+// Per-leg joint-angle telemetry — capped at TELEM_JOINTS_HZ. Emitted from both
+// the standing/stand-blend branch and the walk branch of gait_update so the 3D
+// viz tracks regardless of which branch is active.
+static void emit_telem_joints(unsigned long now_ms) {
+#if defined(MOCK_FIRMWARE) || defined(ARDUINO)
+    static unsigned long last_emit = 0;
+    const unsigned long min_interval_ms = 1000UL / TELEM_JOINTS_HZ;
+    if (now_ms - last_emit < min_interval_ms) return;
+    last_emit = now_ms;
+    static const char* leg_keys[4] = {"fl", "fr", "rl", "rr"};
+    JsonDocument jdoc;
+    jdoc["type"] = MSG_TELEM_JOINTS;
+    for (int leg = 0; leg < 4; leg++) {
+        uint16_t h_us = servo_read_us(leg * 2);
+        uint16_t k_us = servo_read_us(leg * 2 + 1);
+        float h = roundf(pulse_to_angle(leg * 2,     h_us) * 10000.0f) / 10000.0f;
+        float k = roundf(pulse_to_angle(leg * 2 + 1, k_us) * 10000.0f) / 10000.0f;
+        jdoc[leg_keys[leg]]["h"] = h;
+        jdoc[leg_keys[leg]]["k"] = k;
+    }
+    comms_emit_json_from_task(jdoc);
+#else
+    (void)now_ms;
+#endif
+}
+
 void gait_init(unsigned long now_ms) {
     s_state         = GaitState::STOP;
     s_speed         = 0.0f;
@@ -320,26 +346,7 @@ void gait_update(unsigned long now_ms) {
                 }
             }
         }
-#if defined(MOCK_FIRMWARE) || defined(ARDUINO)
-        {
-            static unsigned long last_emit_stand = 0;
-            if (now_ms - last_emit_stand >= 50) {  // ≤20 Hz
-                last_emit_stand = now_ms;
-                const char* leg_keys[4] = {"fl", "fr", "rl", "rr"};
-                JsonDocument jdoc;
-                jdoc["type"] = MSG_TELEM_JOINTS;
-                for (int leg = 0; leg < 4; leg++) {
-                    uint16_t h_us = servo_read_us(leg * 2);
-                    uint16_t k_us = servo_read_us(leg * 2 + 1);
-                    float h = roundf(pulse_to_angle(leg * 2,     h_us) * 10000.0f) / 10000.0f;
-                    float k = roundf(pulse_to_angle(leg * 2 + 1, k_us) * 10000.0f) / 10000.0f;
-                    jdoc[leg_keys[leg]]["h"] = h;
-                    jdoc[leg_keys[leg]]["k"] = k;
-                }
-                comms_emit_json_from_task(jdoc);
-            }
-        }
-#endif
+        emit_telem_joints(now_ms);
         return;
     }
 
@@ -376,26 +383,7 @@ void gait_update(unsigned long now_ms) {
         // If unreachable: hold last written value (servo_write_us not called)
     }
 
-#if defined(MOCK_FIRMWARE) || defined(ARDUINO)
-    {
-        static unsigned long last_emit_walk = 0;
-        if (now_ms - last_emit_walk >= 50) {  // ≤20 Hz
-            last_emit_walk = now_ms;
-            const char* leg_keys[4] = {"fl", "fr", "rl", "rr"};
-            JsonDocument jdoc;
-            jdoc["type"] = MSG_TELEM_JOINTS;
-            for (int leg = 0; leg < 4; leg++) {
-                uint16_t h_us = servo_read_us(leg * 2);
-                uint16_t k_us = servo_read_us(leg * 2 + 1);
-                float h = roundf(pulse_to_angle(leg * 2,     h_us) * 10000.0f) / 10000.0f;
-                float k = roundf(pulse_to_angle(leg * 2 + 1, k_us) * 10000.0f) / 10000.0f;
-                jdoc[leg_keys[leg]]["h"] = h;
-                jdoc[leg_keys[leg]]["k"] = k;
-            }
-            comms_emit_json_from_task(jdoc);
-        }
-    }
-#endif
+    emit_telem_joints(now_ms);
 }
 
 float gait_get_yaw_trim() {

@@ -24,43 +24,7 @@
 #include <ESPmDNS.h>
 #endif
 
-// --- Update rainbow LED ---
-bool          s_update_led_active   = false;
-static unsigned long s_update_led_last_ms = 0;
-
-static void update_rainbow_led_tick(unsigned long now) {
-    if (!s_update_led_active) return;
-    if (now - s_update_led_last_ms < 30) return;
-    s_update_led_last_ms = now;
-
-    // Hue rotation: ~2s per cycle
-    float hue = fmodf((float)now / 2000.0f, 1.0f);
-    // Sinusoidal brightness: 20-100%, ~3s period
-    float brightness = 0.6f + 0.4f * sinf((float)now / 3000.0f * 2.0f * (float)M_PI);
-    if (brightness < 0.2f) brightness = 0.2f;
-    if (brightness > 1.0f) brightness = 1.0f;
-
-    // HSV to RGB (saturation=1)
-    float r = 0, g = 0, b = 0;
-    int hi = (int)(hue * 6.0f);
-    float f  = hue * 6.0f - hi;
-    float bq = brightness * (1.0f - f);
-    float bt = brightness * f;
-    switch (hi % 6) {
-        case 0: r=brightness; g=bt;         b=0;          break;
-        case 1: r=bq;         g=brightness; b=0;          break;
-        case 2: r=0;          g=brightness; b=bt;         break;
-        case 3: r=0;          g=bq;         b=brightness; break;
-        case 4: r=bt;         g=0;          b=brightness; break;
-        case 5: r=brightness; g=0;          b=bq;         break;
-    }
-    sensor_led_set(1, (uint8_t)(r * LED_BRIGHTNESS),
-                      (uint8_t)(g * LED_BRIGHTNESS),
-                      (uint8_t)(b * LED_BRIGHTNESS));
-    sensor_led_set(2, (uint8_t)(r * LED_BRIGHTNESS),
-                      (uint8_t)(g * LED_BRIGHTNESS),
-                      (uint8_t)(b * LED_BRIGHTNESS));
-}
+// Update-time rainbow LED effect — owned by update_led.cpp; we only tick it.
 
 // --- RX buffers ---
 static char   serial_rx[MAX_MESSAGE_SIZE];
@@ -99,7 +63,7 @@ static bool       wifi_connected = false;
 #endif
 
 // --- Process received character; dispatch on newline ---
-void process_rx(char* buf, size_t& pos, char c, unsigned long now) {
+void process_rx(char* buf, size_t& pos, char c, unsigned long now, MsgSource source) {
     if (c == '\n') {
         buf[pos] = '\0';
         if (pos > 0) {
@@ -111,7 +75,7 @@ void process_rx(char* buf, size_t& pos, char c, unsigned long now) {
                     sensor_led_set(1, 0, LED_BRIGHTNESS, 0);  // green = connected
                     sensor_led_set(2, 0, LED_BRIGHTNESS, 0);
                 }
-                handle_message(doc);
+                handle_message(doc, source);
             }
         }
         pos = 0;
@@ -182,13 +146,13 @@ void setup() {
     battery_led_init();
 
     // Boot rainbow — runs briefly on every boot, confirms firmware is alive after a flash
-    s_update_led_active = true;
+    update_led_set_active(true);
     unsigned long boot_rainbow_start = millis();
     while (millis() - boot_rainbow_start < 2000) {
-        update_rainbow_led_tick(millis());
+        update_led_tick(millis());
         delay(10);
     }
-    s_update_led_active = false;
+    update_led_set_active(false);
 
     // Dog boots disengaged. Servos stay detached until the operator engages.
     ik_init();   // prime cal table on main core before FreeRTOS tasks start
@@ -252,9 +216,8 @@ void loop() {
 #endif
 
     // Read serial
-    set_msg_source_serial(true);
     while (Serial.available()) {
-        process_rx(serial_rx, serial_rx_pos, Serial.read(), now);
+        process_rx(serial_rx, serial_rx_pos, Serial.read(), now, MsgSource::SERIAL);
     }
 
     // Read TCP
@@ -265,9 +228,8 @@ void loop() {
             if (c) { tcp_client = c; tcp_client.setNoDelay(true); tcp_rx_pos = 0; broadcast_servo_pins(); }
         }
         if (tcp_client && tcp_client.connected()) {
-            set_msg_source_serial(false);
             while (tcp_client.available()) {
-                process_rx(tcp_rx, tcp_rx_pos, tcp_client.read(), now);
+                process_rx(tcp_rx, tcp_rx_pos, tcp_client.read(), now, MsgSource::TCP);
             }
         }
     }
@@ -401,7 +363,7 @@ void loop() {
     comms_out_drain();
 
     // Update rainbow LED tick
-    update_rainbow_led_tick(now);
+    update_led_tick(now);
 
     // Drive engage/disengage ramp. Emit event on completion.
     {

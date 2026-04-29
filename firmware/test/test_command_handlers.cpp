@@ -114,9 +114,11 @@ void sensor_imu_signal_ready()                     {}
 #include "../include/pin_registry.h"
 bool pin_is_reserved(uint8_t, const char** r) { if (r) *r = nullptr; return false; }
 
-// update_led.h — extern bool declared in update_led.h, defined in main.cpp normally
+// update_led.h stubs (real impl lives in update_led.cpp)
 #include "../include/update_led.h"
-bool s_update_led_active = false;
+void update_led_set_active(bool) {}
+bool update_led_is_active()       { return false; }
+void update_led_tick(unsigned long) {}
 
 // buzzer.h stubs
 #include "../include/buzzer.h"
@@ -134,6 +136,12 @@ void gpio_aux_write(uint8_t, uint8_t)       {}
 
 // command_handlers.h (for handlers_init / handle_message declarations)
 #include "../include/command_handlers.h"
+#include "../include/command_handlers_internal.h"
+
+// Stubs for OTA + probe subhandlers — exercised in their own dedicated tests.
+void handle_cmd_ota_request_nonce(const JsonDocument&, MsgSource) {}
+void handle_cmd_ota_update(const JsonDocument&, MsgSource) {}
+void handle_cmd_probe_pin(const JsonDocument&) {}
 
 // Include the real implementation
 #include "../src/command_handlers.cpp"
@@ -157,7 +165,7 @@ static void reset() {
 static void dispatch(const char* json_str) {
     JsonDocument doc;
     deserializeJson(doc, json_str);
-    handle_message(doc);
+    handle_message(doc, MsgSource::SERIAL);
 }
 
 int main() {

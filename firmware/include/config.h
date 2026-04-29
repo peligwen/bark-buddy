@@ -141,8 +141,26 @@ static const uint16_t REST_POSE[8] = {
 #define TELEM_SONAR_HZ      20
 #define TELEM_BATTERY_HZ    1
 #define TELEM_STATUS_HZ     1
+#define TELEM_JOINTS_HZ     20
 #define GAIT_UPDATE_HZ      50
 #define HEARTBEAT_TIMEOUT_MS 10000
+
+// --- Outbound JSON line buffer ---
+// Per-line cap when serialising telemetry to the comms_out queue. Anything
+// larger is truncated and dropped. telem_imu (9 floats + type) sits ~140 bytes,
+// so 192 leaves headroom for two more fields without growth.
+#define COMMS_OUT_LINE_BYTES   192
+
+// --- OTA HTTP loop ---
+#define OTA_CHUNK_BYTES        4096
+#define OTA_IDLE_TIMEOUT_MS    10000
+
+// --- Pin probe (cmd_probe_pin) ---
+#define PROBE_FREQ_HZ          50
+#define PROBE_RESOLUTION       14
+#define PROBE_AMPLITUDE_US     30
+#define PROBE_HALF_PERIOD_MS   250
+#define PROBE_CYCLES           4
 
 // --- Gait Parameters ---
 #define GAIT_STRIDE_HEIGHT_MM   10.0f   // foot lift height mm (conservative for first hardware tests)
