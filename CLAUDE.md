@@ -43,5 +43,5 @@ Semi-autonomous control system for Hiwonder MechDog robot dog. Stock hardware (n
 
 - Commit early and often. Small, focused commits.
 - Ask before major pivots.
-- `bark test` and `make bark-mock` must pass before merging.
+- `bark test`, `make bark-mock`, and `pytest host/tests` must pass before merging.
 - Mock firmware: `cd firmware/test && make bark-mock` to build; `./bark-mock --tcp-port 9001` to run standalone.
