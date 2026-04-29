@@ -2,6 +2,7 @@
 // Provides developer controls for buzzer, LED, GPIO, I2C, and aux servos.
 
 import { send } from './ws.js';
+import { el, input, label, btn, row, section } from './_dom.js';
 
 var _enabled = new URLSearchParams(window.location.search).get('diag') === '1';
 
@@ -13,45 +14,6 @@ function pushTelem(msg) {
     _telemLines.push(JSON.stringify(msg));
     if (_telemLines.length > 10) _telemLines.shift();
     if (_telemEl) _telemEl.textContent = _telemLines.join('\n');
-}
-
-// --- Builders ---
-
-function el(tag, attrs, children) {
-    var e = document.createElement(tag);
-    if (attrs) {
-        Object.keys(attrs).forEach(function(k) {
-            if (k === 'class') e.className = attrs[k];
-            else if (k === 'style') e.style.cssText = attrs[k];
-            else e.setAttribute(k, attrs[k]);
-        });
-    }
-    if (children) {
-        children.forEach(function(c) {
-            if (typeof c === 'string') e.appendChild(document.createTextNode(c));
-            else if (c) e.appendChild(c);
-        });
-    }
-    return e;
-}
-
-function input(attrs) { return el('input', attrs); }
-function label(text, forId) {
-    var l = document.createElement('label');
-    l.textContent = text;
-    if (forId) l.setAttribute('for', forId);
-    return l;
-}
-function btn(text, onClick) {
-    var b = el('button', {'class': 'diag-btn'}, [text]);
-    b.addEventListener('click', onClick);
-    return b;
-}
-function row(children) { return el('div', {'class': 'diag-row'}, children); }
-function section(title, children) {
-    return el('div', {'class': 'diag-section'}, [
-        el('h3', {'class': 'diag-section-title'}, [title])
-    ].concat(children));
 }
 
 // --- Buzzer section ---
