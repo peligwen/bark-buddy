@@ -593,7 +593,7 @@ forwarding to browsers:
  "transport": "fw-usb:/dev/cu.usbserial-10",
  "fw_version": "0.4.0", "available_fw_version": "0.4.1",
  "battery_mv": 7400, "ota_status": null,
- "mode": "remote", "fallen": false, "connected": true}
+ "fallen": false, "connected": true, "lifecycle": "active"}
 ```
 
 | Field | Description |
@@ -603,9 +603,9 @@ forwarding to browsers:
 | available_fw_version | local firmware binary version, for OTA UI |
 | battery_mv | most recent battery voltage |
 | ota_status | one of the `ota_status.status` strings, or null |
-| mode | session mode; only `"remote"` today |
 | connected | transport is open |
 | fallen | balance layer detected a fall |
+| lifecycle | derived view: `"ramping"` \| `"active"` \| `"disengaged"` \| `"unknown"` |
 
 ### telem_odometry
 

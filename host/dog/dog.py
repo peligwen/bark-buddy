@@ -71,7 +71,10 @@ class Dog:
         await self._send_json_raw({"type": "ping"})
         await asyncio.sleep(0.5)
 
-        self._io.start_tasks(self._on_raw_line, self._send_ping)
+        self._io.start_tasks(
+            self._on_raw_line,
+            lambda: self._send_json_raw({"type": "ping"}),
+        )
         logger.info("Dog opened on %s", self._port or f"{self._host}:{self._tcp_port}")
 
     async def close(self) -> None:
@@ -201,9 +204,6 @@ class Dog:
 
     async def _send_json_raw(self, msg: dict) -> None:
         await self._io.send((json.dumps(msg) + "\n").encode())
-
-    async def _send_ping(self) -> None:
-        await self._send_json_raw({"type": "ping"})
 
     def _on_raw_line(self, line: bytes) -> None:
         text = line.decode(errors="replace").strip()

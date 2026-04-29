@@ -49,7 +49,7 @@ def cmd_mock(args):
     _ensure_host_importable()
     mock_bin = FIRMWARE_DIR / "test" / "bark-mock"
     if not mock_bin.exists():
-        result = subprocess.run(
+        subprocess.run(
             ["make", "-C", str(FIRMWARE_DIR / "test"), "bark-mock"],
             check=True
         )
@@ -125,15 +125,12 @@ def _do_wifi_flash(args):
     host = None
     tcp_port = 9000
     if fw_tcp:
-        if ":" in fw_tcp:
-            host, port_str = fw_tcp.rsplit(":", 1)
-            try:
-                tcp_port = int(port_str)
-            except ValueError:
-                print(f"[flash] ERROR: invalid port in --fw-tcp '{fw_tcp}'")
-                sys.exit(1)
-        else:
-            host = fw_tcp
+        from _paths import parse_fw_tcp
+        try:
+            host, tcp_port = parse_fw_tcp(fw_tcp)
+        except ValueError:
+            print(f"[flash] ERROR: invalid port in --fw-tcp '{fw_tcp}'")
+            sys.exit(1)
     from ota_flash import flash_wifi
     rc = asyncio.run(flash_wifi(host=host, tcp_port=tcp_port))
     sys.exit(rc)

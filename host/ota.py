@@ -1,37 +1,20 @@
 """OTA firmware update: build, binary serve, cmd_ota_update orchestration."""
 
 import asyncio
-import hashlib
 import logging
 import os
 import re
 
 from aiohttp import web
 
+from _paths import firmware_dir, firmware_binary_path, compute_sha256
+
 logger = logging.getLogger(__name__)
-
-
-def _firmware_dir() -> str:
-    return os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "firmware"))
-
-
-def _binary_path() -> str:
-    return os.path.abspath(os.path.join(
-        _firmware_dir(), ".pio", "build", "mechdog", "firmware.bin"
-    ))
-
-
-def _compute_sha256(path: str) -> str:
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(65536), b""):
-            h.update(chunk)
-    return h.hexdigest()
 
 
 def read_available_fw_version() -> str:
     """Parse FW_VERSION from firmware/include/config.h."""
-    config_path = os.path.join(_firmware_dir(), "include", "config.h")
+    config_path = os.path.join(firmware_dir(), "include", "config.h")
     try:
         with open(config_path) as f:
             m = re.search(r'#define\s+FW_VERSION\s+"([^"]+)"', f.read())
@@ -61,12 +44,12 @@ class OtaManager:
 
     async def _do_build(self) -> dict:
         """Run pio build and return result dict."""
-        firmware_dir = _firmware_dir()
+        firmware_dir_ = firmware_dir()
         try:
             # Use create_subprocess_exec (not shell) -- args passed as list, no injection risk
             proc = await asyncio.create_subprocess_exec(
                 "pio", "run",
-                cwd=firmware_dir,
+                cwd=firmware_dir_,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
             )
@@ -79,10 +62,10 @@ class OtaManager:
                 return {"ok": False, "error": "Build timed out after 180s", "output": ""}
         except FileNotFoundError:
             return {"ok": False, "error": "pio not found in PATH", "output": ""}
-        binary_path = _binary_path()
+        binary_path = firmware_binary_path()
         binary_ready = ok and os.path.exists(binary_path)
         if binary_ready:
-            self._binary_sha256 = _compute_sha256(binary_path)
+            self._binary_sha256 = compute_sha256(binary_path)
         return {
             "ok": ok,
             "output": output[-3000:],
@@ -94,7 +77,7 @@ class OtaManager:
         label = self._get_label()
         current = transport.get_fw_version() if transport else ""
         is_wifi = "fw:" in label and "/dev/" not in label
-        path = _binary_path()
+        path = firmware_binary_path()
         binary_exists = os.path.exists(path)
         return web.json_response({
             "current_version": current,
@@ -111,7 +94,7 @@ class OtaManager:
         return web.json_response(await self._do_build())
 
     async def handle_binary(self, request: web.Request) -> web.Response:
-        path = _binary_path()
+        path = firmware_binary_path()
         if not os.path.exists(path):
             return web.json_response(
                 {"error": "No firmware binary. Run /api/firmware/build first."}, status=404
@@ -132,7 +115,7 @@ class OtaManager:
         host_ip = host_parts[0]
         host_port = host_parts[1] if len(host_parts) > 1 else "8080"
         binary_url = f"http://{host_ip}:{host_port}/api/firmware/binary"
-        sha256_hex = _compute_sha256(_binary_path())
+        sha256_hex = compute_sha256(firmware_binary_path())
         self._binary_sha256 = sha256_hex
 
         transport = self._get_transport()

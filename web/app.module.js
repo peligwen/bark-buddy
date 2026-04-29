@@ -88,9 +88,6 @@ function updateStatus(msg) {
             document.getElementById("battery-val").textContent = "USB";
         }
     }
-    if (msg.mode != null) {
-        document.getElementById("mode-val").textContent = msg.mode;
-    }
     if (msg.balance != null && actionsCtrl) actionsCtrl.setBalanceState(msg.balance);
     if (msg.engaged != null || msg.ramping != null || msg.battery_cutoff != null || msg.battery_present != null) {
         var engaged = msg.engaged === true;

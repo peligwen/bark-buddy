@@ -14,7 +14,6 @@ struct SensorSnapshot {
 };
 
 struct LedCmd      { uint8_t led, r, g, b; };
-struct I2cWriteCmd { uint8_t addr, reg, val; };  // kept for internal use
 
 enum class I2cOp : uint8_t { WRITE, READ, SCAN };
 

@@ -10,38 +10,23 @@ Usage (via bark_cli.py):
 """
 
 import asyncio
-import hashlib
 import logging
 import os
 import sys
 from pathlib import Path
-
-from owner_key import sign_ota
 
 # Ensure host/ is importable (same pattern as bark_cli.py _ensure_host_importable)
 _HOST_DIR = str(Path(__file__).resolve().parent)
 if _HOST_DIR not in sys.path:
     sys.path.insert(0, _HOST_DIR)
 
+from _paths import firmware_dir, firmware_binary_path, compute_sha256
+from owner_key import sign_ota
+
 logger = logging.getLogger(__name__)
 
 # Hard timeout (seconds) waiting for OTA status after sending the command
 _OTA_WATCH_TIMEOUT = 120
-
-
-def _firmware_binary_path() -> str:
-    return os.path.abspath(os.path.join(
-        os.path.dirname(__file__), "..", "firmware",
-        ".pio", "build", "mechdog", "firmware.bin"
-    ))
-
-
-def _compute_sha256(path: str) -> str:
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(65536), b""):
-            h.update(chunk)
-    return h.hexdigest()
 
 
 async def flash_wifi(host: str | None, tcp_port: int = 9000) -> int:
@@ -102,15 +87,13 @@ async def flash_wifi(host: str | None, tcp_port: int = 9000) -> int:
     # ------------------------------------------------------------------
     # 2. Build firmware
     # ------------------------------------------------------------------
-    firmware_dir = os.path.abspath(
-        os.path.join(os.path.dirname(__file__), "..", "firmware")
-    )
-    print(f"[ota] Building firmware in {firmware_dir} ...")
+    fw_dir = firmware_dir()
+    print(f"[ota] Building firmware in {fw_dir} ...")
 
     try:
         proc = await asyncio.create_subprocess_exec(
             "pio", "run",
-            cwd=firmware_dir,
+            cwd=fw_dir,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
         )
@@ -137,12 +120,12 @@ async def flash_wifi(host: str | None, tcp_port: int = 9000) -> int:
     # ------------------------------------------------------------------
     # 3. Compute SHA-256
     # ------------------------------------------------------------------
-    binary_path = _firmware_binary_path()
+    binary_path = firmware_binary_path()
     if not os.path.exists(binary_path):
         print(f"[ota] ERROR: Expected firmware binary not found: {binary_path}")
         return 1
 
-    sha256_hex = _compute_sha256(binary_path)
+    sha256_hex = compute_sha256(binary_path)
     binary_size = os.path.getsize(binary_path)
     print(f"[ota] Firmware binary: {binary_size:,} bytes, sha256={sha256_hex[:16]}...")
 

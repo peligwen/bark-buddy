@@ -53,7 +53,6 @@ class Server:
         self._web_dir = web_dir
         self._open_browser = open_browser
 
-        self._mode = "remote"
         self._motion = "stop"
         self._engaged = False
         self._web_hash = self._compute_web_hash(web_dir)
@@ -312,7 +311,6 @@ class Server:
             balance=self._balance,
             transport_label=self._supervisor.label,
             available_fw_version=self._ota.available_version,
-            mode=self._mode,
             battery_mv=battery_mv,
         )
 
@@ -326,7 +324,6 @@ class Server:
 
     async def _on_cmd_reset(self) -> None:
         self._motion = "stop"
-        self._mode = "remote"
         await self._broadcast_status()
         self._web_hash = self._compute_web_hash(self._web_dir)
         await self._relay.broadcast({"type": "reset"})
@@ -363,9 +360,8 @@ async def main(args):
 
     fw_tcp = getattr(args, 'fw_tcp', None)
     if fw_tcp:
-        parts = fw_tcp.split(":")
-        host = parts[0]
-        tcp_port = int(parts[1]) if len(parts) > 1 else 9000
+        from _paths import parse_fw_tcp
+        host, tcp_port = parse_fw_tcp(fw_tcp)
         transport = Dog(host=host, tcp_port=tcp_port)
         is_local = host in ("127.0.0.1", "localhost")
         transport_label = "mock" if is_local else f"fw-wifi:{host}"

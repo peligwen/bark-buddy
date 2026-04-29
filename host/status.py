@@ -15,7 +15,6 @@ def build_telem_status(
     balance,
     transport_label: str,
     available_fw_version: str,
-    mode: str,
     battery_mv: int | None = None,
 ) -> dict[str, Any]:
     open_ = transport.is_open() if transport else False
@@ -37,7 +36,6 @@ def build_telem_status(
 
     msg: dict[str, Any] = {
         "type": "telem_status",
-        "mode": mode,
         "balance": balance.enabled,
         "fallen": balance.is_fallen,
         "connected": open_,
