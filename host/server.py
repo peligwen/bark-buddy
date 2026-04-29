@@ -52,6 +52,13 @@ class Server:
         self._transport_label = transport_label
         self._no_mdns = no_mdns
         self._ws_clients: set[web.WebSocketResponse] = set()
+        # Broadcaster: synchronous telem callbacks enqueue here; a single
+        # background task drains and serializes sends. Replaces orphan
+        # asyncio.ensure_future tasks (no ordering, no exception capture).
+        self._broadcast_queue: asyncio.Queue = asyncio.Queue()
+        self._broadcast_task: asyncio.Task | None = None
+        self._button_event_queue: asyncio.Queue = asyncio.Queue()
+        self._button_event_task: asyncio.Task | None = None
         self._poll_task: asyncio.Task | None = None
         self._reconnect_task: asyncio.Task | None = None
         self._detected_wifi: dict | None = None
@@ -87,10 +94,25 @@ class Server:
         if self._transport and hasattr(self._transport, "set_telem_callback"):
             self._transport.set_telem_callback(self._on_firmware_telem)
 
+    # Telemetry message types forwarded verbatim to browser clients.
+    _FORWARDED_TELEM = frozenset({
+        "telem_sonar", "telem_battery", "telem_imu", "telem_status",
+        "telem_event", "ota_status", "boot",
+        "telem_button", "telem_gpio", "telem_i2c", "telem_servo_pins",
+        "telem_joints",
+    })
+
+    def _enqueue_broadcast(self, msg: dict) -> None:
+        """Synchronous-safe enqueue from telem callbacks. Never blocks."""
+        try:
+            self._broadcast_queue.put_nowait(msg)
+        except asyncio.QueueFull:
+            logger.warning("Broadcast queue full — dropping %s", msg.get("type"))
+
     def _on_firmware_ack(self, msg: dict):
         """Forward all firmware acks to WebSocket clients."""
         if self._ws_clients:
-            asyncio.ensure_future(self._broadcast(msg))
+            self._enqueue_broadcast(msg)
 
     def _on_firmware_telem(self, msg: dict):
         """Forward telemetry push messages directly to all WebSocket clients."""
@@ -99,15 +121,15 @@ class Server:
             self._engaged = msg.get("engaged", self._engaged)
         if msg_type == "telem_servo_pins":
             self._last_servo_pins = msg
-        if msg_type in ("telem_sonar", "telem_battery", "telem_imu", "telem_status",
-                        "telem_event", "ota_status", "boot",
-                        "telem_button", "telem_gpio", "telem_i2c", "telem_servo_pins",
-                        "telem_joints"):
-            asyncio.ensure_future(self._broadcast(msg))
+        if msg_type in self._FORWARDED_TELEM:
+            self._enqueue_broadcast(msg)
         if msg_type == "telem_button":
             event = msg.get("event", "")
             if event:
-                asyncio.ensure_future(self._button_engage.on_button_event(event))
+                try:
+                    self._button_event_queue.put_nowait(event)
+                except asyncio.QueueFull:
+                    logger.warning("Button event queue full — dropping %s", event)
 
     @web.middleware
     async def _no_cache_middleware(self, request, handler):
@@ -152,6 +174,8 @@ class Server:
             }
             logger.info("Firmware WiFi detected: %s (TCP port %s)", fw["wifi_ip"], fw.get("tcp_port", 9000))
 
+        self._broadcast_task = asyncio.create_task(self._broadcaster_loop())
+        self._button_event_task = asyncio.create_task(self._button_event_loop())
         self._poll_task = asyncio.create_task(self._telemetry_loop())
         self._reconnect_task = asyncio.create_task(self._reconnect_loop())
         from device_monitor import DeviceMonitor
@@ -174,35 +198,56 @@ class Server:
             await self._mdns_browser.stop()
         if self._device_monitor:
             await self._device_monitor.stop()
-        for task in (self._poll_task, self._reconnect_task):
-            if task:
-                task.cancel()
-                try:
-                    await task
-                except asyncio.CancelledError:
-                    pass
+        # Best-effort disengage so the dog doesn't hold standing pose with no host.
+        # Engagement policy lives here, not in Dog.close().
+        if self._transport and self._transport.is_open():
+            await self._transport.disengage_safe(timeout=1.0)
+        await self._cancel_tasks(
+            self._poll_task, self._reconnect_task,
+            self._broadcast_task, self._button_event_task,
+        )
+        self._poll_task = self._reconnect_task = None
+        self._broadcast_task = self._button_event_task = None
         for ws in set(self._ws_clients):
             await ws.close()
         if self._transport and self._transport.is_open():
             await self._transport.close()
 
+    @staticmethod
+    async def _cancel_tasks(*tasks: "asyncio.Task | None") -> None:
+        for task in tasks:
+            if task is None:
+                continue
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
     async def _replace_transport(self, new_transport, new_label: str):
-        """Teardown current transport and swap in a new one."""
+        """Teardown current transport and swap in a new one.
+
+        Acquires _switch_lock for the entire swap so concurrent attempts
+        (reconnect loop, mDNS, hot-plug) serialize cleanly.
+        """
         async with self._switch_lock:
-            for task in (self._poll_task, self._reconnect_task):
-                if task:
-                    task.cancel()
-                    try:
-                        await task
-                    except asyncio.CancelledError:
-                        pass
+            await self._cancel_tasks(self._poll_task, self._reconnect_task)
             self._poll_task = None
             self._reconnect_task = None
 
-            # Close old transport
+            old = self._transport
+            # Detach callbacks BEFORE close so a final inbound line cannot
+            # mutate state on the half-closed old transport.
+            if old and hasattr(old, "set_ack_callback"):
+                old.set_ack_callback(None)
+            if old and hasattr(old, "set_telem_callback"):
+                old.set_telem_callback(None)
+
+            # Best-effort disengage on the old transport, then close.
             try:
-                if self._transport and self._transport.is_open():
-                    await self._transport.close()
+                if old and old.is_open():
+                    await old.disengage_safe(timeout=0.5)
+                    await old.close()
             except Exception:
                 pass
 
@@ -220,13 +265,11 @@ class Server:
             )
             self._transport_label = new_label
 
-            # Open new transport
             try:
                 await new_transport.open()
             except Exception as e:
                 logger.warning("_replace_transport open failed: %s — staying on %s", e, new_label)
 
-            # Restart tasks
             self._poll_task = asyncio.create_task(self._telemetry_loop())
             self._reconnect_task = asyncio.create_task(self._reconnect_loop())
             await self._broadcast_status()
@@ -473,6 +516,35 @@ class Server:
                 dead.add(ws)
         self._ws_clients -= dead
 
+    async def _broadcaster_loop(self):
+        """Drain the broadcast queue and send each message in arrival order.
+
+        Single consumer means telem ordering is preserved (two telem messages
+        cannot interleave their await ws.send_str). Exceptions per message are
+        logged but do not stop the loop.
+        """
+        while True:
+            try:
+                msg = await self._broadcast_queue.get()
+            except asyncio.CancelledError:
+                break
+            try:
+                await self._broadcast(msg)
+            except Exception:
+                logger.exception("broadcaster: send failed for %s", msg.get("type"))
+
+    async def _button_event_loop(self):
+        """Forward firmware button events to the engage behavior."""
+        while True:
+            try:
+                event = await self._button_event_queue.get()
+            except asyncio.CancelledError:
+                break
+            try:
+                await self._button_engage.on_button_event(event)
+            except Exception:
+                logger.exception("button event handler failed for %s", event)
+
     async def _telemetry_loop(self):
         """Run odometry + balance checks; firmware pushes telem via set_telem_callback."""
         imu_interval = 0.05   # 20 Hz odometry/balance check
@@ -518,26 +590,50 @@ class Server:
 
 
     async def _reconnect_loop(self):
-        """Monitor connection and attempt reconnection with backoff."""
+        """Monitor connection and attempt reconnection with backoff.
+
+        Acquires _switch_lock around the close/open dance so a concurrent
+        _replace_transport (from mDNS or hot-plug) can't race on the same
+        transport reference. During an active OTA flash, reconnect attempts
+        are skipped — the firmware intentionally drops TCP while flashing.
+        """
         backoff = 1
         while True:
             try:
                 await asyncio.sleep(2)
-                if self._transport and not self._transport.is_open():
+                # Skip reconnect work during an OTA flash.
+                fw = self._transport.firmware_info if self._transport else {}
+                if fw.get("ota_status") in ("downloading", "flashing"):
+                    backoff = 1
+                    continue
+                if self._switch_lock.locked():
+                    # _replace_transport is in flight — leave it alone.
+                    continue
+                async with self._switch_lock:
+                    if not self._transport or self._transport.is_open():
+                        backoff = 1
+                        continue
+                    captured = self._transport
                     logger.warning("Connection lost — attempting reconnect (backoff=%ds)", backoff)
                     await self._broadcast_status()
                     try:
-                        await self._transport.close()
-                        await asyncio.sleep(backoff)
-                        await self._transport.open()
+                        await captured.close()
+                    except Exception:
+                        pass
+                # Sleep outside the lock so swaps can proceed.
+                await asyncio.sleep(backoff)
+                async with self._switch_lock:
+                    if self._transport is not captured:
+                        # Transport was replaced while we slept; abandon attempt.
+                        continue
+                    try:
+                        await captured.open()
                         backoff = 1
                         logger.info("Reconnected successfully")
                         await self._broadcast_status()
                     except Exception:
                         backoff = min(backoff * 2, 16)
                         logger.warning("Reconnect failed, next attempt in %ds", backoff)
-                else:
-                    backoff = 1
             except asyncio.CancelledError:
                 break
 

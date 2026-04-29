@@ -202,7 +202,10 @@ async def flash_wifi(host: str | None, tcp_port: int = 9000) -> int:
         # ------------------------------------------------------------------
         # 5. Determine outbound IP
         # ------------------------------------------------------------------
-        local_ip: str = transport._writer.get_extra_info("sockname")[0]
+        local_ip = transport.local_address()
+        if not local_ip:
+            print("[ota] ERROR: could not determine local IP from transport.")
+            return 1
         print(f"[ota] Local IP (as seen by firmware): {local_ip}")
 
         # ------------------------------------------------------------------

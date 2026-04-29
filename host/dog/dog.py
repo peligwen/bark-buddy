@@ -75,14 +75,27 @@ class Dog:
         logger.info("Dog opened on %s", self._port or f"{self._host}:{self._tcp_port}")
 
     async def close(self) -> None:
-        if self._io.is_open():
-            try:
-                await self._send_json_raw({"type": "cmd_engage", "enabled": False})
-                await self.recv_ack("cmd_engage", timeout=1.0)
-            except Exception:
-                pass  # transport may already be dead; shutdown should proceed
+        # Pure transport teardown. Engagement policy (sending cmd_engage:false
+        # on shutdown) belongs to the layer that owns coordination — the server
+        # calls disengage_safe() before close. Keeping policy out of close()
+        # means a wedged transport during shutdown does not block the swap.
         await self._io.close()
         logger.info("Dog closed")
+
+    async def disengage_safe(self, timeout: float = 1.0) -> None:
+        """Best-effort disengage before close. Swallows transport errors."""
+        if not self._io.is_open():
+            return
+        try:
+            await self._send_json_raw({"type": "cmd_engage", "enabled": False})
+            await self.recv_ack("cmd_engage", timeout=timeout)
+        except Exception:
+            pass  # transport may already be wedged; caller should still close
+
+    def local_address(self) -> str | None:
+        """Outbound IP as seen by the firmware (TCP transports only)."""
+        sock_info = self._io.get_extra_info("sockname") if self._io else None
+        return sock_info[0] if sock_info else None
 
     def is_open(self) -> bool:
         return self._io.is_open()

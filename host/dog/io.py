@@ -77,6 +77,10 @@ class DogIO:
             self._writer.write(data)
             await self._writer.drain()
 
+    def get_extra_info(self, name: str):
+        """Expose StreamWriter.get_extra_info without leaking _writer."""
+        return self._writer.get_extra_info(name) if self._writer else None
+
     async def _drain(self) -> None:
         try:
             while True:

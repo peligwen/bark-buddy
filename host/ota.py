@@ -148,6 +148,20 @@ class OtaManager:
             return web.json_response(
                 {"ok": False, "error": f"Failed to send OTA command: {e}"}, status=500
             )
+        # Wait briefly for the firmware ack so the UI hears about an immediate
+        # rejection (wifi_disabled, missing_auth, sig). Successful flashes
+        # take much longer and report progress via ota_status.
+        ack = await transport.recv_ack("cmd_ota_update", timeout=10.0)
+        if ack is None:
+            return web.json_response(
+                {"ok": False, "error": "Timed out waiting for firmware ack"}, status=504,
+            )
+        if not ack.get("ok"):
+            return web.json_response(
+                {"ok": False, "error": ack.get("error", "rejected"),
+                 "ack": ack},
+                status=400,
+            )
         return web.json_response({
             "ok": True,
             "binary_url": binary_url,
