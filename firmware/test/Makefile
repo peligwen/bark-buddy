@@ -1,6 +1,6 @@
 CXX = clang++
 CXXFLAGS = -std=c++17 -O2 -Wall -Wno-absolute-value -I. -I../include
-TARGETS = test_ik test_transform test_balance test_offsets test_gait_ik test_gait_taper test_servos test_engage test_buzzer test_button test_gpio_aux test_aux_servo test_comms_out test_pin_registry test_pin_registry_aux test_command_handlers test_command_handlers_aux test_battery_led test_ota_auth
+TARGETS = test_ik test_transform test_balance test_offsets test_gait_ik test_gait_taper test_servos test_engage test_buzzer test_button test_gpio_aux test_aux_servo test_comms_out test_pin_registry test_pin_registry_aux test_command_handlers test_command_handlers_aux test_battery_led test_battery_monitor test_ota_auth
 
 # Mock firmware build
 MOCK_FLAGS = -std=c++17 -O2 -Wall \
@@ -26,6 +26,7 @@ MOCK_SRC = \
 	../src/main.cpp \
 	../src/balance.cpp \
 	../src/battery_led.cpp \
+	../src/battery_monitor.cpp \
 	../src/command_handlers.cpp \
 	../src/command_handlers_ota.cpp \
 	../src/command_handlers_probe.cpp \
@@ -125,6 +126,9 @@ test_command_handlers_aux: test_command_handlers.cpp mock_arduino.h ../include/c
 
 test_battery_led: test_battery_led.cpp mock_arduino.h ../include/battery_led.h ../include/config.h ../src/battery_led.cpp
 	$(CXX) $(CXXFLAGS) -DMOCK_FIRMWARE=1 -o $@ test_battery_led.cpp ../src/battery_led.cpp
+
+test_battery_monitor: test_battery_monitor.cpp mock_arduino.h ../include/battery_monitor.h ../include/config.h ../src/battery_monitor.cpp
+	$(CXX) $(CXXFLAGS) -DMOCK_FIRMWARE=1 -o $@ test_battery_monitor.cpp ../src/battery_monitor.cpp
 
 test_ota_auth: test_ota_auth.cpp mock_arduino.h test_owner_pubkey.cpp \
     ../include/ota_auth.h ../src/ota_auth.cpp \

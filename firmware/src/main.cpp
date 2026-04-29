@@ -16,6 +16,7 @@
 #include "buzzer.h"
 #include "comms_out.h"
 #include "battery_led.h"
+#include "battery_monitor.h"
 #ifndef WIFI_ENABLED
 #define WIFI_ENABLED 0
 #endif
@@ -41,12 +42,7 @@ static bool          connected         = false;
 // --- Boot diagnostic ---
 static bool gpio2_at_boot = false;
 
-// --- Battery absent-state machine ---
-// Detects USB-only operation: ADC rail reads ~3.5V via leakage when battery switch is OFF.
-// Any 2S pack in use reads at least 6V; 4500mV is safely between these ranges.
-static bool s_battery_absent   = false;
-static int  s_batt_below_count = 0;
-static int  s_batt_above_count = 0;
+// Battery monitoring lives in battery_monitor.cpp.
 
 // --- Telemetry timers ---
 static unsigned long last_imu     = 0;
@@ -136,6 +132,8 @@ void setup() {
     // Outbound JSON queue must be ready before the sensor task starts, since
     // the sensor task may call comms_emit_json_from_task() immediately.
     comms_out_init();
+
+    battery_monitor_init();
 
     // Sensor task starts I2C, probes IMU + sonar, sets boot LED.
     // Blocks until first init pass completes (<=1s).
@@ -253,54 +251,35 @@ void loop() {
         sensor_led_set(2, LED_R_LAVENDER, LED_G_LAVENDER, LED_B_LAVENDER);
     }
 
-    // Battery check
+    // Battery check — state machine + cutoff policy live in battery_monitor.cpp.
     if (now - last_battery >= 1000 / TELEM_BATTERY_HZ) {
-        int   raw     = analogRead(BATTERY_ADC_PIN);
-        float voltage = (raw / 4095.0f) * 3.3f * BATTERY_DIVIDER;
-        int   mv      = (int)(voltage * 1000);
+        BatteryEvent be = battery_monitor_observe(battery_monitor_read_mv());
+        battery_led_update_voltage(be.voltage_mv, servos_battery_cutoff(), !be.present);
 
-        // Absent-state debounce: BATTERY_ABSENT_SAMPLES consecutive 1 Hz reads to
-        // enter/exit. Replaces the old `mv > 1000` guard with a principled check.
-        if (mv < BATTERY_ABSENT_MV) {
-            s_batt_above_count = 0;
-            if (++s_batt_below_count >= BATTERY_ABSENT_SAMPLES && !s_battery_absent) {
-                s_battery_absent = true;
-                if (servos_battery_cutoff()) {
-                    servos_clear_battery_cutoff();
-                    JsonDocument abs_evt;
-                    abs_evt["type"]  = MSG_TELEM_EVENT;
-                    abs_evt["event"] = "battery_absent_clear_latch";
-                    abs_evt["t"]     = (uint32_t)now;
-                    abs_evt["mv"]    = mv;
-                    send_json(abs_evt);
-                }
-            }
-        } else if (mv > BATTERY_ABSENT_MV + BATTERY_ABSENT_HYSTERESIS_MV) {
-            s_batt_below_count = 0;
-            if (++s_batt_above_count >= BATTERY_ABSENT_SAMPLES) {
-                s_battery_absent = false;
-            }
-        }
-
-        battery_led_update_voltage(mv, servos_battery_cutoff(), s_battery_absent);
-
-        if (!s_battery_absent && mv < BATTERY_CUTOFF_MV && !servos_battery_cutoff()) {
-            servos_set_battery_cutoff();
+        if (be.cutoff_triggered_now) {
             gait_set_state(GaitState::STOP);
             JsonDocument lb_evt;
             lb_evt["type"]  = MSG_TELEM_EVENT;
             lb_evt["event"] = "battery_cutoff_detach";
             lb_evt["t"]     = (uint32_t)now;
-            lb_evt["mv"]    = mv;
+            lb_evt["mv"]    = be.voltage_mv;
             send_json(lb_evt);
+        }
+        if (be.absent_cleared_latch_now) {
+            JsonDocument abs_evt;
+            abs_evt["type"]  = MSG_TELEM_EVENT;
+            abs_evt["event"] = "battery_absent_clear_latch";
+            abs_evt["t"]     = (uint32_t)now;
+            abs_evt["mv"]    = be.voltage_mv;
+            send_json(abs_evt);
         }
         if (connected) {
             JsonDocument doc;
             doc["type"]       = MSG_TELEM_BATTERY;
-            doc["voltage_mv"] = mv;
-            doc["pct"]        = constrain((mv - 6000) * 100 / 2400, 0, 100);
-            doc["present"]    = !s_battery_absent;
-            doc["low"]        = !s_battery_absent && mv < BATTERY_LOW_MV;
+            doc["voltage_mv"] = be.voltage_mv;
+            doc["pct"]        = be.percent;
+            doc["present"]    = be.present;
+            doc["low"]        = be.low;
             send_json(doc);
         }
         last_battery = now;

@@ -175,6 +175,7 @@ def cmd_test(args):
     targets = [
         "test_ik", "test_transform", "test_balance",
         "test_offsets", "test_gait_ik", "test_servos",
+        "test_battery_monitor",
     ]
     failed = []
     ran = 0
