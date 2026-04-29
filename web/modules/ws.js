@@ -9,18 +9,17 @@
 // module that paints live values can mark them stale; `connection-restored`
 // fires on reconnect.
 
+import { dispatch } from './bus.js';
+
 const WS_URL = "ws://" + location.host + "/ws";
 const RECONNECT_MIN_MS = 1000;
 const RECONNECT_MAX_MS = 16000;
 
 let ws = null;
-let messageHandler = null;
 let savedOnOpen = null;
 let reconnectTimer = null;
 let reconnectDelay = RECONNECT_MIN_MS;
 let lastConnected = false;
-
-export function setMessageHandler(fn) { messageHandler = fn; }
 
 export function connect(onOpen) {
     if (onOpen) savedOnOpen = onOpen;
@@ -53,9 +52,9 @@ export function connect(onOpen) {
     sock.onmessage = function (event) {
         if (sock !== ws) return;
         try {
-            if (messageHandler) messageHandler(JSON.parse(event.data));
+            dispatch(JSON.parse(event.data));
         } catch (e) {
-            console.warn("[ws] message handler error:", e, event.data);
+            console.warn("[ws] message parse error:", e, event.data);
         }
     };
 }

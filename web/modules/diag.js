@@ -227,6 +227,8 @@ function buildTelemLog() {
 
 // --- Panel assembly ---
 
+import { on as busOn } from './bus.js';
+
 export function diagInit() {
     if (!_enabled) return;
 
@@ -244,18 +246,15 @@ export function diagInit() {
     ]);
 
     document.body.appendChild(panel);
-}
 
-export function diagHandleTelem(msg) {
-    if (!_enabled) return;
-    var t = msg.type;
-    if (t === 'telem_gpio' || t === 'telem_i2c' || t === 'telem_button') {
+    // Self-subscribe — diag panel feeds itself off the bus.
+    busOn('telem_gpio', function (msg) {
         pushTelem(msg);
-        if (t === 'telem_gpio' && _gpioReadout) {
-            _gpioReadout.textContent = JSON.stringify(msg);
-        }
-        if (t === 'telem_i2c' && _i2cReadout) {
-            _i2cReadout.textContent = JSON.stringify(msg);
-        }
-    }
+        if (_gpioReadout) _gpioReadout.textContent = JSON.stringify(msg);
+    });
+    busOn('telem_i2c', function (msg) {
+        pushTelem(msg);
+        if (_i2cReadout) _i2cReadout.textContent = JSON.stringify(msg);
+    });
+    busOn('telem_button', function (msg) { pushTelem(msg); });
 }

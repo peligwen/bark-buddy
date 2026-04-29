@@ -1,9 +1,10 @@
 // Main entry point — assembles submodules and exports the Dog3D public API.
 import { state, S, COL, BODY_L, BODY_H, standingHeight } from './state.js';
 import { buildDog } from './model.js';
-import { animateGait, setPose, clearPose, applySimJoints } from './gait.js';
+import { animateHold, setPose, clearPose, applySimJoints } from './gait.js';
 import { toggleOverlay, updateOverlay } from './overlay.js';
 import { updateCameraPosition, setupControls } from './camera.js';
+import { on } from '../modules/bus.js';
 
 var lastTime = 0;
 
@@ -109,14 +110,16 @@ function animate(time) {
         state.dogGroup.rotation.z = state.currentPitch * (Math.PI / 180);
         state.dogGroup.rotation.x = state.currentRoll * (Math.PI / 180);
 
-        // Leg animation: use sim joints if fresh, otherwise gait from motion state
+        // Leg animation: prefer firmware-streamed joints when fresh; otherwise
+        // hold the last commanded pose. We never synthesise motion the
+        // firmware isn't actually doing.
         var fresh = state.lastJointTelem && (Date.now() - state.lastJointTelem) < 500;
         if (state.simJoints && fresh) {
             applySimJoints();
             state.bodyBounce = 0;
         } else {
             if (!fresh) state.simJoints = null;
-            animateGait(dt);
+            animateHold();
         }
 
     }
@@ -171,10 +174,6 @@ var Dog3D = {
         }
     },
 
-    updateUltrasonic: function (distance_mm) {
-        state.ultraDistance = distance_mm;
-    },
-
     reset: function () {
         state.targetPitch = state.targetRoll = 0;
         state.currentPitch = state.currentRoll = 0;
@@ -182,17 +181,16 @@ var Dog3D = {
         state.currentX = state.currentZ = state.currentYaw = 0;
         state.camTargetX = state.camTargetZ = 0;
         state.currentMotion = "stop";
-        state.walkPhase = 0;
         state.simJoints = null;
         state.lastJointTelem = 0;
+        state.activePose = null;
+        state.targetPose = null;
+        state.currentPoseName = "stand";
+        state.bodyBounce = 0;
         if (state.dogGroup) {
             state.dogGroup.position.set(0, standingHeight(), 0);
             state.dogGroup.rotation.set(0, 0, 0);
         }
-    },
-
-    setMapData: function (_data) {
-        // mapping wall rendering removed — will be rebuilt with SLAM
     },
 
     toggleOverlay: function (show) {
@@ -219,5 +217,16 @@ var Dog3D = {
         });
     },
 };
+
+// Self-subscribe: dog3d feeds itself from the bus so app.module.js doesn't
+// have to know which messages this module cares about. Keeps the SLAM /
+// mapping additions decoupled — a new module can subscribe to its own
+// telem types without touching this file.
+on('telem_imu',      function (msg) { Dog3D.updateIMU(msg); });
+on('telem_joints',   function (msg) { Dog3D.updateJoints(msg); });
+on('telem_odometry', function (msg) { Dog3D.updateOdometry(msg); });
+on('event_fall',     function ()    { Dog3D.setFallen(true); });
+on('event_recovered',function ()    { Dog3D.setFallen(false); });
+on('reset',          function ()    { Dog3D.reset(); });
 
 export default Dog3D;

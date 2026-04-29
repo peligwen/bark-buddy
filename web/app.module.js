@@ -1,13 +1,14 @@
 // Bark-Buddy Web UI — ES module entry point
 import Dog3D from './dog3d/index.js';
-import { connect, send, setMessageHandler } from './modules/ws.js';
+import { connect, send } from './modules/ws.js';
+import { on } from './modules/bus.js';
 import { setupDpad, setupKeyboard, setupActions, setCanControl, setEngaged } from './modules/controls.js';
 import { setupBatteryGraph, recordBattery,
          setupOtaPanel, updateOtaStatus,
          initOffsetPanel, updateServoPins,
          initGaitPanel, initTransformPanel,
          initServoNudgePanel } from './modules/panels.js';
-import { diagInit, diagHandleTelem } from './modules/diag.js';
+import { diagInit } from './modules/diag.js';
 
 // --- State ---
 var hasLock = false;
@@ -170,84 +171,88 @@ function updateLockUI(msg) {
     }
 }
 
-// --- Message handler ---
-function handleMessage(msg) {
-    if (msg.type === "telem_imu") {
-        updateGauge("pitch", msg.pitch);
-        updateGauge("roll", msg.roll);
-        Dog3D.updateIMU(msg);
-    } else if (msg.type === "telem_joints") {
-        Dog3D.updateJoints(msg);
-    } else if (msg.type === "telem_odometry") {
-        Dog3D.updateOdometry(msg);
-        updateMotionIndicator(msg.motion);
-        if (msg.heading != null) {
-            var h = Math.round(msg.heading) % 360;
-            if (h < 0) h += 360;
-            document.getElementById("heading-val").textContent = h + "\u00B0";
-        }
-    } else if (msg.type === "telem_status") {
-        updateStatus(msg);
-        if (msg.ota_status) updateOtaStatus(msg.ota_status, msg.ota_error);
-    } else if (msg.type === "balance_state") {
-        if (actionsCtrl) actionsCtrl.setBalanceState(msg.enabled);
-    } else if (msg.type === "telem_sonar") {
-        updateUltrasonic(msg.distance_mm);
-    } else if (msg.type === "event_fall") {
-        showFallAlert(true); Dog3D.setFallen(true);
-    } else if (msg.type === "event_recovered") {
-        showFallAlert(false); Dog3D.setFallen(false);
-    } else if (msg.type === "lock_status") {
-        updateLockUI(msg);
-    } else if (msg.type === "lock_challenge") {
-        if (confirm(msg.challenger + " wants control. Yield?")) {
-            send({ type: "cmd_lock_yield" });
-        }
-    } else if (msg.type === "lock_denied") {
-        flashBanner(msg.holder ? "Control held by " + msg.holder : "Control request denied", 3000);
-    } else if (msg.type === "telem_battery") {
-        if (msg.present !== false) {
-            recordBattery(msg.pct);
-            document.getElementById("battery-val").textContent = msg.pct + "%";
-        } else {
-            document.getElementById("battery-val").textContent = "USB";
-        }
-    } else if (msg.type === 'telem_servo_pins') {
-        updateServoPins(msg);
-    } else if (msg.type === "ack" && msg.ok === false) {
-        flashBanner((msg.ref_type || "command") + " rejected", 3000);
-    } else if (msg.type === "telem_event") {
-        // Event-driven engage updates: read absent from cached telem_status so
-        // we don't lock "BATTERY CUTOFF — REBOOT" on a USB-only board with a
-        // transient ADC dip. The 1 Hz telem_status will then confirm.
-        var ev = msg.event;
-        var absent = lastStatus.battery_present === false;
-        if (ev === "battery_cutoff_detach") {
-            updateEngageToggle(false, false, true, absent);
-            setEngaged(false, false);
-        } else if (ev === "battery_absent_clear_latch") {
-            updateEngageToggle(false, false, false, true);
-            setEngaged(false, false);
-        } else if (ev === "heartbeat_detach") {
-            updateEngageToggle(false, false, false, absent);
-            setEngaged(false, false);
-        } else if (ev === "engage_complete") {
-            updateEngageToggle(true, false, false, absent);
-            setEngaged(true, false);
-        } else if (ev === "disengage_complete") {
-            updateEngageToggle(false, false, false, absent);
-            setEngaged(false, false);
-        } else if (ev === "tilt_fault") {
-            flashBanner("TILT FAULT — gait halted", 4000);
-        }
-    } else if (msg.type === "reset") {
-        Dog3D.reset();
-    } else if (msg.type === "version") {
-        if (window._appVersion && msg.hash !== window._appVersion) location.reload();
-        window._appVersion = msg.hash;
+// --- Bus subscriptions ---
+// Each module subscribes to the message types it cares about. Multiple
+// subscribers per type are allowed; new features (SLAM, mapping, ...)
+// register their own handlers without touching this file.
+
+on('telem_imu', function (msg) {
+    updateGauge('pitch', msg.pitch);
+    updateGauge('roll', msg.roll);
+});
+
+on('telem_odometry', function (msg) {
+    updateMotionIndicator(msg.motion);
+    if (msg.heading != null) {
+        var h = Math.round(msg.heading) % 360;
+        if (h < 0) h += 360;
+        document.getElementById('heading-val').textContent = h + '\u00B0';
     }
-    diagHandleTelem(msg);
-}
+});
+
+on('telem_status', function (msg) {
+    updateStatus(msg);
+    if (msg.ota_status) updateOtaStatus(msg.ota_status, msg.ota_error);
+});
+
+on('balance_state', function (msg) {
+    if (actionsCtrl) actionsCtrl.setBalanceState(msg.enabled);
+});
+
+on('telem_sonar',     function (msg) { updateUltrasonic(msg.distance_mm); });
+on('event_fall',      function ()    { showFallAlert(true); });
+on('event_recovered', function ()    { showFallAlert(false); });
+
+on('lock_status', updateLockUI);
+on('lock_challenge', function (msg) {
+    if (confirm(msg.challenger + ' wants control. Yield?')) {
+        send({ type: 'cmd_lock_yield' });
+    }
+});
+on('lock_denied', function (msg) {
+    flashBanner(msg.holder ? 'Control held by ' + msg.holder : 'Control request denied', 3000);
+});
+
+on('telem_battery', function (msg) {
+    if (msg.present !== false) {
+        recordBattery(msg.pct);
+        document.getElementById('battery-val').textContent = msg.pct + '%';
+    } else {
+        document.getElementById('battery-val').textContent = 'USB';
+    }
+});
+
+on('telem_servo_pins', updateServoPins);
+
+on('ack', function (msg) {
+    if (msg.ok === false) flashBanner((msg.ref_type || 'command') + ' rejected', 3000);
+});
+
+on('telem_event', function (msg) {
+    // Event-driven engage updates: read absent from cached telem_status so a
+    // USB-only board with a transient ADC dip doesn't lock the engage button
+    // to BATTERY CUTOFF between event and the next 1 Hz status.
+    var absent = lastStatus.battery_present === false;
+    switch (msg.event) {
+        case 'battery_cutoff_detach':
+            updateEngageToggle(false, false, true, absent);  setEngaged(false, false); break;
+        case 'battery_absent_clear_latch':
+            updateEngageToggle(false, false, false, true);    setEngaged(false, false); break;
+        case 'heartbeat_detach':
+            updateEngageToggle(false, false, false, absent); setEngaged(false, false); break;
+        case 'engage_complete':
+            updateEngageToggle(true,  false, false, absent); setEngaged(true,  false); break;
+        case 'disengage_complete':
+            updateEngageToggle(false, false, false, absent); setEngaged(false, false); break;
+        case 'tilt_fault':
+            flashBanner('TILT FAULT \u2014 gait halted', 4000); break;
+    }
+});
+
+on('version', function (msg) {
+    if (window._appVersion && msg.hash !== window._appVersion) location.reload();
+    window._appVersion = msg.hash;
+});
 
 function setupLock() {
     document.getElementById("btn-lock").addEventListener("click", function () {
@@ -275,7 +280,6 @@ function setupEngage() {
 // --- Init ---
 Dog3D.init("dog-3d-container");
 diagInit();
-setMessageHandler(handleMessage);
 
 actionsCtrl = setupActions(Dog3D);
 setupDpad();

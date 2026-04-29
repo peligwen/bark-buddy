@@ -20,8 +20,8 @@ export const COL = {
     joint: 0x444444, grid: 0x2a2f3a, sceneBg: 0x1e222b,
 };
 
-// Mutable shared state — accessed by all submodules
 export const state = {
+    // Three.js handles
     scene: null,
     camera: null,
     renderer: null,
@@ -37,30 +37,24 @@ export const state = {
     camTargetX: 0,
     camTargetZ: 0,
 
-    // Telemetry targets (smoothed)
+    // Telemetry targets (smoothed by the animate loop)
     targetPitch: 0, targetRoll: 0,
     currentPitch: 0, currentRoll: 0,
     targetX: 0, targetZ: 0, targetYaw: 0,
     currentX: 0, currentZ: 0, currentYaw: 0,
     currentMotion: "stop",
-    ultraDistance: null,
-    walkPhase: 0,
 
-    // Gait
+    // Gait body bounce relative to standingHeight()
     bodyBounce: 0,
 
-    // Pose
+    // Named-pose state
     currentPoseName: "stand",
     activePose: null,
     targetPose: null,
 
-    // Sim joints
+    // Firmware-streamed joint angles
     simJoints: null,
     lastJointTelem: 0,
-
-    // Ultrasonic
-    ultraBeam: null,
-    ultraHit: null,
 };
 
 // Helper: material factory
