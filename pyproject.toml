@@ -19,6 +19,7 @@ bark = "bark_cli:main"
 
 [project.optional-dependencies]
 dev = ["ruff>=0.4"]
+perception = ["pillow>=10"]  # plus torch and Depth Anything 3; see docs/superpowers/plans
 
 [tool.setuptools]
 py-modules = ["bark_cli"]

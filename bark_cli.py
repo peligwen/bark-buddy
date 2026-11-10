@@ -199,6 +199,25 @@ def cmd_test(args):
     print(f"\nAll {ran} test(s) passed.")
 
 
+def cmd_reconstruct(args):
+    _ensure_host_importable()
+    from perception import reconstruct
+    run_dir = Path(args.run) if args.run else _latest_run(Path("runs"))
+    recon = reconstruct.run(run_dir, args.cam_height_mm / 1000.0, model_id=args.model,
+                            device=args.device, max_frames=args.max_frames,
+                            process_res=args.process_res)
+    print(reconstruct.summary(recon.report))
+    print(f"\nWrote {run_dir / 'recon'}/ (report.json, map.png, cloud.ply)")
+
+
+def _latest_run(root: Path) -> Path:
+    runs = sorted(p.parent for p in root.glob("*/frames.jsonl"))
+    if not runs:
+        print(f"No capture runs under {root}/. Record one with: bark --cam-url URL --record")
+        sys.exit(1)
+    return runs[-1]
+
+
 def cmd_kill(args):
     """Kill a running bark-buddy server by port."""
     import os
@@ -280,6 +299,23 @@ def main():
     p_kill.add_argument("--port", type=int, default=8456,
                         help="Port the server is listening on (default: 8456)")
 
+    # bark reconstruct
+    p_recon = sub.add_parser(
+        "reconstruct", help="Build a metric map and report from a capture run (needs a GPU)")
+    p_recon.add_argument("run", nargs="?", default=None,
+                         help="Capture run directory (default: newest under runs/)")
+    p_recon.add_argument("--cam-height-mm", type=float, required=True,
+                         help="Camera lens height above the floor with the dog standing")
+    p_recon.add_argument("--model", default=None, metavar="ID",
+                         help="Depth Anything 3 model id; larger models are more accurate "
+                              "and need more GPU memory")
+    p_recon.add_argument("--device", default="cuda",
+                         help="Torch device (default: cuda)")
+    p_recon.add_argument("--max-frames", type=int, default=60,
+                         help="Thin the run evenly to at most this many keyframes (default: 60)")
+    p_recon.add_argument("--process-res", type=int, default=504,
+                         help="Model input resolution, longer side in pixels (default: 504)")
+
     args = parser.parse_args()
 
     if args.command == "flash":
@@ -288,6 +324,8 @@ def main():
         cmd_test(args)
     elif args.command == "kill":
         cmd_kill(args)
+    elif args.command == "reconstruct":
+        cmd_reconstruct(args)
     elif args.command == "mock":
         cmd_mock(args)
     else:
