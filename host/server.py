@@ -186,7 +186,12 @@ class Server:
         if self._open_browser:
             import webbrowser
             webbrowser.open(f"http://localhost:{port}")
-        await asyncio.Event().wait()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            # Ctrl-C cancels the wait; without this the shutdown hooks never run
+            # (no disengage, capture run left unclosed).
+            await runner.cleanup()
 
     async def _on_startup(self, app: web.Application):
         await self._supervisor.transport.open()
