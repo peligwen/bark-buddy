@@ -32,6 +32,11 @@ def _add_server_flags(parser):
                         help="Disable mDNS auto-discovery")
     parser.add_argument("--no-browser", action="store_true",
                         help="Don't auto-open browser")
+    parser.add_argument("--cam-url", default=None, metavar="URL",
+                        help="Vision module frame URL (JPEG snapshot or MJPEG stream)")
+    parser.add_argument("--record", nargs="?", const="runs", default=None, metavar="DIR",
+                        help="Save a keyframe each time the dog stops, in a new "
+                             "run directory under DIR (default: runs/)")
 
 
 def cmd_serve(args):

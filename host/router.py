@@ -49,7 +49,7 @@ class CommandRouter:
         relay,
         get_transport: Callable[[], object],
         balance,
-        set_motion: Callable[[str], None],
+        set_motion: Callable[..., None],
         on_reset: Callable[[], Awaitable[None]],
         on_restart_server: Callable[[], None],
     ):
@@ -178,7 +178,7 @@ class CommandRouter:
             return
         speed = msg.get("speed", 1.0)
         await self._send_to_firmware({"type": "cmd_move", "direction": direction, "speed": speed})
-        self._set_motion(direction)
+        self._set_motion(direction, speed)
 
     async def _send_to_firmware(self, msg: dict) -> None:
         transport = self._get_transport()

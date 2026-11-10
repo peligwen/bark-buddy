@@ -25,6 +25,8 @@ from aiohttp import web
 
 from behaviors.balance import BalanceLayer
 from behaviors.button_engage import ButtonEngageBehavior
+from behaviors.capture import CaptureRecorder
+from camera import Camera
 from dog import Dog
 from dog.discover import find_serial_port, detect_serial_dog
 from lock import ControlLock
@@ -49,7 +51,8 @@ _FORWARDED_TELEM = frozenset({
 
 class Server:
     def __init__(self, transport: Dog, web_dir: str, transport_label: str = "fw",
-                 no_mdns: bool = False, open_browser: bool = False):
+                 no_mdns: bool = False, open_browser: bool = False,
+                 cam_url: str | None = None, capture_root: str | None = None):
         self._web_dir = web_dir
         self._open_browser = open_browser
 
@@ -68,6 +71,10 @@ class Server:
         # Behaviors are bound to the current transport; rebound on swap.
         self._balance = BalanceLayer(transport)
         self._button_engage = self._make_button_engage(transport)
+        self._recorder = (
+            CaptureRecorder(lambda: self._supervisor.transport, Camera(cam_url), capture_root)
+            if capture_root else None
+        )
 
         self._ota = OtaManager(
             get_transport_fn=lambda: self._supervisor.transport,
@@ -104,8 +111,10 @@ class Server:
             self._lock.is_locked,
         )
 
-    def _set_motion(self, motion: str) -> None:
+    def _set_motion(self, motion: str, speed: float = 0.0) -> None:
         self._motion = motion
+        if self._recorder:
+            self._recorder.on_motion(motion, speed)
 
     # --- Transport callback registration ---
 
@@ -128,6 +137,8 @@ class Server:
             self._last_servo_pins = msg
         if msg_type in _FORWARDED_TELEM:
             self._relay.enqueue(msg)
+        if self._recorder:
+            self._recorder.on_telem(msg)
         if msg_type == "telem_button":
             event = msg.get("event", "")
             if event:
@@ -193,8 +204,12 @@ class Server:
                                                        name="button-events")
         self._pump_task = asyncio.create_task(self._pump_loop(), name="server-pump")
         await self._supervisor.start()
+        if self._recorder:
+            await self._recorder.start()
 
     async def _on_shutdown(self, app: web.Application):
+        if self._recorder:
+            await self._recorder.stop()
         await self._supervisor.stop()
         # Best-effort disengage so the dog doesn't hold standing pose with no host.
         if self._supervisor.transport and self._supervisor.transport.is_open():
@@ -381,10 +396,17 @@ async def main(args):
             print("\nNo MechDog detected. Plug in a device or run 'bark mock'.")
             sys.exit(1)
 
+    cam_url = getattr(args, 'cam_url', None)
+    capture_root = getattr(args, 'record', None)
+    if capture_root and not cam_url:
+        print("\n--record needs --cam-url (the vision module's frame URL).")
+        sys.exit(1)
+
     web_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "web"))
     server = Server(transport, web_dir, transport_label=transport_label,
                     no_mdns=getattr(args, 'no_mdns', False),
-                    open_browser=getattr(args, 'open_browser', False))
+                    open_browser=getattr(args, 'open_browser', False),
+                    cam_url=cam_url, capture_root=capture_root)
     await server.start(host=args.host, port=args.port)
 
 

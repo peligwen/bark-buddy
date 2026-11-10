@@ -31,3 +31,6 @@ bark_buddy.egg-info/
 firmware/.pio
 firmware/stock_source/
 firmware/src/owner_pubkey.generated.cpp
+
+# Capture runs (bark --record)
+runs/
