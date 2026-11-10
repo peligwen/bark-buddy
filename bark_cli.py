@@ -9,6 +9,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent
 HOST_DIR = PROJECT_ROOT / "host"
 FIRMWARE_DIR = PROJECT_ROOT / "firmware"
+CAMERA_DIR = PROJECT_ROOT / "camera"
 STOCK_FIRMWARE_BIN = FIRMWARE_DIR / "stock_firmware.bin"
 
 
@@ -112,6 +113,15 @@ def _do_stock_flash(args):
     sys.exit(result.returncode)
 
 
+def _do_camera_flash(args):
+    cmd = ["pio", "run", "-t", "upload"]
+    port = getattr(args, "serial", None)
+    if port:
+        cmd += ["--upload-port", port]
+    result = subprocess.run(cmd, cwd=CAMERA_DIR)
+    sys.exit(result.returncode)
+
+
 def _do_usb_flash():
     _ensure_host_importable()
     from owner_key import ensure_owner_key
@@ -144,6 +154,9 @@ def _do_wifi_flash(args):
 def cmd_flash(args):
     if getattr(args, "flash_target", None) == "stock":
         _do_stock_flash(args)
+        return
+    if getattr(args, "flash_target", None) == "camera":
+        _do_camera_flash(args)
         return
     # --fw-tcp implies wifi
     if getattr(args, 'fw_tcp', None):
@@ -290,6 +303,12 @@ def main():
                                help="Serial port override (e.g. /dev/cu.usbserial-10)")
     p_flash_stock.add_argument("--baud", type=int, default=460800,
                                help="esptool baud rate (default: 460800)")
+    p_flash_camera = flash_targets.add_parser(
+        "camera",
+        help="Flash the vision module (ESP32-S3 camera) with the JPEG still server, via USB",
+    )
+    p_flash_camera.add_argument("--serial", default=None,
+                                help="Serial port of the vision module (default: auto-detect)")
 
     # bark test
     sub.add_parser("test", help="Build and run firmware native tests")
