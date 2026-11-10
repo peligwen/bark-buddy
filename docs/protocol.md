@@ -1,12 +1,14 @@
 
 # Protocol
 
-Bark-Buddy has two wire protocols, both JSON-based:
+Bark-Buddy has two JSON wire protocols, one read-only image endpoint, and one on-disk format:
 
 | Hop | Format | Transport |
 |-----|--------|-----------|
 | Host ↔ Firmware | NDJSON (newline-delimited) | USB serial or TCP |
 | Browser ↔ Host | JSON text frames | WebSocket |
+| Host ← Vision module | JPEG | HTTP GET |
+| Host → disk | Capture run directory | files |
 
 Maximum firmware-side message size: 512 bytes (firmware JSON parse buffer).
 The host-side protocol re-frames most firmware telemetry verbatim and adds a
@@ -703,3 +705,70 @@ The following firmware messages pass through the host unchanged (or with
 trivial augmentation): `telem_imu`, `telem_sonar`, `telem_battery`,
 `telem_button`, `telem_gpio`, `telem_i2c`, `telem_servo_pins`, `telem_joints`,
 `telem_event`, `boot`, `ota_status`, `ack`. See Part 1 for shapes.
+
+---
+
+# Part 3: Host ← Vision Module
+
+The vision module firmware (`camera/`) serves HTTP on port 80. The host only issues GETs.
+
+### GET /capture
+
+One JPEG still, 800×600. The camera driver runs in grab-latest mode, so the still comes
+from the most recent frames the sensor produced, not from a buffer filled before the dog
+stopped. `Content-Type: image/jpeg`, `Cache-Control: no-store`. `503` with a text body if
+the sensor returned no frame.
+
+### GET /
+
+Plain-text status: hostname, sensor PID, whether JPEG comes from the sensor or the
+software encoder, WiFi RSSI.
+
+`host/camera.py` also accepts a `multipart/x-mixed-replace` MJPEG stream at the configured
+URL and takes the second frame from it, so the module's stock firmware can be used as is.
+
+---
+
+# Part 4: Capture Run Format
+
+Written by `bark --cam-url URL --record [DIR]`, one new directory per server start:
+`DIR/YYYY-MM-DD_HHMMSS/`. Read by `bark reconstruct`.
+
+| File | Contents |
+|------|----------|
+| `meta.json` | `started` (ISO time), `camera_url`, `settle_s`, `fw_version` |
+| `frames/NNNNNN.jpg` | Keyframe stills |
+| `frames.jsonl` | One JSON record per keyframe, in order |
+| `telemetry.ndjson` | Every firmware `telem_*` and `boot` message plus `host_motion` lines, each with `host_t` (Unix seconds) added |
+| `recon/` | Outputs of `bark reconstruct`: `report.json`, `map.png`, `cloud.ply` |
+
+A keyframe is saved when the dog is engaged, not ramping, has had no motion command for
+`settle_s`, and either has moved since the previous keyframe or none exists yet. The dog
+chirps when the frame is on disk.
+
+### frames.jsonl record
+
+```json
+{"idx": 3, "file": "frames/000003.jpg", "t": 1794338629.412,
+ "imu": {"pitch": 0.1, "roll": -0.2, "yaw": 31.4, "ax": 0.02, "ay": -0.01, "az": 9.81,
+         "gx": 0.0, "gy": 0.1, "gz": 0.0},
+ "sonar_mm": 640,
+ "joints": {"fl": {"h": -1.21, "k": 2.24}, "fr": {"h": -1.21, "k": 2.24},
+            "rl": {"h": -1.38, "k": 2.22}, "rr": {"h": -1.38, "k": 2.22}},
+ "moves": [{"direction": "forward", "speed": 1.0, "duration_s": 1.5}]}
+```
+
+| Field | Description |
+|-------|-------------|
+| t | Unix seconds when the still was requested |
+| imu, sonar_mm, joints | Latest `telem_imu`, `telem_sonar`, `telem_joints` at that moment (`joints` null if none yet) |
+| moves | Motion commands accepted since the previous keyframe, in order; repeats of the same command are merged |
+
+### host_motion line
+
+```json
+{"host_t": 1794338627.5386, "type": "host_motion", "direction": "forward", "speed": 1.0}
+```
+
+Logged when an accepted `cmd_move` or `cmd_stand` changes what the dog is doing.
+`direction` is the `cmd_move` direction, or `"stand"`.

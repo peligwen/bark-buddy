@@ -4,7 +4,15 @@ Semi-autonomous control system for Hiwonder MechDog robot dog.
 
 ## Mission
 
-Give the MechDog autonomous navigation on a single stock hardware platform — no Raspberry Pi, no extra sensors. The operator sets goals from a browser UI; the dog handles navigation using its continuously updated world model.
+Give the MechDog autonomous navigation. The operator sets goals from a browser UI; the dog handles navigation using its continuously updated world model.
+
+The dog is a WiFi actuator with a camera. Everything that understands the world — reconstruction, mapping, planning — runs on a GPU machine on the same network. The dog carries no extra computer.
+
+## Hardware Scope
+
+- **Stock MechDog** — main controller, eight servos, IMU, forward sonar.
+- **Vision module** — the kit's ESP32-S3 camera, running our own still-image firmware.
+- **2D LiDAR (reserve)** — permitted if camera-only localization proves too weak. Not fitted.
 
 ## Kernel Scope
 
@@ -16,15 +24,20 @@ The kernel is the minimal set of components that must work before any autonomous
 - **Web** — primary control UI: D-pad, 3D dog view, diagnostics
 - **CLI** — `bark` entry point
 
+## Perception Roadmap
+
+Built on the kernel, in order. Each stage is gated on the one before.
+
+1. **Prove the camera** *(in progress)* — stop-and-snap keyframe capture, offline reconstruction with a feed-forward geometry model, metric scale from the known camera height, consistency checks against sonar and gyro. Go/no-go for camera-only navigation.
+2. **Simulated world** — a rendered room and camera in the mock, so the navigation stack can be developed and scored without hardware.
+3. **Live map and localization** — the offline pipeline run incrementally as a host behavior; map panel in the UI.
+4. **Waypoint navigation** — click-to-go on the map: planner, path follower, obstacle stop.
+5. **Language goals** — a vision-language model picks waypoints and labels places.
+
 ## Deferred Work
 
-Not in scope until the kernel is stable:
-
-- SLAM-based localization (IMU + sonar scan matching)
-- Composite multi-scan mapping
-- Waypoint navigation UI
-- Camera/vision (ESP32-S3 integration)
-- Semantic understanding / LLM goals
+- Learned odometry and distilled depth models trained on the dog's own captures
+- Learned (RL) gait
 - Multi-platform robot support
 
 ## Core Docs

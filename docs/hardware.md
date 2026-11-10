@@ -6,7 +6,7 @@ Manufacturer PDFs: `docs/manufacturer/`.
 ## Main Controller
 
 **ESP32-WROOM-32D** (D0WD chip, dual-core Xtensa LX6, 240 MHz, 4 MB flash).
-The separate ESP32-S3 on the vision module is for the camera only and is not connected.
+The vision module is a second, independent ESP32-S3 board; see [Vision Module](#vision-module).
 
 ## Servo Layout
 
@@ -99,8 +99,36 @@ arduino-esp32 3.x pin-based API: servos, buzzer, and probe are attached with `le
 
 **Why 4500 mV?** A connected 2S LiPo reads at minimum ~6000 mV (2 × 3.0 V/cell absolute floor). With the battery switch OFF and USB powering the ESP32, regulator leakage holds the ADC rail at ~3500 mV. The 4500 mV threshold sits safely between these ranges.
 
+## Vision Module
+
+Hiwonder ESP32-S3 AI Vision Module. It runs the firmware in `camera/` and the host reaches
+it only over WiFi. Flash over its own USB-C port with `bark flash camera`.
+
+Power is 5 V, through USB-C or the module's 4-pin port (Hiwonder specifies a 5 V 2 A
+supply). The 4-pin port also carries I2C; `camera/` leaves those pins unconfigured, so the
+module does not appear on the main controller's bus.
+
+| Item | Value | Source |
+|------|-------|--------|
+| MCU | ESP32-S3, 8 MB flash (QIO 80 MHz), OPI PSRAM | Hiwonder Arduino IDE setup screenshot |
+| Camera bus | XCLK 15, SIOD 4, SIOC 5, D0–D7 = 11, 9, 8, 10, 12, 18, 17, 16, VSYNC 6, HREF 7, PCLK 13; no PWDN/RESET | `CAMERA_MODEL_ESP32S3_EYE` in Hiwonder's `FaceDetection` source |
+| XCLK | 15 MHz | same |
+| Sensor | 2 MP; part not documented — firmware reads the PID at boot and reports it at `GET /` | retailer listing |
+| Stock firmware | 320×240 stream; I2C slave at 0x52 for face/colour results | Hiwonder wiki |
+
+UNVERIFIED on this unit: everything in the table comes from Hiwonder's published material
+for the module, and `camera/` compiles against it, but it has not yet been run on hardware.
+Record here once known: the sensor PID, how the module is powered on this dog, and the
+lens height above the floor with the dog standing.
+
+The stock firmware and Hiwonder's flash tool are linked from the appendix of
+<https://wiki.hiwonder.com/projects/ESP32-S3/en/latest/> if the module needs restoring.
+
 ## WiFi
 
 TCP port 9000. Credentials in `firmware/include/config_local.h` (gitignored).
 Copy `config_local.h.example` → `config_local.h` and fill in SSID/password.
 mDNS service name: `_mechdog._tcp`.
+
+The vision module joins the same network with the same `config_local.h` credentials and
+answers on HTTP port 80 as `bark-cam.local`.
