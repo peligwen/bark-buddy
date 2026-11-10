@@ -79,8 +79,8 @@ void tick(float dt_s) {
     constexpr float track_mm     = 92.0f;   // FL-FR distance
     constexpr float rad2deg      = 57.29577951f;
 
-    float target_pitch = std::atan2f(front_z - rear_z, wheelbase_mm) * rad2deg;
-    float target_roll  = std::atan2f(left_z  - right_z, track_mm)    * rad2deg;
+    float target_pitch = std::atan2(front_z - rear_z, wheelbase_mm) * rad2deg;
+    float target_roll  = std::atan2(left_z  - right_z, track_mm)    * rad2deg;
 
     // Low-pass filter
     float alpha = dt_s / (LP_TAU + dt_s);
@@ -107,9 +107,9 @@ void imu_sample(IMUSample& out) {
     // Gravity projection into body frame (1g down = [0,0,-1] in world)
     float p = s_pitch_deg * 0.01745329f;
     float r = s_roll_deg  * 0.01745329f;
-    out.ax = -std::sinf(p);
-    out.ay =  std::sinf(r) * std::cosf(p);
-    out.az = -std::cosf(p) * std::cosf(r);
+    out.ax = -std::sin(p);
+    out.ay =  std::sin(r) * std::cos(p);
+    out.az = -std::cos(p) * std::cos(r);
 
     out.gx = s_gx;
     out.gy = s_gy;
