@@ -3,7 +3,10 @@
 #include <thread>
 #include <chrono>
 #include <cstdint>
+#include <cstring>
+#include <deque>
 #include <functional>
+#include <vector>
 
 using SemaphoreHandle_t = std::mutex*;
 using TaskHandle_t      = std::thread*;
@@ -31,12 +34,37 @@ inline void vTaskDelay(TickType_t ms) {
     std::this_thread::sleep_for(std::chrono::milliseconds(ms));
 }
 
-// Queue stubs (mock doesn't use LED/I2C queue).
-// Define TEST_COMMS_OUT_QUEUE_STUBS before including this header to suppress
-// these stubs and provide your own (e.g. in test_comms_out.cpp).
-using QueueHandle_t = void*;
-#ifndef TEST_COMMS_OUT_QUEUE_STUBS
-inline QueueHandle_t xQueueCreate(int, int) { return nullptr; }
-inline BaseType_t xQueueSend(QueueHandle_t, const void*, TickType_t) { return pdFALSE; }
-inline BaseType_t xQueueReceive(QueueHandle_t, void*, TickType_t) { return pdFALSE; }
-#endif
+// Bounded FIFO with FreeRTOS copy semantics. The outbound JSON queue
+// (comms_out.cpp) depends on it: with no-op stubs every message sent through
+// comms_emit_json_from_task() — telem_joints included — vanished in the mock.
+// Never blocks; every caller in the mock build passes a zero timeout.
+struct MockQueue {
+    std::mutex                       mtx;
+    std::deque<std::vector<uint8_t>> items;
+    size_t                           depth;
+    size_t                           item_size;
+};
+using QueueHandle_t = MockQueue*;
+
+inline QueueHandle_t xQueueCreate(size_t depth, size_t item_size) {
+    auto* q = new MockQueue;
+    q->depth     = depth;
+    q->item_size = item_size;
+    return q;
+}
+
+inline BaseType_t xQueueSend(QueueHandle_t q, const void* item, TickType_t) {
+    std::lock_guard<std::mutex> lk(q->mtx);
+    if (q->items.size() >= q->depth) return pdFALSE;
+    const auto* bytes = static_cast<const uint8_t*>(item);
+    q->items.emplace_back(bytes, bytes + q->item_size);
+    return pdTRUE;
+}
+
+inline BaseType_t xQueueReceive(QueueHandle_t q, void* item, TickType_t) {
+    std::lock_guard<std::mutex> lk(q->mtx);
+    if (q->items.empty()) return pdFALSE;
+    std::memcpy(item, q->items.front().data(), q->item_size);
+    q->items.pop_front();
+    return pdTRUE;
+}

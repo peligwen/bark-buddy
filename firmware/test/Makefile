@@ -43,7 +43,10 @@ MOCK_SRC = \
 
 all: $(TARGETS)
 
-bark-mock: $(MOCK_SRC)
+# Headers are prerequisites so a header-only change (e.g. a mock shim) rebuilds.
+MOCK_HDR = $(wildcard ../mock/*.h ../include/*.h ../lib/monocypher/*.h *.h)
+
+bark-mock: $(MOCK_SRC) $(MOCK_HDR)
 	$(CXX) $(MOCK_FLAGS) -pthread -o $@ $(MOCK_SRC)
 
 clean:

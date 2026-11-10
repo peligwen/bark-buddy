@@ -315,9 +315,11 @@ Sent once on firmware startup, after sensors are initialised.
 
 ### telem_joints
 
-Per-leg IK joint angles in radians, emitted once per gait tick (~20–50 Hz)
-while the dog is engaged. The 3D visualization uses these to drive the model
-in real time; clients that don't care can ignore the message.
+Per-leg IK joint angles in radians, emitted while the dog is engaged, standing
+or walking. Rate-limited to `TELEM_JOINTS_HZ` (20 Hz nominal; about 17 Hz in
+practice, because the limit is checked on the 50 Hz gait tick). The 3D
+visualization uses these to drive the model in real time; clients that don't
+care can ignore the message.
 
 ```json
 {"type": "telem_joints",

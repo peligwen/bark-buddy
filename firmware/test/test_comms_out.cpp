@@ -1,67 +1,15 @@
 // test_comms_out.cpp — Unit tests for the outbound JSON queue (comms_out.cpp).
 //
-// Strategy: define array-backed stubs for xQueue* functions and a stub for
-// comms_write_line() BEFORE including comms_out.cpp directly. This avoids
-// FreeRTOS and WiFi entirely — pure logic test.
-//
-// TEST_COMMS_OUT_QUEUE_STUBS suppresses the no-op xQueue stubs in
-// freertos_shim.h so our array-backed versions take effect instead.
-#define TEST_COMMS_OUT_QUEUE_STUBS
+// Strategy: stub comms_write_line() and include comms_out.cpp directly, on top
+// of the mock's FreeRTOS queue shim — the same queue the mock firmware runs on.
+// No FreeRTOS or WiFi; pure logic test.
 
 #include "mock_arduino.h"
 
 // --- ArduinoJson (required by comms_out.h / comms_out.cpp) ---
 #include <ArduinoJson.h>
 
-// freertos_shim.h type aliases we need (xQueue* suppressed by define above)
 #include "freertos_shim.h"
-
-// ---------------------------------------------------------------------------
-// FreeRTOS queue stubs (ring buffer, depth 8, item size sizeof(OutboundJson))
-// ---------------------------------------------------------------------------
-
-// Forward-declare the item struct so we can size the ring buffer.
-// The real definition is in comms_out.cpp; we mirror the size here.
-static constexpr int QUEUE_CAPACITY = 8;
-static constexpr int BUF_SIZE       = 192;
-
-// Raw storage: each slot holds BUF_SIZE bytes (one OutboundJson).
-static char  s_ring[QUEUE_CAPACITY][BUF_SIZE];
-static int   s_head  = 0;  // next read index
-static int   s_tail  = 0;  // next write index
-static int   s_count = 0;  // items currently in queue
-
-// Reset queue state between tests.
-static void queue_reset() {
-    s_head  = 0;
-    s_tail  = 0;
-    s_count = 0;
-}
-
-static int s_queue_capacity = QUEUE_CAPACITY;  // set by xQueueCreate
-
-// xQueueCreate: note which depth was requested; reset ring; return non-null sentinel.
-inline QueueHandle_t xQueueCreate(int depth, int /*item_size*/) {
-    s_queue_capacity = depth;
-    queue_reset();
-    return (void*)0x1;  // non-null sentinel so comms_out.cpp's null guard passes
-}
-
-inline BaseType_t xQueueSend(QueueHandle_t /*q*/, const void* item, TickType_t /*ticks*/) {
-    if (s_count >= s_queue_capacity) return pdFALSE;  // drop silently when full
-    memcpy(s_ring[s_tail], item, BUF_SIZE);
-    s_tail = (s_tail + 1) % QUEUE_CAPACITY;
-    s_count++;
-    return pdTRUE;
-}
-
-inline BaseType_t xQueueReceive(QueueHandle_t /*q*/, void* item, TickType_t /*ticks*/) {
-    if (s_count == 0) return pdFALSE;
-    memcpy(item, s_ring[s_head], BUF_SIZE);
-    s_head = (s_head + 1) % QUEUE_CAPACITY;
-    s_count--;
-    return pdTRUE;
-}
 
 // ---------------------------------------------------------------------------
 // comms_write_line stub — captures output for verification
@@ -80,9 +28,8 @@ static void written_lines_reset() {
 }
 
 // ---------------------------------------------------------------------------
-// Now pull in the real comms_out implementation.
-// The xQueue* stubs above resolve before the inline shims; comms_write_line
-// is already defined, satisfying the call in comms_out_drain().
+// Now pull in the real comms_out implementation. comms_write_line is already
+// defined, satisfying the call in comms_out_drain().
 // ---------------------------------------------------------------------------
 #include "../src/comms_out.cpp"
 
@@ -106,9 +53,8 @@ static void check(bool cond, const char* label) {
 }
 
 static void reset_all() {
-    queue_reset();
     written_lines_reset();
-    comms_out_init();  // re-creates the queue handle (calls xQueueCreate)
+    comms_out_init();  // fresh, empty queue
 }
 
 // ---------------------------------------------------------------------------
